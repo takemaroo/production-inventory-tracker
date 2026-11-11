@@ -30,7 +30,7 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 
 **Thin slice first.** T-001 to T-012 give a working path through every layer: sign in, set up master data, receive stock, create an order, send, complete, read the notifications. T-013 to T-019 add breadth. T-020 and T-021 close out.
 
-**Running tasks at the same time.** Tasks can run in parallel when their dependencies are done and their "Touches" lists do not overlap. Safe pairs once their dependencies are met include: T-001 with T-002; T-004 with T-002 or T-003; T-005 with T-003 or T-004; T-007 with T-008; T-013 and T-014 with almost anything; T-017 with T-011; T-019 with T-011, T-015 or T-017. T-010, T-011 and T-016 share `ProductionOrdersController.cs` and are chained on purpose.
+**Running tasks at the same time.** Tasks can run in parallel when their dependencies are done and their "Touches" lists do not overlap. Safe pairs once their dependencies are met include: T-001 with T-002; T-004 with T-002 or T-003; T-005 with T-003 or T-004; T-007 with T-008; T-013 and T-014 with almost anything; T-017 with T-011; T-019 with T-011, T-015 or T-017. T-010, T-011 and T-016 share `ProductionOrdersController.cs` and are chained on purpose. T-011 adds a migration (decision #63), so it must not run alongside any other task that touches `Data/`. T-017 may run alongside T-011 (it does not touch `Data/`; SQLite does not enforce the old limit), but it must not add its own length check or migration for notification messages.
 
 ## Done criteria for every task
 
@@ -178,6 +178,8 @@ Each task is done only when all of these hold, as well as its own criteria below
   - AC-08.4: change the recipe after creating an order; the order keeps its amounts, and a new order uses the new recipe.
   - AC-15.5 estimates: with 50 kg of free leftover (set up through a receipt and a ledger movement in the test) and orders #7, #8, #9, the three estimates match the PRD.
   - AC-13.4: creating an order creates no movement.
+- **Notes:**
+  - **Decision #58, percentages.** The detail and summary mappings that T-009 writes are reused for Completed orders, so every percentage they return (`outputVariancePercent`, each line's `usageVariancePercent`, `toleranceAtCompletionPercent` where shown) is round(stored 6-place value, 2), half away from zero, never a fresh calculation from the quantities. A stored `null` (decision #49) is returned as `null`. Use the same rule as `NotificationComposer.RoundPercentForDisplay` (T-005: round to 6 places, then to 2, both half away from zero), in one place inside `Features/ProductionOrders/` (the mapping code), so T-011's responses reuse it. Test it with a stored value such as 2.004999 → 2.00 and 2.005 → 2.01 (on a Completed order inserted through the DbContext).
 
 ### T-010: Send materials for an order
 
@@ -197,7 +199,8 @@ Each task is done only when all of these hold, as well as its own criteria below
 - **Owner:** backend-developer
 - **Serves:** US-19 (AC-19.1 to AC-19.8), US-20 (AC-20.1 to AC-20.10), AC-23.2 (first three types created)
 - **Depends on:** T-005, T-010
-- **Touches:** `src/InventoryTracker.Api/Features/ProductionOrders/CompleteOrderService.cs`, `ProductionOrdersController.cs` (one action), `ProductionOrderContracts.cs`, `tests/InventoryTracker.Api.Tests/Integration/CompleteOrderTests.cs`
+- **Touches:** `src/InventoryTracker.Api/Features/ProductionOrders/CompleteOrderService.cs`, `ProductionOrdersController.cs` (one action), `ProductionOrderContracts.cs`, `src/InventoryTracker.Api/Data/Configurations/NotificationConfiguration.cs`, `src/InventoryTracker.Api/Data/Configurations/ColumnRules.cs`, `src/InventoryTracker.Api/Data/Migrations/` (new migration and the model snapshot), `tests/InventoryTracker.Api.Tests/Integration/CompleteOrderTests.cs`, `tests/InventoryTracker.Api.Tests/Integration/DataModelTests.cs`. Because it touches `Data/`, T-011 must not run at the same time as any other task that touches `Data/`.
+- **Step 1, schema change (decision #63, architecture 3.2 Notification):** remove the 1,000-character limit on `Notification.Message`. Delete `HasMaxLength(ColumnRules.MessageLength)` in `NotificationConfiguration` and the `ColumnRules.MessageLength` constant, then generate the migration named **`NotificationMessageUnbounded`** with `dotnet tool run dotnet-ef migrations add NotificationMessageUnbounded --project src/InventoryTracker.Api --output-dir Data/Migrations`. Do not edit the committed `DomainModel` migration. No code anywhere truncates or length-checks a notification message. Do this before saving any notification; T-016 and T-017 also save notifications and rely on it.
 - **What to build:** `POST /production-orders/{number}/complete` in one write transaction. It creates the ProducedOutput movement and ConsumedInProduction movements (none for zero), fills every completion field on the order and its lines through T-004, stores the tolerance in force, and creates the OutputVariance, UsageVariance and LeftoverAtCompletion notifications through T-005. It also cancels the order's PendingApproval and Approved complementary orders with "Parent order completed" (AC-19.6).
 - **Acceptance criteria:**
   - Every criterion of US-19 and US-20, with the exact PRD messages for AC-19.4.
@@ -205,6 +208,11 @@ Each task is done only when all of these hold, as well as its own criteria below
   - AC-19.6: complementary orders inserted through the DbContext in PendingApproval and Approved become Cancelled with the note; Rejected and Sent ones are unchanged.
   - AC-20.10: changing the tolerance setting after completion does not change the stored values.
   - Concurrency: two simultaneous completions give exactly one `200`.
+  - Decision #63: the app starts on a database created before this task (with `DomainModel` only) and migrates it; a notification whose message is longer than 1,000 characters (for example an order with long item names, units and many lines) is saved and read back unchanged, character for character. Test in `DataModelTests.cs` or `CompleteOrderTests.cs`.
+- **Notes:**
+  - **Decision #58, percentages.** `OutputVariancePercent` and `UsageVariancePercent` are stored as the unrounded value rounded to 6 places, half away from zero. Round in code before saving: SQLite does not apply `HasPrecision` on write. Every percentage in the completion response is round(stored 6-place value, 2), half away from zero, which is the same value the notifications show. A test compares a response percentage with the matching notification's `data`.
+  - **Decision #49, required amount rounds to 0.** When a line's `RequiredForActualOutput` rounds to 0 (3 places), the completion still succeeds: store `UsageVariancePercent` as `null` (never divide by zero), set `UsageVarianceAboveTolerance` to true when `ActualUsage` is not 0 (false when it is 0), and create the UsageVariance notification in the "percentage not applicable" form of decision #57, with `data.percent` null. The response shows `usageVariancePercent: null` for that line. Test both cases (ActualUsage 0 and not 0).
+  - Decision #48: a negative `LeftoverRemaining` is stored as calculated, not clamped; include one HTTP test of it.
 
 ### T-012: Notifications API
 
@@ -245,6 +253,7 @@ Each task is done only when all of these hold, as well as its own criteria below
   - AC-03.6: a deactivated user's existing token gets `401`; after reactivation, they can sign in again.
   - AC-03.8: removing Manager from, or deactivating, the last active Manager gives `409` "At least one active Manager is required.".
   - AC-01.6: `POST /users` without a token gives `401`.
+  - **UserName must stay equal to Email** (architecture 3.2 AppUser, decision #64). `POST /users` trims the email, refuses one that still contains a space with `400` `validation` "Email is not a valid email address." (AC-03.3), and sets `UserName` to exactly the same trimmed value as `Email`. No code path changes one without the other. Identity's email index is not unique; this rule is what makes the unique `UserNameIndex` guarantee AC-03.2. Tests: creating "Ana@Example.com" and then " ana@example.com " gives `409` `email-taken`; "ana smith@example.com" gives the `400`; a created user's `UserName` equals its `Email` (checked through the DbContext).
 
 ### T-015: Adjustments and write-offs
 

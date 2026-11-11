@@ -413,3 +413,4 @@ Rows 1 to 4 were questions for the owner; the owner confirmed each default on 20
 | 16 | A Manager added later sees all earlier notifications as unread. | PM | Assumed |
 | 17 | The consumption movement type is named ConsumedInProduction. No movement is created for a zero quantity. | PM | Assumed |
 | 18 | The application refuses to start if there are no users and `ADMIN_EMAIL` or `ADMIN_PASSWORD` is missing. | PM | Assumed |
+| 19 | Owner decision during the build (2026-11-11): when RequiredForActualOutput rounds to 0, the completion succeeds; the usage variance percentage is empty (null) and the line is above tolerance whenever any of that material was used. The UsageVariance notification then shows the difference with "(percentage not applicable)" instead of a percentage. See decisions #49 and #57. | Owner | Decided 2026-11-11 |

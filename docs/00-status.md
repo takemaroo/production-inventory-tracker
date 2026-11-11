@@ -43,16 +43,9 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - 2026-11-11 T-001 approved by `code-reviewer` (after one fix round), committed and pushed. Started T-003 and T-004 in parallel.
 - 2026-11-11 T-004 approved by `code-reviewer` (after one fix round plus owner decision #49), committed and pushed. T-003 in review.
 - 2026-11-11 T-005 approved by `code-reviewer` (after one fix round), committed and pushed. T-003 being reworked after review (lock-out race).
+- 2026-11-11 Docs brought in line with build decisions: architecture and task board (tech-lead, decisions #63-#65), design notes for #49/#57/#58 (ux-designer), PRD row 19.
 
 ## Follow-ups to route
 
-- T-011: round UsageVariancePercent and OutputVariancePercent to 6 places in code before saving; SQLite does not apply HasPrecision on write (T-004 review).
-- T-011 / QA: check negative LeftoverRemaining (decision #48) end to end.
-- tech-lead: reword architecture 4.1 item 11 to match decision #46 (only UNIQUE/PK give 409).
-- T-005: UsageVariance notification wording when the percentage is null ("percentage not applicable"), per decision #49. T-011: store a null percentage in that case.
-- Design doc: `docs/02-design.md` 5.7, 5.10 and 7.3 need a note that usageVariancePercent can be null (decision #49). Route to ux-designer or tech-lead with the next doc update.
-- security-reviewer (phase 6): from T-003, (a) an unknown email answers faster than a wrong password (timing signal for which emails exist); (b) 5 wrong passwords can lock any account (inherent in AC-01.4); (c) two simultaneous wrong passwords can lose one failure count.
-- tech-lead: architecture 3.2 says NormalizedEmail is unique, but Identity's EmailIndex is not; uniqueness holds through UserName = Email. Correct the document. T-014 must keep UserName equal to Email.
-- tech-lead, BEFORE T-011: `Notification.Message` is string(1000), but measured messages reach 1,071 to 1,659 characters (long names, 500-char reason), and recipes have no line cap. Reviewer recommends an unbounded `text` column via a small migration (no truncation: it would break AC-19.7/AC-21.3 and design 6).
-- T-009 / T-011: order responses must show percentages as round(stored 6-place value, 2), per decision #58, so they match notifications.
-- tech-lead: architecture 5.2's last paragraph ("each update is a single statement, which is enough for a lock-out counter") is wrong; Identity's counter is read-modify-write and lost updates under concurrency (T-003 review). Replace with decision #61. Also: `.env.example` says "architecture section 7"; running locally is section 8.
+- security-reviewer (phase 6): from T-003, 5 wrong passwords can lock any account (a denial of service inherent in AC-01.4; owner may want to revisit). The timing signal and the lost failure counts were fixed in T-003 (decisions #61, #62); re-verify them.
+- qa-engineer (phase 5): displayed percentages follow round(round(x, 6), 2) (decision #58), which can differ from a single rounding in rare cases (e.g. 1.0049996 shows 1.01). Test against the two-step formula. Threshold checks use the unrounded value.
