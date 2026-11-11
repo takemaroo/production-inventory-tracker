@@ -87,6 +87,586 @@ namespace InventoryTracker.Api.Data.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("InventoryTracker.Api.Domain.ComplementaryOrder", b =>
+                {
+                    b.Property<int>("Number")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ApprovedById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CancellationNote")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CancelledById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DecisionNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ParentOrderNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RejectedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RejectedById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestedById")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SentById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Number");
+
+                    b.HasIndex("ApprovedById");
+
+                    b.HasIndex("CancelledById");
+
+                    b.HasIndex("ParentOrderNumber");
+
+                    b.HasIndex("RejectedById");
+
+                    b.HasIndex("RequestedById");
+
+                    b.HasIndex("SentById");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("ComplementaryOrders", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.ComplementaryOrderLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ComplementaryOrderNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LineNo")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RawMaterialId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("RequestedAmount")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("SentQuantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RawMaterialId");
+
+                    b.HasIndex("ComplementaryOrderNumber", "RawMaterialId")
+                        .IsUnique();
+
+                    b.ToTable("ComplementaryOrderLines", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Item", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("UnitId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NameNormalized")
+                        .IsUnique();
+
+                    b.HasIndex("UnitId");
+
+                    b.ToTable("Items", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.LeftoverReturn", b =>
+                {
+                    b.Property<int>("Number")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CancelledById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedById")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ItemId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ProductionOrderNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReceivedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReceivedById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Number");
+
+                    b.HasIndex("CancelledById");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("ProductionOrderNumber");
+
+                    b.HasIndex("ReceivedById");
+
+                    b.HasIndex("Status", "ItemId");
+
+                    b.ToTable("Returns", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Movement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ComplementaryOrderNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ItemId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ProductionOrderNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("ProductionStorageChange")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly?>("ReceiptDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ReturnNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("WarehouseChange")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ComplementaryOrderNumber");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("OccurredAt");
+
+                    b.HasIndex("ProductionOrderNumber");
+
+                    b.HasIndex("ReturnNumber");
+
+                    b.HasIndex("Type");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Movements", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Notification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ComplementaryOrderNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DataJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ProductionOrderNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ComplementaryOrderNumber");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ProductionOrderNumber");
+
+                    b.ToTable("Notifications", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.NotificationRead", b =>
+                {
+                    b.Property<int>("NotificationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ReadAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("NotificationId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("NotificationReads", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.ProductionOrder", b =>
+                {
+                    b.Property<int>("Number")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CancelledById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CompletedById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CompletionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedById")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FinishedProductId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("OrderedQuantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("OutputVariance")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("OutputVariancePercent")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("ProducedQuantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SentById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StatusChangedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("ToleranceAtCompletionPercent")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Number");
+
+                    b.HasIndex("CancelledById");
+
+                    b.HasIndex("CompletedById");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("FinishedProductId");
+
+                    b.HasIndex("SentById");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex(new[] { "Status" }, "IX_ProductionOrders_OneInProduction")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'InProduction'");
+
+                    b.ToTable("ProductionOrders", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.ProductionOrderLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("ActualUsage")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("AmountPerUnit")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("CarriedLeftover")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("ComplementarySends")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("LeftoverApplied")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("LeftoverEntered")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("LeftoverRemaining")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("LineNo")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("OrderNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("PlannedAmount")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RawMaterialId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("RequiredForActualOutput")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("UsageVariance")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("UsageVarianceAboveTolerance")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("UsageVariancePercent")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("WarehouseSend")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RawMaterialId");
+
+                    b.HasIndex("OrderNumber", "RawMaterialId")
+                        .IsUnique();
+
+                    b.ToTable("ProductionOrderLines", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Recipe", b =>
+                {
+                    b.Property<int>("FinishedProductId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedById")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("FinishedProductId");
+
+                    b.HasIndex("UpdatedById");
+
+                    b.ToTable("Recipes", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.RecipeLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("AmountPerUnit")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FinishedProductId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LineNo")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RawMaterialId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RawMaterialId");
+
+                    b.HasIndex("FinishedProductId", "RawMaterialId")
+                        .IsUnique();
+
+                    b.ToTable("RecipeLines", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.UnitOfMeasure", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NameNormalized")
+                        .IsUnique();
+
+                    b.ToTable("Units", (string)null);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
                 {
                     b.Property<string>("Id")
@@ -215,6 +795,297 @@ namespace InventoryTracker.Api.Data.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("InventoryTracker.Api.Domain.ComplementaryOrder", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "ApprovedBy")
+                        .WithMany()
+                        .HasForeignKey("ApprovedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "CancelledBy")
+                        .WithMany()
+                        .HasForeignKey("CancelledById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Domain.ProductionOrder", "ParentOrder")
+                        .WithMany()
+                        .HasForeignKey("ParentOrderNumber")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "RejectedBy")
+                        .WithMany()
+                        .HasForeignKey("RejectedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "RequestedBy")
+                        .WithMany()
+                        .HasForeignKey("RequestedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "SentBy")
+                        .WithMany()
+                        .HasForeignKey("SentById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ApprovedBy");
+
+                    b.Navigation("CancelledBy");
+
+                    b.Navigation("ParentOrder");
+
+                    b.Navigation("RejectedBy");
+
+                    b.Navigation("RequestedBy");
+
+                    b.Navigation("SentBy");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.ComplementaryOrderLine", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Domain.ComplementaryOrder", "ComplementaryOrder")
+                        .WithMany("Lines")
+                        .HasForeignKey("ComplementaryOrderNumber")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Domain.Item", "RawMaterial")
+                        .WithMany()
+                        .HasForeignKey("RawMaterialId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ComplementaryOrder");
+
+                    b.Navigation("RawMaterial");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Item", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Domain.UnitOfMeasure", "Unit")
+                        .WithMany()
+                        .HasForeignKey("UnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Unit");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.LeftoverReturn", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "CancelledBy")
+                        .WithMany()
+                        .HasForeignKey("CancelledById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Domain.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Domain.ProductionOrder", "ProductionOrder")
+                        .WithMany()
+                        .HasForeignKey("ProductionOrderNumber")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "ReceivedBy")
+                        .WithMany()
+                        .HasForeignKey("ReceivedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CancelledBy");
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("ProductionOrder");
+
+                    b.Navigation("ReceivedBy");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Movement", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Domain.ComplementaryOrder", "ComplementaryOrder")
+                        .WithMany()
+                        .HasForeignKey("ComplementaryOrderNumber")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Domain.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Domain.ProductionOrder", "ProductionOrder")
+                        .WithMany()
+                        .HasForeignKey("ProductionOrderNumber")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Domain.LeftoverReturn", "Return")
+                        .WithMany()
+                        .HasForeignKey("ReturnNumber")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ComplementaryOrder");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("ProductionOrder");
+
+                    b.Navigation("Return");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Notification", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Domain.ComplementaryOrder", "ComplementaryOrder")
+                        .WithMany()
+                        .HasForeignKey("ComplementaryOrderNumber")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Domain.ProductionOrder", "ProductionOrder")
+                        .WithMany()
+                        .HasForeignKey("ProductionOrderNumber")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ComplementaryOrder");
+
+                    b.Navigation("ProductionOrder");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.NotificationRead", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Domain.Notification", "Notification")
+                        .WithMany("Reads")
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Notification");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.ProductionOrder", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "CancelledBy")
+                        .WithMany()
+                        .HasForeignKey("CancelledById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "CompletedBy")
+                        .WithMany()
+                        .HasForeignKey("CompletedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Domain.Item", "FinishedProduct")
+                        .WithMany()
+                        .HasForeignKey("FinishedProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "SentBy")
+                        .WithMany()
+                        .HasForeignKey("SentById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CancelledBy");
+
+                    b.Navigation("CompletedBy");
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("FinishedProduct");
+
+                    b.Navigation("SentBy");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.ProductionOrderLine", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Domain.ProductionOrder", "Order")
+                        .WithMany("Lines")
+                        .HasForeignKey("OrderNumber")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Domain.Item", "RawMaterial")
+                        .WithMany()
+                        .HasForeignKey("RawMaterialId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+
+                    b.Navigation("RawMaterial");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Recipe", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Domain.Item", "FinishedProduct")
+                        .WithOne()
+                        .HasForeignKey("InventoryTracker.Api.Domain.Recipe", "FinishedProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "UpdatedBy")
+                        .WithMany()
+                        .HasForeignKey("UpdatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("FinishedProduct");
+
+                    b.Navigation("UpdatedBy");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.RecipeLine", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Domain.Recipe", "Recipe")
+                        .WithMany("Lines")
+                        .HasForeignKey("FinishedProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Domain.Item", "RawMaterial")
+                        .WithMany()
+                        .HasForeignKey("RawMaterialId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("RawMaterial");
+
+                    b.Navigation("Recipe");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -264,6 +1135,26 @@ namespace InventoryTracker.Api.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.ComplementaryOrder", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Notification", b =>
+                {
+                    b.Navigation("Reads");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.ProductionOrder", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Recipe", b =>
+                {
+                    b.Navigation("Lines");
                 });
 #pragma warning restore 612, 618
         }
