@@ -480,3 +480,14 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# ---- Production & Inventory Tracker ----
+# Local secrets. .env.example (names only, no values) is committed instead.
+.env
+.env.*
+!.env.example
+# SQLite database files, including write-ahead-log side files.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite

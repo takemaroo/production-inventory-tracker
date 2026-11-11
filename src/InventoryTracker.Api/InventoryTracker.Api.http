@@ -1,6 +1,10 @@
-@InventoryTracker.Api_HostAddress = http://localhost:5133
+# Sample requests for the VS Code REST Client extension or Visual Studio's .http editor.
+# Start the API first: dotnet run --project src/InventoryTracker.Api
+@host = http://localhost:5133
 
-GET {{InventoryTracker.Api_HostAddress}}/weatherforecast/
+### Health check: answers "Healthy" when the app and its database are up.
+GET {{host}}/health
+
+### OpenAPI description (Development only).
+GET {{host}}/openapi/v1.json
 Accept: application/json
-
-###
