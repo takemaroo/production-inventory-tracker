@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Data.Configurations;
@@ -97,8 +96,8 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         app.CreateClient();
 
         // Proves the capture works: EF Core's "Applying migration" message (event 20402) was seen.
-        Assert.Contains(logs.Entries, entry => entry.EventId == 20402);
-        Assert.DoesNotContain(logs.Entries, entry => entry.EventId == 10632);
+        Assert.Contains(logs.Entries, entry => entry.EventId.Id == 20402);
+        Assert.DoesNotContain(logs.Entries, entry => entry.EventId.Id == 10632);
         Assert.DoesNotContain(logs.Entries, entry => entry.Message.Contains("IEntityTypeConfiguration"));
     }
 
@@ -646,27 +645,5 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         db.ProductionOrders.Add(order);
         await db.SaveChangesAsync(Cancel);
         return order;
-    }
-
-    /// <summary>A logger provider that keeps every log entry in memory so a test can inspect them.</summary>
-    private sealed class CapturingLoggerProvider : ILoggerProvider
-    {
-        public ConcurrentQueue<(int EventId, string Message)> Entries { get; } = new();
-
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(Entries);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class CapturingLogger(ConcurrentQueue<(int EventId, string Message)> entries) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-                entries.Enqueue((eventId.Id, formatter(state, exception)));
-        }
     }
 }

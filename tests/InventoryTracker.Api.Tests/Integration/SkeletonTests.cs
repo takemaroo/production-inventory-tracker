@@ -1,4 +1,5 @@
 using System.Net;
+using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Common.Configuration;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Tests.Infrastructure;
@@ -44,11 +45,14 @@ public class SkeletonTests(TestApiFactory factory) : IClassFixture<TestApiFactor
         Assert.Contains(db.Database.GetAppliedMigrations(), name => name.EndsWith("_InitialIdentity"));
     }
 
-    /// <summary>Design section 6: errors, including unknown routes, are ProblemDetails bodies.</summary>
+    /// <summary>
+    /// Design section 6: errors, including unknown routes, are ProblemDetails bodies. Signed in, because without a
+    /// token every path gives 401 first (design 2.2, T-003).
+    /// </summary>
     [Fact]
     public async Task Unknown_route_returns_problem_details()
     {
-        var client = factory.CreateClient();
+        var client = await factory.CreateClientAsAsync(Roles.Warehouse);
 
         var response = await client.GetAsync("/api/v1/does-not-exist", TestContext.Current.CancellationToken);
 

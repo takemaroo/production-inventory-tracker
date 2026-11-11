@@ -82,7 +82,9 @@ public static class InvalidRequestResponse
         }
 
         // Design 2.4: a quantity sent as a string must be rejected; name the field so the client can fix it.
-        var path = ToDesignPath(exception.Path ?? modelStateKey);
+        // Property names in a body are matched ignoring case, so the serializer's path repeats the client's spelling
+        // ({"Quantity": "abc"} gives $.Quantity). Design 6 keys errors by camelCase path, as for query values.
+        var path = ToCamelCase(ToDesignPath(exception.Path ?? modelStateKey));
         if (path.Length == 0)
         {
             return ProblemResponse.Create(StatusCodes.Status400BadRequest, ErrorCodes.Validation, WrongBodyTypeMessage);
@@ -112,8 +114,9 @@ public static class InvalidRequestResponse
 
     /// <summary>
     /// MVC names query and form values after the C# property (<c>ItemId</c>, <c>Lines[0].Quantity</c>); design 6
-    /// keys <c>errors</c> by camelCase JSON path (<c>itemId</c>, <c>lines[0].quantity</c>). Lower-cases the first
-    /// letter of every dot-separated segment.
+    /// keys <c>errors</c> by camelCase JSON path (<c>itemId</c>, <c>lines[0].quantity</c>). Body paths need the same
+    /// treatment, because they keep the client's own spelling. Lower-cases the first letter of every dot-separated
+    /// segment.
     /// </summary>
     private static string ToCamelCase(string key) =>
         string.Join('.', key.Split('.').Select(segment =>

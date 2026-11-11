@@ -2,6 +2,7 @@
 // Business logic never lives here; it belongs in Features/. See docs/03-architecture.md section 2.
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Common.Configuration;
 using InventoryTracker.Api.Common.Errors;
 using InventoryTracker.Api.Common.Time;
@@ -58,8 +59,10 @@ builder.Services.AddOpenApi();
 // Every Features/**/*Service class, registered by convention (see FeatureRegistration).
 builder.Services.AddFeatureServices();
 
-// T-003 adds here: ASP.NET Core Identity, JWT bearer authentication, authorization with a fallback policy
-// that requires a signed-in user, and the start-up checks (JWT_SIGNING_KEY, tolerance range).
+// Who is calling, and may they do this? ASP.NET Core Identity (users, salted password hashes, roles, lock-out),
+// JWT bearer tokens signed with JWT_SIGNING_KEY, and authorization where every endpoint needs a signed-in user
+// unless it says [AllowAnonymous] (architecture 6, Authentication and Authorization). See AuthSetup.
+builder.Services.AddApiAuthentication(builder.Configuration);
 
 var app = builder.Build();
 
@@ -87,27 +90,56 @@ if (app.Environment.IsProduction())
     app.UseHttpsRedirection();
 }
 
-// T-003 adds app.UseAuthentication() and app.UseAuthorization() here: after error handling,
-// before the endpoints, so every endpoint below is protected.
+// Architecture 4.1 item 7: every 401 response carries the header WWW-Authenticate: Bearer.
+app.UseBearerChallengeHeader();
+
+// Authentication middleware: reads the bearer token, checks it, and sets HttpContext.User (or leaves the request
+// anonymous). Authorization middleware: compares HttpContext.User with the endpoint's rules and answers 401 or 403
+// before the controller runs (design 2.2: 401 first, then 403). Both come after error handling, so their responses
+// get ProblemDetails bodies, and before the endpoints, so every endpoint below is protected.
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
-app.MapHealthChecks("/health");
+
+// Decisions #28 and #33: the health check and the Development-only OpenAPI document are infrastructure endpoints
+// that reveal nothing, so they are the two exceptions to "every endpoint needs a token" (AC-01.5).
+app.MapHealthChecks("/health").AllowAnonymous();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.MapOpenApi().AllowAnonymous();
 }
 
 // ---------------------------------------------------------------------------------------------
 // 3. Start-up work, then run.
 // ---------------------------------------------------------------------------------------------
 
-// Creates the SQLite file on first run and applies any new migrations.
-await app.Services.MigrateDatabaseAsync();
+// Architecture 6, "First Manager and start-up checks", in this order. A failed check stops the app before it
+// listens, with the design 7.4 message in the console and exit code 1 (US-02, PRD section 5).
+try
+{
+    // (1) tolerance 0-100 and (2) JWT_SIGNING_KEY: settings only, so before the database is touched.
+    StartupChecks.CheckSettings(app.Configuration);
 
-// T-003 adds the role seeding and the first Manager from ADMIN_EMAIL / ADMIN_PASSWORD here (US-02).
+    // (3) Creates the SQLite file on first run and applies any new migrations.
+    await app.Services.MigrateDatabaseAsync();
+
+    // (4) the three roles and (5) the first Manager from ADMIN_EMAIL / ADMIN_PASSWORD, when there are no users.
+    await StartupChecks.SeedRolesAndFirstManagerAsync(app.Services, app.Configuration);
+}
+catch (StartupException exception)
+{
+    app.Logger.LogCritical("{Message}", exception.Message);
+
+    // Disposing the app flushes the console logger, which writes on a background thread; without it the message
+    // could be lost when the process ends.
+    await app.DisposeAsync();
+    return 1;
+}
 
 await app.RunAsync();
+return 0;
 
 /// <summary>
 /// The application's entry point. Declared partial and public so the integration tests can start the

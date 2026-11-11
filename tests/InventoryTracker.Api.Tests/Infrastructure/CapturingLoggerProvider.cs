@@ -5,11 +5,14 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 
 /// <summary>
 /// A logger provider that keeps every log entry in memory, so a test can assert that something was logged
-/// (for example that an unhandled exception reached the log with its stack trace).
+/// (for example that an unhandled exception reached the log with its stack trace, or that start-up stopped with the
+/// design 7.4 message).
 /// </summary>
 /// <remarks>
 /// ASP.NET Core sends each log call to every registered <see cref="ILoggerProvider"/>; the console provider
-/// prints it, this one stores it. Register it with <c>services.AddSingleton&lt;ILoggerProvider&gt;(provider)</c>.
+/// prints it, this one stores it. <see cref="TestApiFactory"/> registers one for every test app (its <c>Logs</c>
+/// property); a test can also add its own with <c>services.AddSingleton&lt;ILoggerProvider&gt;(provider)</c> or
+/// <c>logging.AddProvider(provider)</c>.
 /// A concurrent queue is used because requests in a test may log from several threads at once.
 /// </remarks>
 public sealed class CapturingLoggerProvider : ILoggerProvider
@@ -32,7 +35,11 @@ public sealed class CapturingLoggerProvider : ILoggerProvider
     /// <param name="Level">Severity, for example Error.</param>
     /// <param name="Message">The formatted message.</param>
     /// <param name="Exception">The exception passed to the log call, if any.</param>
-    public sealed record LogEntry(string Category, LogLevel Level, string Message, Exception? Exception);
+    /// <param name="EventId">
+    /// The event id the caller gave, for example EF Core's 20402 "Applying migration"; <c>EventId.Id</c> is 0 when none
+    /// was given. Lets a test look for one kind of message without depending on its wording.
+    /// </param>
+    public sealed record LogEntry(string Category, LogLevel Level, string Message, Exception? Exception, EventId EventId);
 
     private sealed class CapturingLogger(string category, ConcurrentQueue<LogEntry> entries) : ILogger
     {
@@ -43,7 +50,7 @@ public sealed class CapturingLoggerProvider : ILoggerProvider
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            entries.Enqueue(new LogEntry(category, logLevel, formatter(state, exception), exception));
+            entries.Enqueue(new LogEntry(category, logLevel, formatter(state, exception), exception, eventId));
         }
     }
 }

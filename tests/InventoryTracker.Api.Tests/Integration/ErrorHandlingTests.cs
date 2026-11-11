@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Common.Errors;
 using InventoryTracker.Api.Tests.Infrastructure;
 using Microsoft.Data.Sqlite;
@@ -15,6 +16,11 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// <c>Content-Type: application/problem+json</c>. The errors are raised by the test-only
 /// <see cref="ErrorProbeController"/>, so these tests go through the real middleware pipeline.
 /// </summary>
+/// <remarks>
+/// The probe actions are <c>[AllowAnonymous]</c>, but an unknown path or a wrong method matches no action, so the
+/// fallback "signed-in" policy applies there (T-003). Those tests send a valid token, because design 2.2 checks the
+/// token (401) before anything else.
+/// </remarks>
 public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
 {
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
@@ -153,13 +159,39 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
             entry.Level == LogLevel.Error && entry.Exception is DbUpdateException { InnerException: null });
     }
 
-    /// <summary>T-001 AC 3 and architecture 4.1 item 8: an unknown route gives 404 not-found "No endpoint matches this path.".</summary>
+    /// <summary>
+    /// T-001 AC 3 and architecture 4.1 item 8: for a signed-in user, an unknown route gives 404 not-found
+    /// "No endpoint matches this path.".
+    /// </summary>
     [Fact]
     public async Task Unknown_route_gives_404_not_found()
     {
-        var (response, body) = await GetAsync("/api/v1/no-such-resource");
+        var client = await SignedInClientAsync();
+
+        var response = await client.GetAsync("/api/v1/no-such-resource", Cancel);
+        var body = await ReadJsonAsync(response);
 
         AssertProblem(response, body, HttpStatusCode.NotFound, "Not found", "not-found", "No endpoint matches this path.");
+    }
+
+    /// <summary>
+    /// AC-01.5 and design 2.2 (401 is checked first): without a token, an unknown route or a wrong method gives the
+    /// 401 not-authenticated ProblemDetails, not 404 or 405, so an anonymous caller cannot probe which paths exist.
+    /// </summary>
+    [Theory]
+    [InlineData("GET", "/api/v1/no-such-resource")]
+    [InlineData("DELETE", "/test-probe/not-found")]
+    public async Task Unauthenticated_unknown_route_or_method_gives_401(string method, string path)
+    {
+        var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+
+        var response = await client.SendAsync(request, Cancel);
+        var body = await ReadJsonAsync(response);
+
+        AssertProblem(response, body, HttpStatusCode.Unauthorized, "Not signed in", "not-authenticated",
+            "Your sign-in is missing or has expired. Sign in again.");
+        Assert.Equal("Bearer", response.Headers.WwwAuthenticate.ToString());
     }
 
     /// <summary>
@@ -169,7 +201,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     [Fact]
     public async Task Wrong_method_gives_405_method_not_allowed()
     {
-        var client = factory.CreateClient();
+        var client = await SignedInClientAsync();
 
         var response = await client.DeleteAsync("/test-probe/not-found", Cancel);
         var body = await ReadJsonAsync(response);
@@ -207,6 +239,22 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
         AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", "quantity has the wrong type.");
         Assert.Equal(new[] { "quantity has the wrong type." }, Messages(body.GetProperty("errors"), "quantity"));
         Assert.DoesNotContain("System.Decimal", body.GetRawText());
+    }
+
+    /// <summary>
+    /// Design 6: body error paths are camelCase whatever spelling the client used. Property names are matched ignoring
+    /// case, so {"Quantity": "abc"} is read, and its error is keyed quantity, the same as for query values.
+    /// </summary>
+    [Theory]
+    [InlineData("""{ "Quantity": "abc" }""", "quantity")]
+    [InlineData("""{ "quantity": 1, "Lines": [ { "Quantity": "x" } ] }""", "lines[0].quantity")]
+    public async Task Body_type_error_paths_are_camel_case(string json, string path)
+    {
+        var (response, body) = await PostJsonAsync(json);
+
+        var message = $"{path} has the wrong type.";
+        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", message);
+        Assert.Equal(new[] { message }, Messages(body.GetProperty("errors"), path));
     }
 
     /// <summary>Design 6: a wrong type inside a list is keyed by its full JSON path, for example lines[1].quantity.</summary>
@@ -269,7 +317,8 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     /// <summary>
     /// Design 6: even a client whose Accept header does not mention JSON gets the full ProblemDetails body
     /// (type, fixed title, code, traceId), not an empty or text/plain response. Covers a thrown ApiException and the
-    /// bodiless 404 and 405 that UseStatusCodePages fills in.
+    /// bodiless 404 and 405 that UseStatusCodePages fills in. The client is signed in, so the 404 and 405 are reached
+    /// (without a token they would be 401, see <see cref="Unauthenticated_unknown_route_or_method_gives_401"/>).
     /// </summary>
     [Theory]
     [InlineData("GET", "/test-probe/conflict", HttpStatusCode.Conflict, "Conflict with current state", "another-order-in-production",
@@ -281,7 +330,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     public async Task Client_not_asking_for_json_still_gets_problem_details(
         string method, string path, HttpStatusCode status, string? title, string code, string detail)
     {
-        var client = factory.CreateClient();
+        var client = await SignedInClientAsync();
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
         request.Headers.Accept.ParseAdd("text/html");
 
@@ -367,6 +416,9 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
         Assert.Equal("validation", body.GetProperty("code").GetString());
         Assert.True(body.GetProperty("errors").TryGetProperty("page", out _));
     }
+
+    /// <summary>A client with a valid token; any role will do, because these paths have no role rule.</summary>
+    private Task<HttpClient> SignedInClientAsync() => factory.CreateClientAsAsync(Roles.Warehouse);
 
     private async Task<(HttpResponseMessage Response, JsonElement Body)> GetAsync(string path)
     {
