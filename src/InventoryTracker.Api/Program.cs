@@ -3,8 +3,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using InventoryTracker.Api.Common.Configuration;
+using InventoryTracker.Api.Common.Errors;
+using InventoryTracker.Api.Common.Time;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Features;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,9 +36,18 @@ builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 });
 
-// Design section 6: every error body is an RFC 9457 ProblemDetails object.
-// T-001 adds the stable "code" field, fixed titles and the exception-to-status mapping.
-builder.Services.AddProblemDetails();
+// Design section 6: every error body is an RFC 9457 ProblemDetails object with a stable "code", a fixed
+// title per status and a traceId. Also the central exception handler and the 400 for unreadable bodies.
+builder.Services.AddApiErrorHandling();
+
+// Architecture 6, Time: one clock for the whole app, reading the real system time. TryAdd adds it only if
+// nothing has registered a TimeProvider yet, so it never duplicates one a framework library registered first.
+// (Tests swap in a fake clock differently: the test factory registers its own TimeProvider after this file
+// has run, and when a service is registered twice the last registration is the one that gets used.)
+// Singleton means one shared instance for the app's lifetime, which is fine because a clock holds no
+// per-request state.
+builder.Services.TryAddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<Clock>();
 
 // GET /health answers "Healthy" when the app is running and can reach its database.
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>();
@@ -57,11 +70,16 @@ var app = builder.Build();
 // can catch errors thrown by every later step.
 // ---------------------------------------------------------------------------------------------
 
-// Turns an unhandled exception into a 500 ProblemDetails body, without stack traces (design section 6).
+// Catches any exception thrown by a later step and hands it to ApiExceptionHandler, which writes the
+// ProblemDetails body: the ApiException's own status and code, or 500 without stack traces (design section 6).
 app.UseExceptionHandler();
 
-// Gives bodiless error responses (404 unknown route, 405 wrong method) a ProblemDetails body too.
-app.UseStatusCodePages();
+// Gives bodiless error responses (404 unknown route, 405 wrong method) a ProblemDetails body too, with the
+// codes not-found and method-not-allowed (architecture 4.1 item 8). The handler is passed explicitly because
+// the plain UseStatusCodePages() answers in text/plain ("Status Code: 404; Not Found") when the client's
+// Accept header does not mention JSON; ProblemResponse always answers in JSON (design 6).
+app.UseStatusCodePages(context => ProblemResponse.WriteAsync(
+    context.HttpContext, new ProblemDetails { Status = context.HttpContext.Response.StatusCode }));
 
 // HTTPS redirection only outside Development and tests: locally the API runs on plain http://localhost.
 if (app.Environment.IsProduction())
