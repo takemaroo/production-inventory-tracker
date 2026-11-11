@@ -49,7 +49,7 @@ Edit this section to suit yourself. Agents treat it as the default and say so wh
 - **Stack:** prefer C# / ASP.NET Core for back ends and JavaScript or TypeScript for front ends, with a SQL database, unless the product clearly calls for something else. The owner maintains the result, so favour mainstream, well-documented tools over novel ones.
 - **Owner's machine:** Windows. Every command in a document and every script must work there. Prefer cross-platform tooling (`dotnet`, `npm`, `docker`) over shell-specific scripts; where a script is unavoidable, provide a PowerShell version.
 - **Documents:** written in English, plain language, no filler.
-- **Version control:** git, one commit per completed task, message format `T-012: short description`. Nothing is pushed without approval.
+- **Version control:** git, one commit per completed task, message format `T-012: short description`. **Standing approval (owner, 2026-11-11):** the delivery manager pushes straight to `main` on GitHub after each task passes `code-reviewer` and is committed, and after document-only commits between phases. Nothing else is pushed without asking: no force-push, no history rewrite of pushed commits, no new branches, tags or releases, and no change to the repository's visibility (it is private).
 - **Code comments for learning:** the owner is learning from this code, so comment it to teach.
   - Every class and every public method or endpoint gets an XML doc comment (`/// <summary>`) saying what it does and why it exists, in plain English.
   - Inside methods, comment the *why* and each business rule, naming the PRD id it implements (e.g. `// AC-15.2: send must be within ±2% of the planned amount`).
