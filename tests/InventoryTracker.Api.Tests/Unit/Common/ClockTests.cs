@@ -40,9 +40,15 @@ public class ClockTests
     {
         var clock = new Clock(TimeProvider.System);
 
-        var difference = DateTime.UtcNow - clock.UtcNow;
+        // Read the clock FIRST, then the real time. The clock truncates to the whole second, so its value is never
+        // later than the moment it was read, and the real time read afterwards is never earlier than that moment. So
+        // the difference cannot be negative. Read the other way round, a second boundary passing between the two reads
+        // (real time 12:00:00.9999, clock read at 12:00:01.0001 and reporting 12:00:01) gives a small negative
+        // difference and a test that fails now and then.
+        var clockNow = clock.UtcNow;
+        var realNow = DateTime.UtcNow;
 
-        Assert.InRange(difference, TimeSpan.Zero, TimeSpan.FromSeconds(2));
+        Assert.InRange(realNow - clockNow, TimeSpan.Zero, TimeSpan.FromSeconds(2));
     }
 
     /// <summary>A TimeProvider frozen at one instant, enough for these tests (T-003 adds FakeTimeProvider for moving time).</summary>

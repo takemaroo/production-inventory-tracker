@@ -142,9 +142,10 @@ public sealed class PasswordService(
 
     /// <summary>
     /// Decisions #70 and #71, in sign-in's order (architecture 4.1 item 5), while holding the account's lock: an inactive
-    /// user, or a token whose stamp is out of date, is refused (<c>401</c>); a locked account is refused with <c>account-locked</c> even when the password is
-    /// right, and nothing is counted; a wrong password counts one failure (the fifth in a row locks the account); a
-    /// right one resets the count. Returns the user as read here; the new hash is made from it.
+    /// user, or a token whose stamp is out of date, is refused (<c>401</c>); a locked account is refused with
+    /// <c>account-locked</c> even when the password is right, and nothing is counted; a wrong password counts one
+    /// failure (the fifth in a row locks the account); a right one resets the count. Returns the user as read here; the
+    /// new hash is made from it.
     /// </summary>
     private async Task<AppUser> CheckCurrentPasswordAsync(string userId, string tokenStamp, string currentPassword)
     {

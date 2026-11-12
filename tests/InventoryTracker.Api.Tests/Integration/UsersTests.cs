@@ -27,7 +27,6 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     private const string NewPassword = "Brand-New-Pass-7";
     private const string WeakPasswordMessage =
         "Password must be at least 8 characters and include an upper-case letter, a lower-case letter and a digit.";
-    private const string AccountLockedMessage = "Account temporarily locked. Try again later.";
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
@@ -52,14 +51,13 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [Fact]
     public async Task Creating_a_user_without_a_token_gives_401_and_creates_nothing()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         using var anonymous = factory.CreateClient();
 
         var response = await anonymous.PostAsJsonAsync(UsersPath,
             new { email, password = "Initial2026", roles = new[] { "Manager" } }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Unauthorized, "not-authenticated",
-            "Your sign-in is missing or has expired. Sign in again.");
+        await ApiAssert.NotAuthenticatedAsync(response);
         Assert.False(await UserExistsAsync(factory, email));
     }
 
@@ -68,13 +66,12 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [MemberData(nameof(UserEndpoints))]
     public async Task Every_user_endpoint_gives_401_without_a_token(string method, string path, string? body)
     {
-        var target = await factory.CreateUserAsync(UniqueEmail(), Roles.Warehouse);
+        var target = await factory.CreateUserAsync(Seed.UniqueEmail("users"), Roles.Warehouse);
         using var anonymous = factory.CreateClient();
 
         var response = await SendAsync(anonymous, method, path.Replace("{id}", target.Id), body);
 
-        await AssertProblemAsync(response, HttpStatusCode.Unauthorized, "not-authenticated",
-            "Your sign-in is missing or has expired. Sign in again.");
+        await ApiAssert.NotAuthenticatedAsync(response);
     }
 
     /// <summary>
@@ -85,7 +82,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [MemberData(nameof(UserEndpoints))]
     public async Task Every_user_endpoint_gives_403_without_the_Manager_role(string method, string path, string? body)
     {
-        var target = await factory.CreateUserAsync(UniqueEmail(), Roles.Warehouse);
+        var target = await factory.CreateUserAsync(Seed.UniqueEmail("users"), Roles.Warehouse);
         var stampBefore = await StampAsync(factory, target.Id);
 
         foreach (var roles in new[] { new[] { Roles.Warehouse }, [Roles.Production], [Roles.Warehouse, Roles.Production] })
@@ -93,8 +90,8 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             using var client = await factory.CreateClientAsAsync(roles);
             var response = await SendAsync(client, method, path.Replace("{id}", target.Id), body);
 
-            await AssertProblemAsync(response, HttpStatusCode.Forbidden, "forbidden",
-                "Your roles do not allow this action. It needs the Manager role.");
+            await ApiAssert.ProblemAsync(response, HttpStatusCode.Forbidden, "forbidden",
+                ExpectedMessages.ManagerOnly);
         }
 
         var user = await LoadUserAsync(factory, target.Id);
@@ -118,8 +115,8 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await SendAsync(client, method, UsersPath + path, body);
 
-        await AssertProblemAsync(response, HttpStatusCode.Forbidden, "forbidden",
-            "Your roles do not allow this action. It needs the Manager role.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.Forbidden, "forbidden",
+            ExpectedMessages.ManagerOnly);
     }
 
     /// <summary>AC-01.5: POST /auth/change-password without a token is 401.</summary>
@@ -131,8 +128,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var response = await anonymous.PostAsJsonAsync(ChangePasswordPath,
             new { currentPassword = TestApiFactory.UserPassword, newPassword = NewPassword }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Unauthorized, "not-authenticated",
-            "Your sign-in is missing or has expired. Sign in again.");
+        await ApiAssert.NotAuthenticatedAsync(response);
     }
 
     /// <summary>
@@ -145,7 +141,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [InlineData(Roles.Manager)]
     public async Task Every_role_may_change_its_own_password(string role)
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         await factory.CreateUserAsync(email, role);
         using var client = factory.CreateClientWithToken(await factory.SignInAsync(email));
 
@@ -164,11 +160,11 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Manager_creates_a_user_who_can_sign_in_with_exactly_those_roles()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
 
         var response = await manager.PostAsJsonAsync(UsersPath,
             new { email, password = "Initial2026", roles = new[] { "production", "Warehouse", "PRODUCTION" } }, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var id = body.GetProperty("id").GetString()!;
@@ -197,7 +193,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await manager.PostAsJsonAsync(UsersPath,
             new { email = "  " + stored + " ", password = "Initial2026", roles = new[] { "Warehouse" } }, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.Equal(stored, body.GetProperty("email").GetString());
@@ -222,7 +218,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var second = await manager.PostAsJsonAsync(UsersPath,
             new { email = " ana@example.com ", password = "Initial2026", roles = new[] { "Manager" } }, Cancel);
 
-        await AssertProblemAsync(second, HttpStatusCode.Conflict, "email-taken", "A user with this email already exists.");
+        await ApiAssert.ProblemAsync(second, HttpStatusCode.Conflict, "email-taken", "A user with this email already exists.");
         Assert.Equal(1, await CountUsersAsync(factory, "ANA@EXAMPLE.COM"));
     }
 
@@ -234,7 +230,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Simultaneous_creates_for_one_email_give_one_201_and_one_409()
     {
         var token = await ManagerTokenAsync(factory);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var clients = Enumerable.Range(0, 2).Select(_ => factory.CreateClientWithToken(token)).ToList();
 
         var responses = await Task.WhenAll(clients.Select((client, index) => client.PostAsJsonAsync(UsersPath,
@@ -243,7 +239,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         Assert.Equal([HttpStatusCode.Created, HttpStatusCode.Conflict], responses.Select(response => response.StatusCode).Order());
         var conflict = responses.Single(response => response.StatusCode == HttpStatusCode.Conflict);
-        Assert.Equal("email-taken", (await ReadJsonAsync(conflict)).GetProperty("code").GetString());
+        Assert.Equal("email-taken", (await ApiJson.ReadAsync(conflict)).GetProperty("code").GetString());
         Assert.Equal(1, await CountUsersAsync(factory, email.ToUpperInvariant()));
         clients.ForEach(client => client.Dispose());
     }
@@ -268,7 +264,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Invalid_create_input_gives_400_validation(string json, string path, string message)
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var usersBefore = await CountUsersAsync(factory);
 
         // 245 + 12 = 257 characters: one more than Identity's 256-character Email and UserName columns.
@@ -276,7 +272,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var response = await SendAsync(manager, "POST", UsersPath,
             json.Replace("{email}", email).Replace("{long-email}", tooLong));
 
-        var body = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation", message);
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation", message);
         Assert.Equal([message], body.GetProperty("errors").GetProperty(path).EnumerateArray().Select(item => item.GetString()));
         Assert.Equal(usersBefore, await CountUsersAsync(factory));
     }
@@ -292,12 +288,12 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task A_null_body_gives_400(string method, string path)
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var user = await factory.CreateUserAsync(UniqueEmail(), Roles.Warehouse);
+        var user = await factory.CreateUserAsync(Seed.UniqueEmail("users"), Roles.Warehouse);
 
         var response = await SendAsync(manager, method, UsersPath + path.Replace("{id}", user.Id), "null");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("validation", (await ReadJsonAsync(response)).GetProperty("code").GetString());
+        Assert.Equal("validation", (await ApiJson.ReadAsync(response)).GetProperty("code").GetString());
     }
 
     /// <summary>Design 6: several input problems are reported together, joined with a space in detail.</summary>
@@ -309,7 +305,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var response = await manager.PostAsJsonAsync(UsersPath,
             new { email = "bad email", password = "Initial2026", roles = Array.Empty<string>() }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation",
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation",
             "Email is not a valid email address. At least one role is required.");
     }
 
@@ -325,11 +321,11 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Weak_initial_password_gives_400_weak_password(string password)
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
 
         var response = await manager.PostAsJsonAsync(UsersPath, new { email, password, roles = new[] { "Warehouse" } }, Cancel);
 
-        var body = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "weak-password", WeakPasswordMessage);
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "weak-password", WeakPasswordMessage);
         Assert.True(body.GetProperty("errors").TryGetProperty("password", out _));
         Assert.False(await UserExistsAsync(factory, email));
     }
@@ -339,13 +335,13 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Input_problems_come_before_the_duplicate_check()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         await factory.CreateUserAsync(email, Roles.Warehouse);
 
         var response = await manager.PostAsJsonAsync(UsersPath,
             new { email, password = "Initial2026", roles = new[] { "Nobody" } }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation",
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation",
             "Unknown role 'Nobody'. Roles are Warehouse, Production and Manager.");
     }
 
@@ -368,7 +364,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         Assert.Equal(HttpStatusCode.OK, (await manager.PostAsync($"{UsersPath}/{newer.Id}/deactivate", null, Cancel)).StatusCode);
 
         var response = await manager.GetAsync(UsersPath, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(1, body.GetProperty("page").GetInt32());
@@ -386,7 +382,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         Assert.Equal(["Manager"], RoleNames(items[2]));
         Assert.Equal("2026-11-11T08:02:00Z", items[0].GetProperty("createdAt").GetString());
 
-        var secondPage = await ReadJsonAsync(await manager.GetAsync($"{UsersPath}?page=2&pageSize=2", Cancel));
+        var secondPage = await ApiJson.ReadAsync(await manager.GetAsync($"{UsersPath}?page=2&pageSize=2", Cancel));
         Assert.Equal([TestApiFactory.AdminEmail],
             secondPage.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("email").GetString()));
     }
@@ -399,7 +395,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await manager.GetAsync($"{UsersPath}?pageSize=101", Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation", "pageSize must be between 1 and 100.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation", "pageSize must be between 1 and 100.");
     }
 
     /// <summary>
@@ -410,10 +406,10 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task No_user_response_contains_a_password_or_hash()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         const string password = "Secret-Initial-2026";
         var created = await manager.PostAsJsonAsync(UsersPath, new { email, password, roles = new[] { "Warehouse" } }, Cancel);
-        var id = (await ReadJsonAsync(created)).GetProperty("id").GetString()!;
+        var id = (await ApiJson.ReadAsync(created)).GetProperty("id").GetString()!;
         var hash = (await LoadUserAsync(factory, id)).PasswordHash!;
 
         var responses = new List<HttpResponseMessage>
@@ -442,11 +438,11 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Manager_reads_one_user()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Production, Roles.Manager);
 
         var response = await manager.GetAsync($"{UsersPath}/{user.Id}", Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(user.Id, body.GetProperty("id").GetString());
@@ -471,7 +467,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await SendAsync(manager, method, UsersPath + path.Replace("{id}", "no-such-user"), body);
 
-        await AssertProblemAsync(response, HttpStatusCode.NotFound, "not-found", "User not found.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.NotFound, "not-found", "User not found.");
     }
 
     /// <summary>AC-03.6 and design 4: users are never deleted; DELETE /users/{id} is 405 and the user remains.</summary>
@@ -479,7 +475,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Users_cannot_be_deleted()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var user = await factory.CreateUserAsync(UniqueEmail(), Roles.Warehouse);
+        var user = await factory.CreateUserAsync(Seed.UniqueEmail("users"), Roles.Warehouse);
 
         var response = await manager.DeleteAsync($"{UsersPath}/{user.Id}", Cancel);
 
@@ -498,13 +494,13 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Removing_a_role_leaves_the_old_token_working_with_its_old_roles()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse, Roles.Manager);
         using var oldSession = factory.CreateClientWithToken(await factory.SignInAsync(email));
         var stampBefore = await StampAsync(factory, user.Id);
 
         var response = await manager.PutAsJsonAsync($"{UsersPath}/{user.Id}/roles", new { roles = new[] { "Warehouse" } }, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(["Warehouse"], RoleNames(body));
@@ -530,7 +526,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Adding_a_role_applies_from_the_next_sign_in()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         using var oldSession = factory.CreateClientWithToken(await factory.SignInAsync(email));
         var stampBefore = await StampAsync(factory, user.Id);
@@ -539,7 +535,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             new { roles = new[] { "manager", "Warehouse" } }, Cancel);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(["Warehouse", "Manager"], RoleNames(await ReadJsonAsync(response)));
+        Assert.Equal(["Warehouse", "Manager"], RoleNames(await ApiJson.ReadAsync(response)));
         Assert.Equal(stampBefore, await StampAsync(factory, user.Id));
         Assert.Equal(HttpStatusCode.Forbidden, (await oldSession.GetAsync(UsersPath, Cancel)).StatusCode);
 
@@ -558,11 +554,11 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Invalid_role_change_gives_400_and_changes_nothing(string json, string path, string message)
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var user = await factory.CreateUserAsync(UniqueEmail(), Roles.Warehouse);
+        var user = await factory.CreateUserAsync(Seed.UniqueEmail("users"), Roles.Warehouse);
 
         var response = await SendAsync(manager, "PUT", $"{UsersPath}/{user.Id}/roles", json);
 
-        var body = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation", message);
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation", message);
         Assert.True(body.GetProperty("errors").TryGetProperty(path, out _));
         Assert.Equal([Roles.Warehouse], await RolesInDatabaseAsync(factory, user.Id));
     }
@@ -577,7 +573,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Deactivation_ends_existing_tokens_and_reactivation_allows_sign_in_again()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         using var oldSession = factory.CreateClientWithToken(await factory.SignInAsync(email));
         // Before: the token works (a wrong current password reaches the service and gets 400, not 401).
@@ -585,13 +581,12 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             (await ChangePasswordAsync(oldSession, "Wrong-Current-1", NewPassword)).StatusCode);
 
         var deactivated = await manager.PostAsync($"{UsersPath}/{user.Id}/deactivate", null, Cancel);
-        var body = await ReadJsonAsync(deactivated);
+        var body = await ApiJson.ReadAsync(deactivated);
 
         Assert.Equal(HttpStatusCode.OK, deactivated.StatusCode);
         Assert.False(body.GetProperty("isActive").GetBoolean());
         Assert.Equal(["Warehouse"], RoleNames(body));
-        await AssertProblemAsync(await ChangePasswordAsync(oldSession, TestApiFactory.UserPassword, NewPassword),
-            HttpStatusCode.Unauthorized, "not-authenticated", "Your sign-in is missing or has expired. Sign in again.");
+        await ApiAssert.NotAuthenticatedAsync(await ChangePasswordAsync(oldSession, TestApiFactory.UserPassword, NewPassword));
         var (refusedStatus, refused) = await SignInRawAsync(email, TestApiFactory.UserPassword);
         Assert.Equal(HttpStatusCode.Unauthorized, refusedStatus);
         Assert.Equal("invalid-credentials", refused.GetProperty("code").GetString());
@@ -599,7 +594,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var reactivated = await manager.PostAsync($"{UsersPath}/{user.Id}/reactivate", null, Cancel);
 
         Assert.Equal(HttpStatusCode.OK, reactivated.StatusCode);
-        Assert.True((await ReadJsonAsync(reactivated)).GetProperty("isActive").GetBoolean());
+        Assert.True((await ApiJson.ReadAsync(reactivated)).GetProperty("isActive").GetBoolean());
         var (status, _) = await SignInRawAsync(email, TestApiFactory.UserPassword);
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal(HttpStatusCode.Unauthorized,
@@ -614,12 +609,12 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Deactivate_and_reactivate_are_idempotent()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var user = await factory.CreateUserAsync(UniqueEmail(), Roles.Production);
+        var user = await factory.CreateUserAsync(Seed.UniqueEmail("users"), Roles.Production);
 
         var stampWhileActive = await StampAsync(factory, user.Id);
         var reactivateActive = await manager.PostAsync($"{UsersPath}/{user.Id}/reactivate", null, Cancel);
         Assert.Equal(HttpStatusCode.OK, reactivateActive.StatusCode);
-        Assert.True((await ReadJsonAsync(reactivateActive)).GetProperty("isActive").GetBoolean());
+        Assert.True((await ApiJson.ReadAsync(reactivateActive)).GetProperty("isActive").GetBoolean());
         Assert.Equal(stampWhileActive, await StampAsync(factory, user.Id));
 
         Assert.Equal(HttpStatusCode.OK, (await manager.PostAsync($"{UsersPath}/{user.Id}/deactivate", null, Cancel)).StatusCode);
@@ -628,7 +623,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var again = await manager.PostAsync($"{UsersPath}/{user.Id}/deactivate", null, Cancel);
         Assert.Equal(HttpStatusCode.OK, again.StatusCode);
-        Assert.False((await ReadJsonAsync(again)).GetProperty("isActive").GetBoolean());
+        Assert.False((await ApiJson.ReadAsync(again)).GetProperty("isActive").GetBoolean());
         Assert.Equal(stampAfterFirst, await StampAsync(factory, user.Id));
     }
 
@@ -642,7 +637,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Manager_sets_a_new_password_for_a_user()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         using var oldSession = factory.CreateClientWithToken(await factory.SignInAsync(email));
 
@@ -662,13 +657,13 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Manager_setting_an_invalid_password_gives_400(string json, string code, string message)
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         var stampBefore = await StampAsync(factory, user.Id);
 
         var response = await SendAsync(manager, "PUT", $"{UsersPath}/{user.Id}/password", json);
 
-        var body = await AssertProblemAsync(response, HttpStatusCode.BadRequest, code, message);
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, code, message);
         Assert.True(body.GetProperty("errors").TryGetProperty("newPassword", out _));
         Assert.Equal(stampBefore, await StampAsync(factory, user.Id));
         Assert.Equal(HttpStatusCode.OK, (await SignInRawAsync(email, TestApiFactory.UserPassword)).Status);
@@ -692,8 +687,8 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var removeRole = await admin.PutAsJsonAsync($"{UsersPath}/{adminId}/roles", new { roles = new[] { "Warehouse" } }, Cancel);
         var deactivate = await admin.PostAsync($"{UsersPath}/{adminId}/deactivate", null, Cancel);
 
-        await AssertProblemAsync(removeRole, HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
-        await AssertProblemAsync(deactivate, HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
+        await ApiAssert.ProblemAsync(removeRole, HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
+        await ApiAssert.ProblemAsync(deactivate, HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
         var stored = await LoadUserAsync(app, adminId);
         Assert.True(stored.IsActive);
         Assert.Equal(stampBefore, stored.SecurityStamp);
@@ -715,7 +710,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var removeRole = await admin.PutAsJsonAsync($"{UsersPath}/{adminId}/roles", new { roles = new[] { "Production" } }, Cancel);
 
-        await AssertProblemAsync(removeRole, HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
+        await ApiAssert.ProblemAsync(removeRole, HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
 
         // Changing an inactive Manager's roles is allowed: it does not reduce the number of active Managers.
         var removeFromInactive = await admin.PutAsJsonAsync($"{UsersPath}/{second.Id}/roles", new { roles = new[] { "Warehouse" } }, Cancel);
@@ -764,7 +759,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var removeOwn = await admin.PutAsJsonAsync($"{UsersPath}/{adminId}/roles", new { roles = new[] { "Warehouse" } }, Cancel);
 
         Assert.Equal(HttpStatusCode.OK, removeOwn.StatusCode);
-        Assert.Equal(["Warehouse"], RoleNames(await ReadJsonAsync(removeOwn)));
+        Assert.Equal(["Warehouse"], RoleNames(await ApiJson.ReadAsync(removeOwn)));
         Assert.Equal([Roles.Warehouse], await RolesInDatabaseAsync(app, adminId));
         Assert.Equal(stampBefore, await StampAsync(app, adminId));
 
@@ -773,7 +768,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         // ... and the rule now counts only the one remaining active Manager, whoever asks (AC-03.8).
         var removeLast = await admin.PutAsJsonAsync($"{UsersPath}/{other.Id}/roles", new { roles = new[] { "Production" } }, Cancel);
-        await AssertProblemAsync(removeLast, HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
+        await ApiAssert.ProblemAsync(removeLast, HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
         Assert.Equal([Roles.Manager], await RolesInDatabaseAsync(app, other.Id));
 
         // The next sign-in has the new roles only, so the Manager-only endpoint is now refused.
@@ -841,7 +836,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         }
 
         Assert.Equal(HttpStatusCode.OK, responses[0].StatusCode);
-        await AssertProblemAsync(responses[1], HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
+        await ApiAssert.ProblemAsync(responses[1], HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
         Assert.Equal(1, await CountActiveManagersAsync(app));
         Assert.True((await LoadUserAsync(app, other.Id)).IsActive);
     }
@@ -856,7 +851,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [Fact]
     public async Task Changing_own_password_replaces_it_and_ends_existing_tokens()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         await factory.CreateUserAsync(email, Roles.Production);
         using var session = factory.CreateClientWithToken(await factory.SignInAsync(email));
 
@@ -865,8 +860,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await SignInRawAsync(email, TestApiFactory.UserPassword)).Status);
         Assert.Equal(HttpStatusCode.OK, (await SignInRawAsync(email, NewPassword)).Status);
-        await AssertProblemAsync(await ChangePasswordAsync(session, NewPassword, "Another-Pass-8"),
-            HttpStatusCode.Unauthorized, "not-authenticated", "Your sign-in is missing or has expired. Sign in again.");
+        await ApiAssert.NotAuthenticatedAsync(await ChangePasswordAsync(session, NewPassword, "Another-Pass-8"));
     }
 
     /// <summary>
@@ -876,14 +870,14 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [Fact]
     public async Task Wrong_current_password_gives_400_and_changes_nothing()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         using var session = factory.CreateClientWithToken(await factory.SignInAsync(email));
         var stampBefore = await StampAsync(factory, user.Id);
 
         var response = await ChangePasswordAsync(session, "Not-My-Password-1", NewPassword);
 
-        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "current-password-incorrect", "Current password is incorrect.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "current-password-incorrect", "Current password is incorrect.");
         Assert.Equal(stampBefore, await StampAsync(factory, user.Id));
         Assert.Equal(HttpStatusCode.OK, (await SignInRawAsync(email, TestApiFactory.UserPassword)).Status);
         Assert.Equal(HttpStatusCode.Unauthorized, (await SignInRawAsync(email, NewPassword)).Status);
@@ -902,14 +896,14 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [InlineData("""{ }""", "validation", "Current password is required. New password is required.")]
     public async Task Invalid_change_password_input_gives_400(string json, string code, string message)
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         using var session = factory.CreateClientWithToken(await factory.SignInAsync(email));
         var stampBefore = await StampAsync(factory, user.Id);
 
         var response = await SendAsync(session, "POST", ChangePasswordPath, json);
 
-        await AssertProblemAsync(response, HttpStatusCode.BadRequest, code, message);
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, code, message);
         Assert.Equal(stampBefore, await StampAsync(factory, user.Id));
         Assert.Equal(HttpStatusCode.OK, (await SignInRawAsync(email, TestApiFactory.UserPassword)).Status);
     }
@@ -925,13 +919,13 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [Fact]
     public async Task Five_wrong_current_passwords_lock_the_account()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         using var session = factory.CreateClientWithToken(await factory.SignInAsync(email));
 
         for (var attempt = 1; attempt <= 5; attempt++)
         {
-            await AssertProblemAsync(await ChangePasswordAsync(session, $"Wrong-Guess-{attempt}", NewPassword),
+            await ApiAssert.ProblemAsync(await ChangePasswordAsync(session, $"Wrong-Guess-{attempt}", NewPassword),
                 HttpStatusCode.BadRequest, "current-password-incorrect", "Current password is incorrect.");
         }
 
@@ -942,7 +936,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         foreach (var response in new[] { signIn, change })
         {
-            await AssertProblemAsync(response, HttpStatusCode.Unauthorized, "account-locked", AccountLockedMessage);
+            await ApiAssert.ProblemAsync(response, HttpStatusCode.Unauthorized, "account-locked", ExpectedMessages.AccountLocked);
             Assert.Equal("Bearer", response.Headers.WwwAuthenticate.ToString());
         }
 
@@ -956,7 +950,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [Fact]
     public async Task Sign_in_failures_and_wrong_current_passwords_add_up()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         await factory.CreateUserAsync(email, Roles.Production);
         using var session = factory.CreateClientWithToken(await factory.SignInAsync(email));
 
@@ -979,7 +973,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [Fact]
     public async Task Simultaneous_wrong_current_passwords_count_exactly_five()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         var token = await factory.SignInAsync(email);
         var clients = Enumerable.Range(0, 10).Select(_ => factory.CreateClientWithToken(token)).ToList();
@@ -990,7 +984,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var codes = new List<string?>();
         foreach (var response in responses)
         {
-            codes.Add((await ReadJsonAsync(response)).GetProperty("code").GetString());
+            codes.Add((await ApiJson.ReadAsync(response)).GetProperty("code").GetString());
         }
 
         Assert.Equal(5, codes.Count(code => code == "current-password-incorrect"));
@@ -1006,7 +1000,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [Fact]
     public async Task A_correct_current_password_resets_the_failure_count()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         using var session = factory.CreateClientWithToken(await factory.SignInAsync(email));
         for (var attempt = 1; attempt <= 4; attempt++)
@@ -1018,7 +1012,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var weak = await ChangePasswordAsync(session, TestApiFactory.UserPassword, "weakpass");
 
-        await AssertProblemAsync(weak, HttpStatusCode.BadRequest, "weak-password", WeakPasswordMessage);
+        await ApiAssert.ProblemAsync(weak, HttpStatusCode.BadRequest, "weak-password", WeakPasswordMessage);
         Assert.Equal(0, (await LoadUserAsync(factory, user.Id)).AccessFailedCount);
         for (var attempt = 5; attempt <= 8; attempt++)
         {
@@ -1039,7 +1033,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task A_Manager_reset_clears_the_lock_out()
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         for (var attempt = 1; attempt <= 5; attempt++)
         {
@@ -1171,8 +1165,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             hasher.Release();
         }
 
-        await AssertProblemAsync(response, HttpStatusCode.Unauthorized, "not-authenticated",
-            "Your sign-in is missing or has expired. Sign in again.");
+        await ApiAssert.NotAuthenticatedAsync(response);
         if (interference == "deactivate")
         {
             Assert.Equal(HttpStatusCode.OK, (await manager.PostAsync($"{userPath}/reactivate", null, Cancel)).StatusCode);
@@ -1185,11 +1178,9 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
     // ---- helpers ---------------------------------------------------------------------------------------------
 
-    private static string UniqueEmail() => $"users-{Guid.NewGuid():N}@inventory.test";
-
     private static async Task<string> ManagerTokenAsync(TestApiFactory app)
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("users");
         await app.CreateUserAsync(email, Roles.Manager);
         return await app.SignInAsync(email);
     }
@@ -1206,7 +1197,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     {
         using var client = app.CreateClient();
         var response = await client.PostAsJsonAsync(SignInPath, new { email, password }, Cancel);
-        return (response.StatusCode, await ReadJsonAsync(response));
+        return (response.StatusCode, await ApiJson.ReadAsync(response));
     }
 
     private static async Task<HttpResponseMessage> SendAsync(HttpClient client, string method, string path, string? json)
@@ -1214,7 +1205,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
         if (json is not null)
         {
-            request.Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            request.Content = ApiJson.Content(json);
         }
 
         return await client.SendAsync(request, Cancel);
@@ -1270,40 +1261,6 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
                       join user in db.Users on userRole.UserId equals user.Id
                       where role.Name == Roles.Manager && user.IsActive
                       select user.Id).CountAsync(Cancel);
-    }
-
-    private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response)
-    {
-        var text = await response.Content.ReadAsStringAsync(Cancel);
-        if (string.IsNullOrEmpty(text))
-        {
-            return default;
-        }
-
-        using var document = JsonDocument.Parse(text);
-        return document.RootElement.Clone();
-    }
-
-    /// <summary>Checks the design 6 error body: status, title, code, detail, traceId and content type.</summary>
-    private static async Task<JsonElement> AssertProblemAsync(HttpResponseMessage response, HttpStatusCode status, string code, string detail)
-    {
-        var body = await ReadJsonAsync(response);
-        Assert.Equal(status, response.StatusCode);
-        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        Assert.Equal((int)status, body.GetProperty("status").GetInt32());
-        var title = status switch
-        {
-            HttpStatusCode.BadRequest => "Invalid request",
-            HttpStatusCode.Unauthorized => "Not signed in",
-            HttpStatusCode.Forbidden => "Not allowed",
-            HttpStatusCode.NotFound => "Not found",
-            _ => "Conflict with current state",
-        };
-        Assert.Equal(title, body.GetProperty("title").GetString());
-        Assert.Equal(code, body.GetProperty("code").GetString());
-        Assert.Equal(detail, body.GetProperty("detail").GetString());
-        Assert.False(string.IsNullOrEmpty(body.GetProperty("traceId").GetString()));
-        return body;
     }
 
     /// <summary>

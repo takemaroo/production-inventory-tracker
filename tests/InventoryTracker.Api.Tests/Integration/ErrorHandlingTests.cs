@@ -31,7 +31,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await GetAsync("/test-probe/not-found");
 
-        AssertProblem(response, body, HttpStatusCode.NotFound, "Not found", "not-found", "Order #99 not found.");
+        ApiAssert.Problem(response, body, HttpStatusCode.NotFound, "Not found", "not-found", "Order #99 not found.");
         Assert.False(body.TryGetProperty("errors", out _));
     }
 
@@ -41,7 +41,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await GetAsync("/test-probe/conflict");
 
-        AssertProblem(response, body, HttpStatusCode.Conflict, "Conflict with current state", "another-order-in-production",
+        ApiAssert.Problem(response, body, HttpStatusCode.Conflict, "Conflict with current state", "another-order-in-production",
             "Order #11 is in production. Only one order can be in production at a time.");
     }
 
@@ -54,11 +54,10 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await GetAsync("/test-probe/validation");
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
             "Quantity must be greater than 0. Item 42 does not exist.");
-        var errors = body.GetProperty("errors");
-        Assert.Equal(new[] { "Quantity must be greater than 0." }, Messages(errors, "quantity"));
-        Assert.Equal(new[] { "Item 42 does not exist." }, Messages(errors, "lines[1].itemId"));
+        Assert.Equal(new[] { "Quantity must be greater than 0." }, ApiJson.Messages(body, "quantity"));
+        Assert.Equal(new[] { "Item 42 does not exist." }, ApiJson.Messages(body, "lines[1].itemId"));
     }
 
     /// <summary>Architecture 6: a BadRequestException gives 400 with its own code and no errors field.</summary>
@@ -67,7 +66,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await GetAsync("/test-probe/bad-request");
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "receipt-not-raw-material",
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "receipt-not-raw-material",
             "Receipts are for raw materials only.");
         Assert.False(body.TryGetProperty("errors", out _));
     }
@@ -118,7 +117,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await GetAsync($"/test-probe/database/{kind}");
 
-        AssertProblem(response, body, HttpStatusCode.Conflict, "Conflict with current state", "concurrent-change",
+        ApiAssert.Problem(response, body, HttpStatusCode.Conflict, "Conflict with current state", "concurrent-change",
             "The data changed while your request was being processed. Read it again and retry.");
         Assert.DoesNotContain("UNIQUE", body.GetRawText());
         Assert.Contains(factory.Logs.Entries, entry =>
@@ -140,7 +139,8 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await GetAsync($"/test-probe/database/{kind}");
 
-        AssertProblem(response, body, HttpStatusCode.InternalServerError, null, "internal-error", "An unexpected error occurred.");
+        ApiAssert.Problem(response, body, HttpStatusCode.InternalServerError, ApiAssert.NoTitleCheck, "internal-error",
+            "An unexpected error occurred.");
         Assert.DoesNotContain("constraint", body.GetRawText(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains(factory.Logs.Entries, entry =>
             entry.Level == LogLevel.Error &&
@@ -154,7 +154,8 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await GetAsync("/test-probe/database/none");
 
-        AssertProblem(response, body, HttpStatusCode.InternalServerError, null, "internal-error", "An unexpected error occurred.");
+        ApiAssert.Problem(response, body, HttpStatusCode.InternalServerError, ApiAssert.NoTitleCheck, "internal-error",
+            "An unexpected error occurred.");
         Assert.Contains(factory.Logs.Entries, entry =>
             entry.Level == LogLevel.Error && entry.Exception is DbUpdateException { InnerException: null });
     }
@@ -169,9 +170,9 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
         var client = await SignedInClientAsync();
 
         var response = await client.GetAsync("/api/v1/no-such-resource", Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
-        AssertProblem(response, body, HttpStatusCode.NotFound, "Not found", "not-found", "No endpoint matches this path.");
+        ApiAssert.Problem(response, body, HttpStatusCode.NotFound, "Not found", "not-found", "No endpoint matches this path.");
     }
 
     /// <summary>
@@ -187,10 +188,10 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
 
         var response = await client.SendAsync(request, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
-        AssertProblem(response, body, HttpStatusCode.Unauthorized, "Not signed in", "not-authenticated",
-            "Your sign-in is missing or has expired. Sign in again.");
+        ApiAssert.Problem(response, body, HttpStatusCode.Unauthorized, "Not signed in", "not-authenticated",
+            ExpectedMessages.NotAuthenticated);
         Assert.Equal("Bearer", response.Headers.WwwAuthenticate.ToString());
     }
 
@@ -204,7 +205,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
         var client = await SignedInClientAsync();
 
         var response = await client.DeleteAsync("/test-probe/not-found", Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -223,7 +224,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await PostJsonAsync(json);
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
             "The request body is not valid JSON.");
     }
 
@@ -236,8 +237,8 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await PostJsonAsync("""{ "quantity": "12.5", "name": "x" }""");
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", "quantity has the wrong type.");
-        Assert.Equal(new[] { "quantity has the wrong type." }, Messages(body.GetProperty("errors"), "quantity"));
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", "quantity has the wrong type.");
+        Assert.Equal(new[] { "quantity has the wrong type." }, ApiJson.Messages(body, "quantity"));
         Assert.DoesNotContain("System.Decimal", body.GetRawText());
     }
 
@@ -253,8 +254,8 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
         var (response, body) = await PostJsonAsync(json);
 
         var message = $"{path} has the wrong type.";
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", message);
-        Assert.Equal(new[] { message }, Messages(body.GetProperty("errors"), path));
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", message);
+        Assert.Equal(new[] { message }, ApiJson.Messages(body, path));
     }
 
     /// <summary>Design 6: a wrong type inside a list is keyed by its full JSON path, for example lines[1].quantity.</summary>
@@ -263,9 +264,9 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await PostJsonAsync("""{ "quantity": 1, "lines": [ { "quantity": 2 }, { "quantity": true } ] }""");
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
             "lines[1].quantity has the wrong type.");
-        Assert.Equal(new[] { "lines[1].quantity has the wrong type." }, Messages(body.GetProperty("errors"), "lines[1].quantity"));
+        Assert.Equal(new[] { "lines[1].quantity has the wrong type." }, ApiJson.Messages(body, "lines[1].quantity"));
     }
 
     /// <summary>Architecture 4.1 item 2: a body of the wrong kind altogether (an array for an object) is refused as a wrong type.</summary>
@@ -274,7 +275,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await PostJsonAsync("[1, 2]");
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
             "The request body has the wrong type.");
     }
 
@@ -284,7 +285,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await PostJsonAsync("");
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", "A request body is required.");
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", "A request body is required.");
     }
 
     /// <summary>
@@ -307,7 +308,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
 
         var response = await client.PostAsync("/test-probe/body",
             new StringContent("quantity=1", Encoding.UTF8, "text/plain"), Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -335,9 +336,11 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
         request.Headers.Accept.ParseAdd("text/html");
 
         var response = await client.SendAsync(request, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
-        AssertProblem(response, body, status, title, code, detail);
+        // The 405 row has no fixed title (design 6), marked null in its data; null stays in the data row because the
+        // test's displayed name includes it. Here it becomes the explicit "skip the title check" value.
+        ApiAssert.Problem(response, body, status, title ?? ApiAssert.NoTitleCheck, code, detail);
     }
 
     /// <summary>
@@ -379,8 +382,8 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await GetAsync($"/test-probe/paging?{query}");
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", message);
-        Assert.Equal(new[] { message }, Messages(body.GetProperty("errors"), field));
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", message);
+        Assert.Equal(new[] { message }, ApiJson.Messages(body, field));
     }
 
     /// <summary>T-001 AC 6 and design 6: both paging errors are reported together, joined with a space in detail.</summary>
@@ -389,7 +392,7 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var (response, body) = await GetAsync("/test-probe/paging?page=0&pageSize=500");
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
             "page must be 1 or greater. pageSize must be between 1 and 100.");
     }
 
@@ -424,43 +427,13 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     {
         var client = factory.CreateClient();
         var response = await client.GetAsync(path, Cancel);
-        return (response, await ReadJsonAsync(response));
+        return (response, await ApiJson.ReadAsync(response));
     }
 
     private async Task<(HttpResponseMessage Response, JsonElement Body)> PostJsonAsync(string json)
     {
         var client = factory.CreateClient();
-        var response = await client.PostAsync("/test-probe/body",
-            new StringContent(json, Encoding.UTF8, "application/json"), Cancel);
-        return (response, await ReadJsonAsync(response));
+        var response = await client.PostAsync("/test-probe/body", ApiJson.Content(json), Cancel);
+        return (response, await ApiJson.ReadAsync(response));
     }
-
-    private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response)
-    {
-        var text = await response.Content.ReadAsStringAsync(Cancel);
-        using var document = JsonDocument.Parse(text);
-        return document.RootElement.Clone();
-    }
-
-    /// <summary>Checks the fields every design 6 error body has.</summary>
-    /// <param name="title">The design 6 fixed title, or null for statuses that keep the framework's default title.</param>
-    private static void AssertProblem(HttpResponseMessage response, JsonElement body,
-        HttpStatusCode status, string? title, string code, string detail)
-    {
-        Assert.Equal(status, response.StatusCode);
-        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        Assert.Equal((int)status, body.GetProperty("status").GetInt32());
-        Assert.False(string.IsNullOrEmpty(body.GetProperty("type").GetString()));
-        if (title is not null)
-        {
-            Assert.Equal(title, body.GetProperty("title").GetString());
-        }
-
-        Assert.Equal(code, body.GetProperty("code").GetString());
-        Assert.Equal(detail, body.GetProperty("detail").GetString());
-        Assert.False(string.IsNullOrEmpty(body.GetProperty("traceId").GetString()));
-    }
-
-    private static string[] Messages(JsonElement errors, string path) =>
-        errors.GetProperty(path).EnumerateArray().Select(message => message.GetString()!).ToArray();
 }

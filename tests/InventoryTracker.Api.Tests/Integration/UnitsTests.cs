@@ -1,14 +1,11 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Domain;
 using InventoryTracker.Api.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -24,8 +21,6 @@ namespace InventoryTracker.Api.Tests.Integration;
 public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 {
     private const string UnitsPath = "/api/v1/units";
-    private const string NotAuthenticatedMessage = "Your sign-in is missing or has expired. Sign in again.";
-    private const string ManagerOnlyMessage = "Your roles do not allow this action. It needs the Manager role.";
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
@@ -39,10 +34,10 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Manager_creates_a_unit_with_a_trimmed_name()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var name = UniqueName("kg");
+        var name = Seed.UniqueName("kg");
 
         var response = await manager.PostAsJsonAsync(UnitsPath, new { name = $"  {name}  " }, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var id = body.GetProperty("id").GetInt32();
@@ -52,7 +47,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var read = await manager.GetAsync(response.Headers.Location, Cancel);
         Assert.Equal(HttpStatusCode.OK, read.StatusCode);
-        Assert.Equal(body.GetRawText(), (await ReadJsonAsync(read)).GetRawText());
+        Assert.Equal(body.GetRawText(), (await ApiJson.ReadAsync(read)).GetRawText());
     }
 
     /// <summary>
@@ -63,17 +58,17 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Name_of_50_characters_is_accepted_and_51_is_rejected()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var fifty = UniqueName("u").PadRight(50, 'x');
-        var fiftyOne = UniqueName("u").PadRight(51, 'x');
+        var fifty = Seed.UniqueName("u").PadRight(50, 'x');
+        var fiftyOne = Seed.UniqueName("u").PadRight(51, 'x');
 
         var accepted = await manager.PostAsJsonAsync(UnitsPath, new { name = $"   {fifty}   " }, Cancel);
         var oneLetter = await manager.PostAsJsonAsync(UnitsPath, new { name = UniqueLetter() }, Cancel);
         var rejected = await manager.PostAsJsonAsync(UnitsPath, new { name = fiftyOne }, Cancel);
 
         Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
-        Assert.Equal(fifty, (await ReadJsonAsync(accepted)).GetProperty("name").GetString());
+        Assert.Equal(fifty, (await ApiJson.ReadAsync(accepted)).GetProperty("name").GetString());
         Assert.Equal(HttpStatusCode.Created, oneLetter.StatusCode);
-        await AssertValidationAsync(rejected, "name", "Name must be 50 characters or fewer.");
+        await ApiAssert.ValidationAsync(rejected, "name", "Name must be 50 characters or fewer.");
         Assert.Equal(0, await CountUnitsNamedAsync(fiftyOne));
     }
 
@@ -88,9 +83,9 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
         var before = await CountUnitsAsync();
 
-        var response = await manager.PostAsync(UnitsPath, Json(json), Cancel);
+        var response = await manager.PostAsync(UnitsPath, ApiJson.Content(json), Cancel);
 
-        await AssertValidationAsync(response, "name", "Name is required.");
+        await ApiAssert.ValidationAsync(response, "name", "Name is required.");
         Assert.Equal(before, await CountUnitsAsync());
     }
 
@@ -102,12 +97,12 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Duplicate_name_ignoring_case_is_rejected()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var name = UniqueName("Bag");
-        await CreateUnitAsync(manager, name);
+        var name = Seed.UniqueName("Bag");
+        await Seed.CreateUnitAsync(manager, name);
 
         var response = await manager.PostAsJsonAsync(UnitsPath, new { name = $" {name.ToUpperInvariant()} " }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Conflict, "unit-name-taken",
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.Conflict, "unit-name-taken",
             $"A unit named '{name.ToUpperInvariant()}' already exists.");
         Assert.Equal(1, await CountUnitsNamedAsync(name));
     }
@@ -123,7 +118,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     {
         var first = await factory.CreateClientAsAsync(Roles.Manager);
         var second = await factory.CreateClientAsAsync(Roles.Manager);
-        var name = UniqueName("race");
+        var name = Seed.UniqueName("race");
 
         var responses = await Task.WhenAll(
             first.PostAsJsonAsync(UnitsPath, new { name }, Cancel),
@@ -131,7 +126,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
         var loser = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
-        Assert.Equal("unit-name-taken", (await ReadJsonAsync(loser)).GetProperty("code").GetString());
+        Assert.Equal("unit-name-taken", (await ApiJson.ReadAsync(loser)).GetProperty("code").GetString());
         Assert.Equal(1, await CountUnitsNamedAsync(name));
     }
 
@@ -145,7 +140,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [Fact]
     public async Task Duplicate_that_gets_past_the_check_is_409_concurrent_change_and_saves_nothing()
     {
-        var name = UniqueName("sneaked");
+        var name = Seed.UniqueName("sneaked");
         var otherSpelling = name.ToUpperInvariant();
         var normalized = NameNormalizer.Normalize(name);
         var interceptor = new BeforeSaveInterceptor(
@@ -161,7 +156,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await manager.PostAsJsonAsync(UnitsPath, new { name }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Conflict, "concurrent-change",
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.Conflict, "concurrent-change",
             "The data changed while your request was being processed. Read it again and retry.");
         Assert.True(interceptor.HasRun);
         Assert.Contains(app.Logs.Entries, entry => entry.Level == LogLevel.Warning && entry.Exception is DbUpdateException);
@@ -203,17 +198,17 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Every_role_can_list_and_read_units(string role)
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager, UniqueName("view"));
+        var unit = await Seed.CreateUnitAsync(manager, Seed.UniqueName("view"));
         var reader = await factory.CreateClientAsAsync(role);
 
         var list = await reader.GetAsync($"{UnitsPath}?pageSize=100", Cancel);
         var one = await reader.GetAsync($"{UnitsPath}/{unit.Id}", Cancel);
 
         Assert.Equal(HttpStatusCode.OK, list.StatusCode);
-        Assert.Contains((await ReadJsonAsync(list)).GetProperty("items").EnumerateArray(),
+        Assert.Contains((await ApiJson.ReadAsync(list)).GetProperty("items").EnumerateArray(),
             row => row.GetProperty("id").GetInt32() == unit.Id && row.GetProperty("name").GetString() == unit.Name);
         Assert.Equal(HttpStatusCode.OK, one.StatusCode);
-        Assert.Equal(unit.Name, (await ReadJsonAsync(one)).GetProperty("name").GetString());
+        Assert.Equal(unit.Name, (await ApiJson.ReadAsync(one)).GetProperty("name").GetString());
     }
 
     /// <summary>
@@ -225,24 +220,24 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     {
         await using var fresh = new TestApiFactory();
         var manager = await fresh.CreateClientAsAsync(Roles.Manager);
-        var oldest = await CreateUnitAsync(manager, "kg");
-        var middle = await CreateUnitAsync(manager, "Bag");
-        var newest = await CreateUnitAsync(manager, "Litre");
+        var oldest = await Seed.CreateUnitAsync(manager, "kg");
+        var middle = await Seed.CreateUnitAsync(manager, "Bag");
+        var newest = await Seed.CreateUnitAsync(manager, "Litre");
 
-        var firstPage = await ReadJsonAsync(await manager.GetAsync($"{UnitsPath}?page=1&pageSize=2", Cancel));
-        var secondPage = await ReadJsonAsync(await manager.GetAsync($"{UnitsPath}?page=2&pageSize=2", Cancel));
-        var pastTheEnd = await ReadJsonAsync(await manager.GetAsync($"{UnitsPath}?page=3&pageSize=2", Cancel));
-        var defaults = await ReadJsonAsync(await manager.GetAsync(UnitsPath, Cancel));
+        var firstPage = await ApiJson.ReadAsync(await manager.GetAsync($"{UnitsPath}?page=1&pageSize=2", Cancel));
+        var secondPage = await ApiJson.ReadAsync(await manager.GetAsync($"{UnitsPath}?page=2&pageSize=2", Cancel));
+        var pastTheEnd = await ApiJson.ReadAsync(await manager.GetAsync($"{UnitsPath}?page=3&pageSize=2", Cancel));
+        var defaults = await ApiJson.ReadAsync(await manager.GetAsync(UnitsPath, Cancel));
 
-        Assert.Equal([newest.Id, middle.Id], Ids(firstPage));
+        Assert.Equal([newest.Id, middle.Id], ApiJson.Ids(firstPage));
         Assert.Equal(1, firstPage.GetProperty("page").GetInt32());
         Assert.Equal(2, firstPage.GetProperty("pageSize").GetInt32());
         Assert.Equal(3, firstPage.GetProperty("totalCount").GetInt32());
         Assert.Equal(4, firstPage.EnumerateObject().Count());
-        Assert.Equal([oldest.Id], Ids(secondPage));
-        Assert.Empty(Ids(pastTheEnd));
+        Assert.Equal([oldest.Id], ApiJson.Ids(secondPage));
+        Assert.Empty(ApiJson.Ids(pastTheEnd));
         Assert.Equal(3, pastTheEnd.GetProperty("totalCount").GetInt32());
-        Assert.Equal([newest.Id, middle.Id, oldest.Id], Ids(defaults));
+        Assert.Equal([newest.Id, middle.Id, oldest.Id], ApiJson.Ids(defaults));
         Assert.Equal(1, defaults.GetProperty("page").GetInt32());
         Assert.Equal(50, defaults.GetProperty("pageSize").GetInt32());
     }
@@ -254,11 +249,11 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var reader = await factory.CreateClientAsAsync(Roles.Warehouse);
 
         var response = await reader.GetAsync($"{UnitsPath}?page=0&pageSize=101", Cancel);
-        var body = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation",
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation",
             "page must be 1 or greater. pageSize must be between 1 and 100.");
 
-        Assert.Equal(["page must be 1 or greater."], Messages(body, "page"));
-        Assert.Equal(["pageSize must be between 1 and 100."], Messages(body, "pageSize"));
+        Assert.Equal(["page must be 1 or greater."], ApiJson.Messages(body, "page"));
+        Assert.Equal(["pageSize must be between 1 and 100."], ApiJson.Messages(body, "pageSize"));
     }
 
     /// <summary>Design 7.2: reading a unit that does not exist is <c>404</c> "Unit {id} not found.".</summary>
@@ -269,7 +264,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await reader.GetAsync($"{UnitsPath}/999999", Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Unit 999999 not found.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Unit 999999 not found.");
     }
 
     // ---- AC-06.3: rename ------------------------------------------------------------------------------------
@@ -279,11 +274,11 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Manager_renames_a_unit()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager, UniqueName("kilo"));
-        var newName = UniqueName("kg");
+        var unit = await Seed.CreateUnitAsync(manager, Seed.UniqueName("kilo"));
+        var newName = Seed.UniqueName("kg");
 
         var response = await manager.PutAsJsonAsync($"{UnitsPath}/{unit.Id}", new { name = $" {newName} " }, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(unit.Id, body.GetProperty("id").GetInt32());
@@ -297,12 +292,12 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Renaming_a_unit_to_its_own_name_in_another_case_is_allowed()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager, UniqueName("bag"));
+        var unit = await Seed.CreateUnitAsync(manager, Seed.UniqueName("bag"));
 
         var response = await manager.PutAsJsonAsync($"{UnitsPath}/{unit.Id}", new { name = unit.Name.ToUpperInvariant() }, Cancel);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(unit.Name.ToUpperInvariant(), (await ReadJsonAsync(response)).GetProperty("name").GetString());
+        Assert.Equal(unit.Name.ToUpperInvariant(), (await ApiJson.ReadAsync(response)).GetProperty("name").GetString());
     }
 
     /// <summary>
@@ -313,19 +308,19 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Rename_follows_the_same_rules_as_create()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager, UniqueName("box"));
-        var other = await CreateUnitAsync(manager, UniqueName("crate"));
+        var unit = await Seed.CreateUnitAsync(manager, Seed.UniqueName("box"));
+        var other = await Seed.CreateUnitAsync(manager, Seed.UniqueName("crate"));
         var path = $"{UnitsPath}/{unit.Id}";
 
         var duplicate = await manager.PutAsJsonAsync(path, new { name = other.Name.ToUpperInvariant() }, Cancel);
-        await AssertProblemAsync(duplicate, HttpStatusCode.Conflict, "unit-name-taken",
+        await ApiAssert.ProblemAsync(duplicate, HttpStatusCode.Conflict, "unit-name-taken",
             $"A unit named '{other.Name.ToUpperInvariant()}' already exists.");
 
         var blank = await manager.PutAsJsonAsync(path, new { name = "   " }, Cancel);
-        await AssertValidationAsync(blank, "name", "Name is required.");
+        await ApiAssert.ValidationAsync(blank, "name", "Name is required.");
 
         var tooLong = await manager.PutAsJsonAsync(path, new { name = new string('x', 51) }, Cancel);
-        await AssertValidationAsync(tooLong, "name", "Name must be 50 characters or fewer.");
+        await ApiAssert.ValidationAsync(tooLong, "name", "Name must be 50 characters or fewer.");
 
         Assert.Equal(unit.Name, (await GetUnitAsync(manager, unit.Id)).GetProperty("name").GetString());
     }
@@ -338,7 +333,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await manager.PutAsJsonAsync($"{UnitsPath}/999999", new { name = "" }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Unit 999999 not found.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Unit 999999 not found.");
     }
 
     // ---- AC-06.4: delete ------------------------------------------------------------------------------------
@@ -348,7 +343,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Manager_deletes_an_unused_unit()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager, UniqueName("tray"));
+        var unit = await Seed.CreateUnitAsync(manager, Seed.UniqueName("tray"));
 
         var response = await manager.DeleteAsync($"{UnitsPath}/{unit.Id}", Cancel);
 
@@ -367,14 +362,14 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Deleting_a_unit_used_by_an_item_is_rejected()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager, UniqueName("sack"));
+        var unit = await Seed.CreateUnitAsync(manager, Seed.UniqueName("sack"));
         var item = await manager.PostAsJsonAsync("/api/v1/items",
-            new { name = UniqueName("Flour"), type = "RawMaterial", unitId = unit.Id }, Cancel);
+            new { name = Seed.UniqueName("Flour"), type = "RawMaterial", unitId = unit.Id }, Cancel);
         Assert.Equal(HttpStatusCode.Created, item.StatusCode);
 
         var refused = await manager.DeleteAsync($"{UnitsPath}/{unit.Id}", Cancel);
 
-        await AssertProblemAsync(refused, HttpStatusCode.Conflict, "unit-in-use", "Unit is used by one or more items.");
+        await ApiAssert.ProblemAsync(refused, HttpStatusCode.Conflict, "unit-in-use", "Unit is used by one or more items.");
         Assert.NotNull(await LoadUnitAsync(unit.Id));
 
         var deleteItem = await manager.DeleteAsync(item.Headers.Location, Cancel);
@@ -391,7 +386,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await manager.DeleteAsync($"{UnitsPath}/999999", Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Unit 999999 not found.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Unit 999999 not found.");
     }
 
     // ---- AC-01.5 and AC-05.1: access -------------------------------------------------------------------------
@@ -409,13 +404,12 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
         if (method is "POST" or "PUT")
         {
-            request.Content = Json("""{ "name": "kg" }""");
+            request.Content = ApiJson.Content("""{ "name": "kg" }""");
         }
 
         var response = await anonymous.SendAsync(request, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Unauthorized, "not-authenticated", NotAuthenticatedMessage);
-        Assert.Equal(new AuthenticationHeaderValue("Bearer").ToString(), response.Headers.WwwAuthenticate.ToString());
+        await ApiAssert.NotAuthenticatedAsync(response);
     }
 
     /// <summary>
@@ -435,10 +429,10 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Changes_by_users_without_the_manager_role_are_403(string method, string roles)
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager, UniqueName("pallet"));
+        var unit = await Seed.CreateUnitAsync(manager, Seed.UniqueName("pallet"));
         var before = await CountUnitsAsync();
         var caller = await factory.CreateClientAsAsync(roles.Split(','));
-        var newName = UniqueName("renamed");
+        var newName = Seed.UniqueName("renamed");
         using var request = new HttpRequestMessage(new HttpMethod(method), method == "POST" ? UnitsPath : $"{UnitsPath}/{unit.Id}");
         if (method is "POST" or "PUT")
         {
@@ -447,7 +441,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await caller.SendAsync(request, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Forbidden, "forbidden", ManagerOnlyMessage);
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.Forbidden, "forbidden", ExpectedMessages.ManagerOnly);
         Assert.Equal(before, await CountUnitsAsync());
         Assert.Equal(unit.Name, (await LoadUnitAsync(unit.Id))!.Name);
     }
@@ -460,7 +454,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await warehouse.PutAsJsonAsync($"{UnitsPath}/999999", new { name = "kg" }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Forbidden, "forbidden", ManagerOnlyMessage);
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.Forbidden, "forbidden", ExpectedMessages.ManagerOnly);
     }
 
     /// <summary>AC-05.2: a user holding Manager together with another role can manage units.</summary>
@@ -469,7 +463,7 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     {
         var caller = await factory.CreateClientAsAsync(Roles.Warehouse, Roles.Manager);
 
-        var response = await caller.PostAsJsonAsync(UnitsPath, new { name = UniqueName("multi") }, Cancel);
+        var response = await caller.PostAsJsonAsync(UnitsPath, new { name = Seed.UniqueName("multi") }, Cancel);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
@@ -480,9 +474,9 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
 
-        var response = await manager.PostAsync(UnitsPath, Json("""{ "name": 5 }"""), Cancel);
+        var response = await manager.PostAsync(UnitsPath, ApiJson.Content("""{ "name": 5 }"""), Cancel);
 
-        await AssertValidationAsync(response, "name", "name has the wrong type.");
+        await ApiAssert.ValidationAsync(response, "name", "name has the wrong type.");
     }
 
     /// <summary>
@@ -498,77 +492,27 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Missing_body_is_rejected(string method, string json)
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager, UniqueName("keg"));
+        var unit = await Seed.CreateUnitAsync(manager, Seed.UniqueName("keg"));
         var before = await CountUnitsAsync();
         using var request = new HttpRequestMessage(new HttpMethod(method), method == "POST" ? UnitsPath : $"{UnitsPath}/{unit.Id}")
         {
-            Content = Json(json),
+            Content = ApiJson.Content(json),
         };
 
         var response = await manager.SendAsync(request, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation", "A request body is required.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation", "A request body is required.");
         Assert.Equal(before, await CountUnitsAsync());
         Assert.Equal(unit.Name, (await LoadUnitAsync(unit.Id))!.Name);
     }
 
     // ---- Helpers ------------------------------------------------------------------------------------------
 
-    /// <summary>
-    /// An EF Core <em>interceptor</em>: an object EF Core calls at fixed points of its work, here just before
-    /// <c>SaveChanges</c> sends its statements. It runs <c>work</c> once, on the request's own DbContext and so inside
-    /// its open write transaction, the first time <c>shouldRun</c> is true. Tests use it to change the database between
-    /// a service's checks and its save, which is the only way to reach the unique-index fallback (decision #46).
-    /// </summary>
-    /// <remarks>
-    /// Register it through <c>TestApiFactory.ReplaceServices</c> with
-    /// <c>services.ConfigureDbContext&lt;AppDbContext&gt;(options =&gt; options.AddInterceptors(interceptor))</c>.
-    /// <c>shouldRun</c> is needed because the same DbContext type also saves users and sign-ins while a test sets up.
-    /// Kept here until the shared test helpers move to <c>Infrastructure/</c>.
-    /// </remarks>
-    public sealed class BeforeSaveInterceptor(
-        Func<DbContext, bool> shouldRun, Func<DbContext, CancellationToken, Task> work) : SaveChangesInterceptor
-    {
-        private int _hasRun;
-
-        /// <summary>True once <c>work</c> has run.</summary>
-        public bool HasRun => Volatile.Read(ref _hasRun) == 1;
-
-        /// <inheritdoc />
-        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
-            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
-        {
-            if (eventData.Context is { } context && shouldRun(context) && Interlocked.Exchange(ref _hasRun, 1) == 0)
-            {
-                // The interceptor exists to act inside the request's transaction; fail loudly if there is none.
-                if (context.Database.CurrentTransaction is null)
-                {
-                    throw new InvalidOperationException("BeforeSaveInterceptor expected an open write transaction.");
-                }
-
-                await work(context, cancellationToken);
-            }
-
-            return await base.SavingChangesAsync(eventData, result, cancellationToken);
-        }
-    }
-
-    /// <summary>A unit created through the API.</summary>
-    private sealed record CreatedUnit(int Id, string Name);
-
-    private static async Task<CreatedUnit> CreateUnitAsync(HttpClient manager, string name)
-    {
-        var response = await manager.PostAsJsonAsync(UnitsPath, new { name }, Cancel);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var body = await ReadJsonAsync(response);
-        return new CreatedUnit(body.GetProperty("id").GetInt32(), body.GetProperty("name").GetString()!);
-    }
-
     private static async Task<JsonElement> GetUnitAsync(HttpClient client, int id)
     {
         var response = await client.GetAsync($"{UnitsPath}/{id}", Cancel);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return await ReadJsonAsync(response);
+        return await ApiJson.ReadAsync(response);
     }
 
     private async Task<UnitOfMeasure?> LoadUnitAsync(int id)
@@ -592,50 +536,6 @@ public class UnitsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             .CountAsync(unit => unit.NameNormalized == normalized, Cancel);
     }
 
-    private static string UniqueName(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
-
     /// <summary>A one-character name that no other test uses: a random letter outside the ASCII range.</summary>
     private static string UniqueLetter() => ((char)Random.Shared.Next(0x4E00, 0x9FFF)).ToString();
-
-    private static StringContent Json(string json) => new(json, Encoding.UTF8, "application/json");
-
-    private static IEnumerable<int> Ids(JsonElement page) =>
-        page.GetProperty("items").EnumerateArray().Select(row => row.GetProperty("id").GetInt32()).ToList();
-
-    private static IEnumerable<string?> Messages(JsonElement body, string path) =>
-        body.GetProperty("errors").GetProperty(path).EnumerateArray().Select(message => message.GetString()).ToList();
-
-    private static async Task AssertValidationAsync(HttpResponseMessage response, string path, string message)
-    {
-        var body = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation", message);
-        Assert.Equal([message], Messages(body, path));
-    }
-
-    /// <summary>Checks the design 6 error body: status, content type, fixed title, code and detail.</summary>
-    private static async Task<JsonElement> AssertProblemAsync(
-        HttpResponseMessage response, HttpStatusCode status, string code, string detail)
-    {
-        Assert.Equal(status, response.StatusCode);
-        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        var body = await ReadJsonAsync(response);
-        var title = status switch
-        {
-            HttpStatusCode.BadRequest => "Invalid request",
-            HttpStatusCode.Unauthorized => "Not signed in",
-            HttpStatusCode.Forbidden => "Not allowed",
-            HttpStatusCode.NotFound => "Not found",
-            _ => "Conflict with current state",
-        };
-        Assert.Equal(title, body.GetProperty("title").GetString());
-        Assert.Equal(code, body.GetProperty("code").GetString());
-        Assert.Equal(detail, body.GetProperty("detail").GetString());
-        return body;
-    }
-
-    private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response)
-    {
-        var text = await response.Content.ReadAsStringAsync(Cancel);
-        using var document = JsonDocument.Parse(text);
-        return document.RootElement.Clone();
-    }
 }

@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -30,9 +29,7 @@ namespace InventoryTracker.Api.Tests.Integration;
 public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
 {
     private const string SignInPath = "/api/v1/auth/sign-in";
-    private const string NotAuthenticatedMessage = "Your sign-in is missing or has expired. Sign in again.";
     private const string InvalidCredentialsMessage = "Invalid email or password.";
-    private const string LockedMessage = "Account temporarily locked. Try again later.";
 
     /// <summary>A fixed, readable start time for the fake clock.</summary>
     private static readonly DateTimeOffset Start = new(2026, 11, 11, 8, 0, 0, TimeSpan.Zero);
@@ -49,7 +46,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     public async Task Sign_in_returns_token_expiry_email_and_roles()
     {
         await using var timed = new ProbeApiFactory { FakeTime = new FakeTimeProvider(Start.AddMilliseconds(700)) };
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         await timed.CreateUserAsync(email, Roles.Production, Roles.Warehouse);
 
         var (response, body) = await SignInAsync(timed, email.ToUpperInvariant(), TestApiFactory.UserPassword);
@@ -67,12 +64,12 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [Fact]
     public async Task Token_from_sign_in_is_accepted()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         await factory.CreateUserAsync(email, Roles.Manager);
         var client = factory.CreateClientWithToken(await factory.SignInAsync(email));
 
         var response = await client.GetAsync("/test-probe/auth/signed-in", Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(email, body.GetProperty("email").GetString());
@@ -86,7 +83,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [Fact]
     public async Task Token_is_hs256_with_the_agreed_claims()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse, Roles.Manager);
 
         var token = new JsonWebToken(await factory.SignInAsync(email));
@@ -110,8 +107,8 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [Fact]
     public async Task Passwords_are_stored_only_as_salted_hashes()
     {
-        var first = await factory.CreateUserAsync(UniqueEmail(), Roles.Warehouse);
-        var second = await factory.CreateUserAsync(UniqueEmail(), Roles.Warehouse);
+        var first = await factory.CreateUserAsync(Seed.UniqueEmail("auth"), Roles.Warehouse);
+        var second = await factory.CreateUserAsync(Seed.UniqueEmail("auth"), Roles.Warehouse);
 
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -136,7 +133,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     {
         var time = new FakeTimeProvider(Start);
         await using var timed = new ProbeApiFactory { FakeTime = time };
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         await timed.CreateUserAsync(email, Roles.Warehouse);
         var client = timed.CreateClientWithToken(await timed.SignInAsync(email));
 
@@ -147,7 +144,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
         var expired = await client.GetAsync("/test-probe/auth/signed-in", Cancel);
 
         Assert.Equal(HttpStatusCode.OK, lastSecond.StatusCode);
-        await AssertNotAuthenticatedAsync(expired);
+        await ApiAssert.NotAuthenticatedAsync(expired);
     }
 
     // ---- AC-01.3: refused sign-in ---------------------------------------------------------------------------
@@ -162,7 +159,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [InlineData("inactive-user")]
     public async Task Refused_sign_in_gives_invalid_credentials(string scenario)
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         var password = TestApiFactory.UserPassword;
         switch (scenario)
         {
@@ -178,7 +175,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
 
         var (response, body) = await SignInAsync(factory, email, password);
 
-        AssertProblem(response, body, HttpStatusCode.Unauthorized, "Not signed in", "invalid-credentials", InvalidCredentialsMessage);
+        ApiAssert.Problem(response, body, HttpStatusCode.Unauthorized, "Not signed in", "invalid-credentials", InvalidCredentialsMessage);
         Assert.Equal("Bearer", response.Headers.WwwAuthenticate.ToString());
     }
 
@@ -189,7 +186,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [Fact]
     public async Task Attempts_on_an_inactive_account_count_no_failures()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         await SetActiveAsync(factory, user.Id, false);
 
@@ -211,7 +208,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     {
         var (response, body) = await PostSignInAsync(factory, """{ "email": "   " }""");
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation",
             "Email is required. Password is required.");
         var errors = body.GetProperty("errors");
         Assert.True(errors.TryGetProperty("email", out _));
@@ -224,14 +221,14 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     {
         var (response, body) = await PostSignInAsync(factory, "");
 
-        AssertProblem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", "A request body is required.");
+        ApiAssert.Problem(response, body, HttpStatusCode.BadRequest, "Invalid request", "validation", "A request body is required.");
     }
 
     /// <summary>AC-01.5: sign-in is the endpoint that needs no token; a stale or broken Authorization header does not block it.</summary>
     [Fact]
     public async Task Sign_in_works_without_a_token_even_with_a_bad_header()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         await factory.CreateUserAsync(email, Roles.Warehouse);
         var client = factory.CreateClientWithToken("not-a-token");
 
@@ -252,26 +249,26 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     {
         var time = new FakeTimeProvider(Start);
         await using var timed = new ProbeApiFactory { FakeTime = time };
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         await timed.CreateUserAsync(email, Roles.Warehouse);
 
         for (var attempt = 1; attempt <= 5; attempt++)
         {
             var (failed, failedBody) = await SignInAsync(timed, email, "Wrong-Password-1");
-            AssertProblem(failed, failedBody, HttpStatusCode.Unauthorized, "Not signed in", "invalid-credentials", InvalidCredentialsMessage);
+            ApiAssert.Problem(failed, failedBody, HttpStatusCode.Unauthorized, "Not signed in", "invalid-credentials", InvalidCredentialsMessage);
         }
 
         var (locked, lockedBody) = await SignInAsync(timed, email, TestApiFactory.UserPassword);
-        AssertProblem(locked, lockedBody, HttpStatusCode.Unauthorized, "Not signed in", "account-locked", LockedMessage);
+        ApiAssert.Problem(locked, lockedBody, HttpStatusCode.Unauthorized, "Not signed in", "account-locked", ExpectedMessages.AccountLocked);
         Assert.Equal("Bearer", locked.Headers.WwwAuthenticate.ToString());
 
         time.Advance(TimeSpan.FromMinutes(10));
         var (wrongWhileLocked, wrongWhileLockedBody) = await SignInAsync(timed, email, "Wrong-Password-1");
-        AssertProblem(wrongWhileLocked, wrongWhileLockedBody, HttpStatusCode.Unauthorized, "Not signed in", "account-locked", LockedMessage);
+        ApiAssert.Problem(wrongWhileLocked, wrongWhileLockedBody, HttpStatusCode.Unauthorized, "Not signed in", "account-locked", ExpectedMessages.AccountLocked);
 
         time.Advance(TimeSpan.FromMinutes(5) - TimeSpan.FromSeconds(1));
         var (stillLocked, stillLockedBody) = await SignInAsync(timed, email, TestApiFactory.UserPassword);
-        AssertProblem(stillLocked, stillLockedBody, HttpStatusCode.Unauthorized, "Not signed in", "account-locked", LockedMessage);
+        ApiAssert.Problem(stillLocked, stillLockedBody, HttpStatusCode.Unauthorized, "Not signed in", "account-locked", ExpectedMessages.AccountLocked);
 
         time.Advance(TimeSpan.FromSeconds(1));
         var (unlocked, _) = await SignInAsync(timed, email, TestApiFactory.UserPassword);
@@ -286,7 +283,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [Fact]
     public async Task Simultaneous_wrong_passwords_still_lock_the_account()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         await factory.CreateUserAsync(email, Roles.Warehouse);
 
         // Each attempt uses its own HttpClient, as separate callers would.
@@ -300,7 +297,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
         Assert.Equal(5, codes.Count(code => code == "account-locked"));
 
         var (rightPassword, rightPasswordBody) = await SignInAsync(factory, email, TestApiFactory.UserPassword);
-        AssertProblem(rightPassword, rightPasswordBody, HttpStatusCode.Unauthorized, "Not signed in", "account-locked", LockedMessage);
+        ApiAssert.Problem(rightPassword, rightPasswordBody, HttpStatusCode.Unauthorized, "Not signed in", "account-locked", ExpectedMessages.AccountLocked);
     }
 
     /// <summary>
@@ -310,11 +307,11 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [Fact]
     public async Task Account_locks_are_removed_after_use()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         await factory.CreateUserAsync(email, Roles.Warehouse);
 
         var attempts = Enumerable.Range(0, 10).Select(_ => SignInAsync(factory, email, "Wrong-Password-1"))
-            .Concat(Enumerable.Range(0, 10).Select(_ => SignInAsync(factory, UniqueEmail(), "Wrong-Password-1")));
+            .Concat(Enumerable.Range(0, 10).Select(_ => SignInAsync(factory, Seed.UniqueEmail("auth"), "Wrong-Password-1")));
         await Task.WhenAll(attempts);
 
         Assert.Equal(0, factory.Services.GetRequiredService<AccountLocks>().Count);
@@ -357,7 +354,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
         {
             ReplaceServices = services => services.AddSingleton<IPasswordHasher<AppUser>>(hasher),
         };
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         var expectedCode = "invalid-credentials";
         if (scenario == "locked-account")
         {
@@ -392,7 +389,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [Fact]
     public async Task A_successful_sign_in_resets_the_failure_count()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         await factory.CreateUserAsync(email, Roles.Warehouse);
 
         for (var attempt = 0; attempt < 4; attempt++)
@@ -432,7 +429,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [InlineData("no-expiry")]
     public async Task Missing_or_bad_token_gives_401(string kind)
     {
-        var user = await factory.CreateUserAsync(UniqueEmail(), Roles.Production);
+        var user = await factory.CreateUserAsync(Seed.UniqueEmail("auth"), Roles.Production);
         var token = kind switch
         {
             "none" => null,
@@ -452,14 +449,14 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
 
         var response = await client.GetAsync("/test-probe/auth/signed-in", Cancel);
 
-        await AssertNotAuthenticatedAsync(response);
+        await ApiAssert.NotAuthenticatedAsync(response);
     }
 
     /// <summary>The forged-token helper itself is right: signed with the real key and settings, the same token is accepted.</summary>
     [Fact]
     public async Task Forged_token_with_the_real_key_is_accepted()
     {
-        var user = await factory.CreateUserAsync(UniqueEmail(), Roles.Production);
+        var user = await factory.CreateUserAsync(Seed.UniqueEmail("auth"), Roles.Production);
         var client = factory.CreateClientWithToken(ForgeToken(user));
 
         var response = await client.GetAsync("/test-probe/auth/signed-in", Cancel);
@@ -496,14 +493,14 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [Fact]
     public async Task Token_of_a_deactivated_user_gives_401()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         var client = factory.CreateClientWithToken(await factory.SignInAsync(email));
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/test-probe/auth/signed-in", Cancel)).StatusCode);
 
         await SetActiveAsync(factory, user.Id, false);
 
-        await AssertNotAuthenticatedAsync(await client.GetAsync("/test-probe/auth/signed-in", Cancel));
+        await ApiAssert.NotAuthenticatedAsync(await client.GetAsync("/test-probe/auth/signed-in", Cancel));
     }
 
     /// <summary>
@@ -513,7 +510,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     [Fact]
     public async Task Token_with_an_old_security_stamp_gives_401()
     {
-        var email = UniqueEmail();
+        var email = Seed.UniqueEmail("auth");
         var user = await factory.CreateUserAsync(email, Roles.Warehouse);
         var oldClient = factory.CreateClientWithToken(await factory.SignInAsync(email));
 
@@ -525,7 +522,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
 
         var newClient = factory.CreateClientWithToken(await factory.SignInAsync(email));
 
-        await AssertNotAuthenticatedAsync(await oldClient.GetAsync("/test-probe/auth/signed-in", Cancel));
+        await ApiAssert.NotAuthenticatedAsync(await oldClient.GetAsync("/test-probe/auth/signed-in", Cancel));
         Assert.Equal(HttpStatusCode.OK, (await newClient.GetAsync("/test-probe/auth/signed-in", Cancel)).StatusCode);
     }
 
@@ -537,19 +534,19 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     /// </summary>
     [Theory]
     [InlineData("/test-probe/auth/warehouse-or-manager", new[] { Roles.Production },
-        "Your roles do not allow this action. It needs the Warehouse or Manager role.")]
+        ExpectedMessages.WarehouseOrManager)]
     [InlineData("/test-probe/auth/production-or-manager", new[] { Roles.Warehouse },
-        "Your roles do not allow this action. It needs the Production or Manager role.")]
+        ExpectedMessages.ProductionOrManager)]
     [InlineData("/test-probe/auth/manager", new[] { Roles.Warehouse, Roles.Production },
-        "Your roles do not allow this action. It needs the Manager role.")]
+        ExpectedMessages.ManagerOnly)]
     public async Task Role_the_user_lacks_gives_403(string path, string[] roles, string message)
     {
         var client = await factory.CreateClientAsAsync(roles);
 
         var response = await client.GetAsync(path, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
-        AssertProblem(response, body, HttpStatusCode.Forbidden, "Not allowed", "forbidden", message);
+        ApiAssert.Problem(response, body, HttpStatusCode.Forbidden, "Not allowed", "forbidden", message);
     }
 
     /// <summary>
@@ -579,12 +576,10 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     {
         var response = await factory.CreateClient().GetAsync("/test-probe/auth/manager", Cancel);
 
-        await AssertNotAuthenticatedAsync(response);
+        await ApiAssert.NotAuthenticatedAsync(response);
     }
 
     // ---- helpers --------------------------------------------------------------------------------------------
-
-    private static string UniqueEmail() => $"auth-{Guid.NewGuid():N}@inventory.test";
 
     private static Task<(HttpResponseMessage Response, JsonElement Body)> SignInAsync(
         TestApiFactory app, string email, string password) =>
@@ -593,8 +588,8 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
     private static async Task<(HttpResponseMessage Response, JsonElement Body)> PostSignInAsync(TestApiFactory app, string json)
     {
         var client = app.CreateClient();
-        var response = await client.PostAsync(SignInPath, new StringContent(json, Encoding.UTF8, "application/json"), Cancel);
-        return (response, await ReadJsonAsync(response));
+        var response = await client.PostAsync(SignInPath, ApiJson.Content(json), Cancel);
+        return (response, await ApiJson.ReadAsync(response));
     }
 
     private static async Task SetActiveAsync(TestApiFactory app, string userId, bool active)
@@ -656,32 +651,5 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
         payload["role"] = new JsonArray(Roles.Production, Roles.Manager);
         parts[1] = Base64UrlEncoder.Encode(payload.ToJsonString());
         return string.Join('.', parts);
-    }
-
-    private static async Task AssertNotAuthenticatedAsync(HttpResponseMessage response)
-    {
-        var body = await ReadJsonAsync(response);
-        AssertProblem(response, body, HttpStatusCode.Unauthorized, "Not signed in", "not-authenticated", NotAuthenticatedMessage);
-        Assert.Equal(new AuthenticationHeaderValue("Bearer").ToString(), response.Headers.WwwAuthenticate.ToString());
-    }
-
-    private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response)
-    {
-        var text = await response.Content.ReadAsStringAsync(Cancel);
-        using var document = JsonDocument.Parse(text);
-        return document.RootElement.Clone();
-    }
-
-    /// <summary>Checks the fields every design 6 error body has.</summary>
-    private static void AssertProblem(HttpResponseMessage response, JsonElement body,
-        HttpStatusCode status, string title, string code, string detail)
-    {
-        Assert.Equal(status, response.StatusCode);
-        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        Assert.Equal((int)status, body.GetProperty("status").GetInt32());
-        Assert.Equal(title, body.GetProperty("title").GetString());
-        Assert.Equal(code, body.GetProperty("code").GetString());
-        Assert.Equal(detail, body.GetProperty("detail").GetString());
-        Assert.False(string.IsNullOrEmpty(body.GetProperty("traceId").GetString()));
     }
 }

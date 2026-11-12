@@ -1,7 +1,5 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using InventoryTracker.Api.Auth;
@@ -25,8 +23,6 @@ namespace InventoryTracker.Api.Tests.Integration;
 public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 {
     private const string ItemsPath = "/api/v1/items";
-    private const string NotAuthenticatedMessage = "Your sign-in is missing or has expired. Sign in again.";
-    private const string ManagerOnlyMessage = "Your roles do not allow this action. It needs the Manager role.";
     private const string TypeAndUnitLockedMessage = "Type and unit cannot change once the item is in use.";
     private const string TypeMessage = "Type must be RawMaterial or FinishedProduct.";
 
@@ -45,12 +41,12 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Manager_creates_an_item()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager);
-        var name = UniqueName("Cheese");
+        var unit = await Seed.CreateUnitAsync(manager);
+        var name = Seed.UniqueName("Cheese");
 
         var response = await manager.PostAsJsonAsync(ItemsPath,
             new { name = $"  {name}  ", type = "RawMaterial", unitId = unit.Id }, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var id = body.GetProperty("id").GetInt32();
@@ -65,7 +61,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var read = await manager.GetAsync(response.Headers.Location, Cancel);
         Assert.Equal(HttpStatusCode.OK, read.StatusCode);
-        Assert.Equal(body.GetRawText(), (await ReadJsonAsync(read)).GetRawText());
+        Assert.Equal(body.GetRawText(), (await ApiJson.ReadAsync(read)).GetRawText());
     }
 
     /// <summary>
@@ -77,7 +73,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     {
         await using var timed = new TestApiFactory { FakeTime = new FakeTimeProvider(Start.AddMilliseconds(700)) };
         var manager = await timed.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager);
+        var unit = await Seed.CreateUnitAsync(manager);
 
         var described = await manager.PostAsJsonAsync(ItemsPath, new
         {
@@ -86,13 +82,13 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var blank = await manager.PostAsJsonAsync(ItemsPath,
             new { name = "Potato starch", description = "   ", type = "rawmaterial", unitId = unit.Id }, Cancel);
 
-        var describedBody = await ReadJsonAsync(described);
+        var describedBody = await ApiJson.ReadAsync(described);
         Assert.Equal(HttpStatusCode.Created, described.StatusCode);
         Assert.Equal("Mozzarella blend, retail pack", describedBody.GetProperty("description").GetString());
         Assert.Equal("FinishedProduct", describedBody.GetProperty("type").GetString());
         Assert.Equal("2026-11-11T09:30:00Z", describedBody.GetProperty("createdAt").GetString());
 
-        var blankBody = await ReadJsonAsync(blank);
+        var blankBody = await ApiJson.ReadAsync(blank);
         Assert.Equal(HttpStatusCode.Created, blank.StatusCode);
         Assert.Equal(JsonValueKind.Null, blankBody.GetProperty("description").ValueKind);
         Assert.Equal("RawMaterial", blankBody.GetProperty("type").GetString());
@@ -103,14 +99,14 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Longest_name_and_description_are_accepted()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager);
-        var name = UniqueName("n").PadRight(100, 'x');
+        var unit = await Seed.CreateUnitAsync(manager);
+        var name = Seed.UniqueName("n").PadRight(100, 'x');
 
         var response = await manager.PostAsJsonAsync(ItemsPath,
             new { name = $" {name} ", description = new string('d', 500), type = "RawMaterial", unitId = unit.Id }, Cancel);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        Assert.Equal(name, (await ReadJsonAsync(response)).GetProperty("name").GetString());
+        Assert.Equal(name, (await ApiJson.ReadAsync(response)).GetProperty("name").GetString());
     }
 
     // ---- AC-07.2: invalid input and duplicates ---------------------------------------------------------------
@@ -127,11 +123,11 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await manager.PostAsJsonAsync(ItemsPath, new { name = "   ", type = "Gadget", unitId = 999999 }, Cancel);
 
-        var body = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation",
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation",
             $"Name is required. {TypeMessage} Unit 999999 does not exist.");
-        Assert.Equal(["Name is required."], Messages(body, "name"));
-        Assert.Equal([TypeMessage], Messages(body, "type"));
-        Assert.Equal(["Unit 999999 does not exist."], Messages(body, "unitId"));
+        Assert.Equal(["Name is required."], ApiJson.Messages(body, "name"));
+        Assert.Equal([TypeMessage], ApiJson.Messages(body, "type"));
+        Assert.Equal(["Unit 999999 does not exist."], ApiJson.Messages(body, "unitId"));
         Assert.Equal(before, await CountItemsAsync());
     }
 
@@ -153,18 +149,18 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Invalid_field_is_rejected(string template, string path, string message)
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager);
+        var unit = await Seed.CreateUnitAsync(manager);
         var json = template
             .Replace("{unit}", unit.Id.ToString())
             .Replace("{long-name}", new string('x', 101))
             .Replace("{long-description}", new string('d', 501))
-            .Replace("{name}", UniqueName("Bad"));
+            .Replace("{name}", Seed.UniqueName("Bad"));
         var before = await CountItemsAsync();
 
-        var response = await manager.PostAsync(ItemsPath, Json(json), Cancel);
+        var response = await manager.PostAsync(ItemsPath, ApiJson.Content(json), Cancel);
 
-        var body = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation", message);
-        Assert.Equal([message], Messages(body, path));
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation", message);
+        Assert.Equal([message], ApiJson.Messages(body, path));
         Assert.Equal(before, await CountItemsAsync());
     }
 
@@ -176,14 +172,14 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Duplicate_name_ignoring_case_is_rejected()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var first = await CreateItemAsync(manager, ItemType.RawMaterial);
-        var otherUnit = await CreateUnitAsync(manager);
+        var first = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
+        var otherUnit = await Seed.CreateUnitAsync(manager);
         var duplicate = $"  {first.Name.ToLowerInvariant()} ";
 
         var response = await manager.PostAsJsonAsync(ItemsPath,
             new { name = duplicate, type = "FinishedProduct", unitId = otherUnit.Id }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Conflict, "item-name-taken",
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.Conflict, "item-name-taken",
             $"An item named '{first.Name.ToLowerInvariant()}' already exists.");
         Assert.Equal(1, await CountItemsNamedAsync(first.Name));
     }
@@ -198,21 +194,21 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Every_role_can_list_and_view_items(string role)
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var item = await CreateItemAsync(manager, ItemType.FinishedProduct);
+        var item = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
         var reader = await factory.CreateClientAsAsync(role);
 
         var list = await reader.GetAsync($"{ItemsPath}?pageSize=100", Cancel);
         var one = await reader.GetAsync($"{ItemsPath}/{item.Id}", Cancel);
 
         Assert.Equal(HttpStatusCode.OK, list.StatusCode);
-        var row = Assert.Single((await ReadJsonAsync(list)).GetProperty("items").EnumerateArray(),
+        var row = Assert.Single((await ApiJson.ReadAsync(list)).GetProperty("items").EnumerateArray(),
             candidate => candidate.GetProperty("id").GetInt32() == item.Id);
         Assert.Equal("FinishedProduct", row.GetProperty("type").GetString());
         Assert.Equal(item.UnitName, row.GetProperty("unit").GetString());
         Assert.Equal(7, row.EnumerateObject().Count());
 
         Assert.Equal(HttpStatusCode.OK, one.StatusCode);
-        var body = await ReadJsonAsync(one);
+        var body = await ApiJson.ReadAsync(one);
         Assert.Equal("FinishedProduct", body.GetProperty("type").GetString());
         Assert.Equal(item.UnitId, body.GetProperty("unitId").GetInt32());
         Assert.Equal(item.UnitName, body.GetProperty("unit").GetString());
@@ -227,31 +223,31 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     {
         await using var timed = new TestApiFactory { FakeTime = new FakeTimeProvider(Start) };
         var manager = await timed.CreateClientAsAsync(Roles.Manager);
-        var unit = await CreateUnitAsync(manager);
-        var first = await CreateItemAsync(manager, ItemType.RawMaterial, unit);
-        var sameSecond = await CreateItemAsync(manager, ItemType.FinishedProduct, unit);
+        var unit = await Seed.CreateUnitAsync(manager);
+        var first = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, unit);
+        var sameSecond = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct, unit);
         timed.FakeTime!.Advance(TimeSpan.FromMinutes(1));
-        var newest = await CreateItemAsync(manager, ItemType.RawMaterial, unit);
+        var newest = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, unit);
 
         // Created last, so it has the highest id, but a creation time one day earlier: time decides, not id.
         var olderId = await InsertItemAsync(timed, unit.Id, Start.UtcDateTime.AddDays(-1));
 
-        var all = await ReadJsonAsync(await manager.GetAsync(ItemsPath, Cancel));
-        Assert.Equal([newest.Id, sameSecond.Id, first.Id, olderId], Ids(all));
+        var all = await ApiJson.ReadAsync(await manager.GetAsync(ItemsPath, Cancel));
+        Assert.Equal([newest.Id, sameSecond.Id, first.Id, olderId], ApiJson.Ids(all));
         Assert.Equal(4, all.GetProperty("totalCount").GetInt32());
         Assert.Equal(50, all.GetProperty("pageSize").GetInt32());
         Assert.Equal("2026-11-11T09:31:00Z", all.GetProperty("items")[0].GetProperty("createdAt").GetString());
 
-        var secondPage = await ReadJsonAsync(await manager.GetAsync($"{ItemsPath}?page=2&pageSize=3", Cancel));
-        Assert.Equal([olderId], Ids(secondPage));
+        var secondPage = await ApiJson.ReadAsync(await manager.GetAsync($"{ItemsPath}?page=2&pageSize=3", Cancel));
+        Assert.Equal([olderId], ApiJson.Ids(secondPage));
         Assert.Equal(4, secondPage.GetProperty("totalCount").GetInt32());
 
-        var raw = await ReadJsonAsync(await manager.GetAsync($"{ItemsPath}?type=RawMaterial", Cancel));
-        Assert.Equal([newest.Id, first.Id, olderId], Ids(raw));
+        var raw = await ApiJson.ReadAsync(await manager.GetAsync($"{ItemsPath}?type=RawMaterial", Cancel));
+        Assert.Equal([newest.Id, first.Id, olderId], ApiJson.Ids(raw));
         Assert.Equal(3, raw.GetProperty("totalCount").GetInt32());
 
-        var finished = await ReadJsonAsync(await manager.GetAsync($"{ItemsPath}?type=finishedproduct", Cancel));
-        Assert.Equal([sameSecond.Id], Ids(finished));
+        var finished = await ApiJson.ReadAsync(await manager.GetAsync($"{ItemsPath}?type=finishedproduct", Cancel));
+        Assert.Equal([sameSecond.Id], ApiJson.Ids(finished));
         Assert.Equal(1, finished.GetProperty("totalCount").GetInt32());
     }
 
@@ -268,10 +264,10 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await reader.GetAsync($"{ItemsPath}?type={type}&pageSize=0", Cancel);
 
-        var body = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation",
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation",
             "pageSize must be between 1 and 100. type must be RawMaterial or FinishedProduct.");
-        Assert.Equal(["type must be RawMaterial or FinishedProduct."], Messages(body, "type"));
-        Assert.Equal(["pageSize must be between 1 and 100."], Messages(body, "pageSize"));
+        Assert.Equal(["type must be RawMaterial or FinishedProduct."], ApiJson.Messages(body, "type"));
+        Assert.Equal(["pageSize must be between 1 and 100."], ApiJson.Messages(body, "pageSize"));
     }
 
     /// <summary>Design 7.2: viewing an item that does not exist is <c>404</c> "Item {id} not found.".</summary>
@@ -282,7 +278,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await reader.GetAsync($"{ItemsPath}/999999", Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Item 999999 not found.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Item 999999 not found.");
     }
 
     // ---- AC-07.3: change ------------------------------------------------------------------------------------
@@ -295,13 +291,13 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Every_field_can_change_while_the_item_is_not_in_use()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var item = await CreateItemAsync(manager, ItemType.RawMaterial);
-        var newUnit = await CreateUnitAsync(manager);
-        var newName = UniqueName("Renamed");
+        var item = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
+        var newUnit = await Seed.CreateUnitAsync(manager);
+        var newName = Seed.UniqueName("Renamed");
 
         var response = await manager.PutAsJsonAsync($"{ItemsPath}/{item.Id}",
             new { name = $" {newName} ", description = "Now a product", type = "FinishedProduct", unitId = newUnit.Id }, Cancel);
-        var body = await ReadJsonAsync(response);
+        var body = await ApiJson.ReadAsync(response);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(item.Id, body.GetProperty("id").GetInt32());
@@ -311,7 +307,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         Assert.Equal(newUnit.Id, body.GetProperty("unitId").GetInt32());
         Assert.Equal(newUnit.Name, body.GetProperty("unit").GetString());
         Assert.Equal(item.CreatedAt, body.GetProperty("createdAt").GetString());
-        Assert.Equal(body.GetRawText(), (await ReadJsonAsync(await manager.GetAsync($"{ItemsPath}/{item.Id}", Cancel))).GetRawText());
+        Assert.Equal(body.GetRawText(), (await ApiJson.ReadAsync(await manager.GetAsync($"{ItemsPath}/{item.Id}", Cancel))).GetRawText());
 
         var stored = await LoadItemAsync(item.Id);
         Assert.Equal(NameNormalizer.Normalize(newName), stored!.NameNormalized);
@@ -322,13 +318,13 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Leaving_out_the_description_removes_it()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var item = await CreateItemAsync(manager, ItemType.RawMaterial, description: "Old text");
+        var item = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, description: "Old text");
 
         var response = await manager.PutAsJsonAsync($"{ItemsPath}/{item.Id}",
             new { name = item.Name, type = "RawMaterial", unitId = item.UnitId }, Cancel);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(JsonValueKind.Null, (await ReadJsonAsync(response)).GetProperty("description").ValueKind);
+        Assert.Equal(JsonValueKind.Null, (await ApiJson.ReadAsync(response)).GetProperty("description").ValueKind);
         Assert.Null((await LoadItemAsync(item.Id))!.Description);
     }
 
@@ -349,30 +345,30 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Item_in_use_keeps_its_type_and_unit_and_cannot_be_deleted(string reference, ItemType type)
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var item = await CreateItemAsync(manager, type);
-        var otherUnit = await CreateUnitAsync(manager);
+        var item = await Seed.CreateItemAsync(manager, type);
+        var otherUnit = await Seed.CreateUnitAsync(manager);
         var otherType = type == ItemType.RawMaterial ? "FinishedProduct" : "RawMaterial";
         await AddReferenceAsync(reference, item.Id, item.UnitId);
         var path = $"{ItemsPath}/{item.Id}";
-        var newName = UniqueName("Still");
+        var newName = Seed.UniqueName("Still");
 
         // AC-07.3: name and description can be changed at any time; sending the stored type and unit again is not a change.
         var rename = await manager.PutAsJsonAsync(path,
             new { name = newName, description = "Changed while in use", type = type.ToString(), unitId = item.UnitId }, Cancel);
         Assert.Equal(HttpStatusCode.OK, rename.StatusCode);
-        Assert.Equal(newName, (await ReadJsonAsync(rename)).GetProperty("name").GetString());
+        Assert.Equal(newName, (await ApiJson.ReadAsync(rename)).GetProperty("name").GetString());
 
         var typeChange = await manager.PutAsJsonAsync(path,
             new { name = newName, type = otherType, unitId = item.UnitId }, Cancel);
-        await AssertProblemAsync(typeChange, HttpStatusCode.Conflict, "item-in-use", TypeAndUnitLockedMessage);
+        await ApiAssert.ProblemAsync(typeChange, HttpStatusCode.Conflict, "item-in-use", TypeAndUnitLockedMessage);
 
         var unitChange = await manager.PutAsJsonAsync(path,
             new { name = newName, type = type.ToString(), unitId = otherUnit.Id }, Cancel);
-        await AssertProblemAsync(unitChange, HttpStatusCode.Conflict, "item-in-use", TypeAndUnitLockedMessage);
+        await ApiAssert.ProblemAsync(unitChange, HttpStatusCode.Conflict, "item-in-use", TypeAndUnitLockedMessage);
 
         // AC-07.4.
         var delete = await manager.DeleteAsync(path, Cancel);
-        await AssertProblemAsync(delete, HttpStatusCode.Conflict, "item-in-use",
+        await ApiAssert.ProblemAsync(delete, HttpStatusCode.Conflict, "item-in-use",
             $"{newName} has movements, recipe lines or order lines and cannot be deleted.");
 
         var stored = await LoadItemAsync(item.Id);
@@ -422,13 +418,13 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Renaming_to_another_items_name_is_rejected()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var item = await CreateItemAsync(manager, ItemType.RawMaterial);
-        var other = await CreateItemAsync(manager, ItemType.RawMaterial);
+        var item = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
+        var other = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
 
         var response = await manager.PutAsJsonAsync($"{ItemsPath}/{item.Id}",
             new { name = other.Name.ToUpperInvariant(), type = "RawMaterial", unitId = item.UnitId }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Conflict, "item-name-taken",
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.Conflict, "item-name-taken",
             $"An item named '{other.Name.ToUpperInvariant()}' already exists.");
         Assert.Equal(item.Name, (await LoadItemAsync(item.Id))!.Name);
     }
@@ -438,13 +434,13 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Renaming_to_its_own_name_in_another_case_is_allowed()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var item = await CreateItemAsync(manager, ItemType.RawMaterial);
+        var item = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
 
         var response = await manager.PutAsJsonAsync($"{ItemsPath}/{item.Id}",
             new { name = item.Name.ToUpperInvariant(), type = "RawMaterial", unitId = item.UnitId }, Cancel);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(item.Name.ToUpperInvariant(), (await ReadJsonAsync(response)).GetProperty("name").GetString());
+        Assert.Equal(item.Name.ToUpperInvariant(), (await ApiJson.ReadAsync(response)).GetProperty("name").GetString());
     }
 
     /// <summary>AC-07.2 applies to changes too: an invalid body is <c>400</c> and the item is unchanged.</summary>
@@ -452,14 +448,14 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Invalid_change_is_rejected_and_nothing_changes()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var item = await CreateItemAsync(manager, ItemType.RawMaterial);
+        var item = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
 
         var response = await manager.PutAsJsonAsync($"{ItemsPath}/{item.Id}",
-            new { name = UniqueName("New"), type = "Gadget", unitId = 999999 }, Cancel);
+            new { name = Seed.UniqueName("New"), type = "Gadget", unitId = 999999 }, Cancel);
 
-        var body = await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation",
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation",
             $"{TypeMessage} Unit 999999 does not exist.");
-        Assert.Equal([TypeMessage], Messages(body, "type"));
+        Assert.Equal([TypeMessage], ApiJson.Messages(body, "type"));
         var stored = await LoadItemAsync(item.Id);
         Assert.Equal(item.Name, stored!.Name);
         Assert.Equal(item.UnitId, stored.UnitId);
@@ -473,7 +469,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await manager.PutAsJsonAsync($"{ItemsPath}/999999", new { name = "" }, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Item 999999 not found.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Item 999999 not found.");
     }
 
     /// <summary>
@@ -488,16 +484,16 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Missing_body_is_rejected(string method, string json)
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var item = await CreateItemAsync(manager, ItemType.RawMaterial);
+        var item = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
         var before = await CountItemsAsync();
         using var request = new HttpRequestMessage(new HttpMethod(method), method == "POST" ? ItemsPath : $"{ItemsPath}/{item.Id}")
         {
-            Content = Json(json),
+            Content = ApiJson.Content(json),
         };
 
         var response = await manager.SendAsync(request, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation", "A request body is required.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation", "A request body is required.");
         Assert.Equal(before, await CountItemsAsync());
         Assert.Equal(item.Name, (await LoadItemAsync(item.Id))!.Name);
     }
@@ -509,14 +505,14 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Manager_deletes_an_unused_item()
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var item = await CreateItemAsync(manager, ItemType.FinishedProduct);
+        var item = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
 
         var response = await manager.DeleteAsync($"{ItemsPath}/{item.Id}", Cancel);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Empty(await response.Content.ReadAsStringAsync(Cancel));
         Assert.Null(await LoadItemAsync(item.Id));
-        await AssertProblemAsync(await manager.GetAsync($"{ItemsPath}/{item.Id}", Cancel),
+        await ApiAssert.ProblemAsync(await manager.GetAsync($"{ItemsPath}/{item.Id}", Cancel),
             HttpStatusCode.NotFound, "not-found", $"Item {item.Id} not found.");
     }
 
@@ -528,7 +524,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await manager.DeleteAsync($"{ItemsPath}/999999", Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Item 999999 not found.");
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.NotFound, "not-found", "Item 999999 not found.");
     }
 
     // ---- AC-01.5 and AC-05.1: access -------------------------------------------------------------------------
@@ -546,13 +542,12 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
         if (method is "POST" or "PUT")
         {
-            request.Content = Json("""{ "name": "Cheese", "type": "RawMaterial", "unitId": 1 }""");
+            request.Content = ApiJson.Content("""{ "name": "Cheese", "type": "RawMaterial", "unitId": 1 }""");
         }
 
         var response = await anonymous.SendAsync(request, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Unauthorized, "not-authenticated", NotAuthenticatedMessage);
-        Assert.Equal(new AuthenticationHeaderValue("Bearer").ToString(), response.Headers.WwwAuthenticate.ToString());
+        await ApiAssert.NotAuthenticatedAsync(response);
     }
 
     /// <summary>
@@ -572,18 +567,18 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     public async Task Changes_by_users_without_the_manager_role_are_403(string method, string roles)
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var item = await CreateItemAsync(manager, ItemType.RawMaterial);
+        var item = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
         var before = await CountItemsAsync();
         var caller = await factory.CreateClientAsAsync(roles.Split(','));
         using var request = new HttpRequestMessage(new HttpMethod(method), method == "POST" ? ItemsPath : $"{ItemsPath}/{item.Id}");
         if (method is "POST" or "PUT")
         {
-            request.Content = JsonContent.Create(new { name = UniqueName("Sneaky"), type = "FinishedProduct", unitId = item.UnitId });
+            request.Content = JsonContent.Create(new { name = Seed.UniqueName("Sneaky"), type = "FinishedProduct", unitId = item.UnitId });
         }
 
         var response = await caller.SendAsync(request, Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Forbidden, "forbidden", ManagerOnlyMessage);
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.Forbidden, "forbidden", ExpectedMessages.ManagerOnly);
         Assert.Equal(before, await CountItemsAsync());
         var stored = await LoadItemAsync(item.Id);
         Assert.Equal(item.Name, stored!.Name);
@@ -598,40 +593,10 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         var response = await production.DeleteAsync($"{ItemsPath}/999999", Cancel);
 
-        await AssertProblemAsync(response, HttpStatusCode.Forbidden, "forbidden", ManagerOnlyMessage);
+        await ApiAssert.ProblemAsync(response, HttpStatusCode.Forbidden, "forbidden", ExpectedMessages.ManagerOnly);
     }
 
     // ---- Helpers ------------------------------------------------------------------------------------------
-
-    /// <summary>A unit created through the API.</summary>
-    private sealed record CreatedUnit(int Id, string Name);
-
-    /// <summary>An item created through the API, with the fields the tests compare against.</summary>
-    private sealed record CreatedItem(int Id, string Name, int UnitId, string UnitName, string CreatedAt);
-
-    private static async Task<CreatedUnit> CreateUnitAsync(HttpClient manager)
-    {
-        var response = await manager.PostAsJsonAsync("/api/v1/units", new { name = UniqueName("unit") }, Cancel);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var body = await ReadJsonAsync(response);
-        return new CreatedUnit(body.GetProperty("id").GetInt32(), body.GetProperty("name").GetString()!);
-    }
-
-    private static async Task<CreatedItem> CreateItemAsync(
-        HttpClient manager, ItemType type, CreatedUnit? unit = null, string? description = null)
-    {
-        unit ??= await CreateUnitAsync(manager);
-        var response = await manager.PostAsJsonAsync(ItemsPath,
-            new { name = UniqueName(type.ToString()), description, type = type.ToString(), unitId = unit.Id }, Cancel);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var body = await ReadJsonAsync(response);
-        return new CreatedItem(
-            body.GetProperty("id").GetInt32(),
-            body.GetProperty("name").GetString()!,
-            unit.Id,
-            unit.Name,
-            body.GetProperty("createdAt").GetString()!);
-    }
 
     /// <summary>Adds an item straight to the database, so a test can give it any creation time.</summary>
     private static async Task<int> InsertItemAsync(TestApiFactory app, int unitId, DateTime createdAt)
@@ -748,7 +713,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
     private static Item NewItem(ItemType type, int unitId)
     {
-        var name = UniqueName(type.ToString());
+        var name = Seed.UniqueName(type.ToString());
         return new Item
         {
             Name = name, NameNormalized = NameNormalizer.Normalize(name), Type = type, UnitId = unitId, CreatedAt = DateTime.UtcNow,
@@ -782,43 +747,5 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         await using var scope = factory.Services.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Items
             .CountAsync(item => item.NameNormalized == normalized, Cancel);
-    }
-
-    private static string UniqueName(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
-
-    private static StringContent Json(string json) => new(json, Encoding.UTF8, "application/json");
-
-    private static IEnumerable<int> Ids(JsonElement page) =>
-        page.GetProperty("items").EnumerateArray().Select(row => row.GetProperty("id").GetInt32()).ToList();
-
-    private static IEnumerable<string?> Messages(JsonElement body, string path) =>
-        body.GetProperty("errors").GetProperty(path).EnumerateArray().Select(message => message.GetString()).ToList();
-
-    /// <summary>Checks the design 6 error body: status, content type, fixed title, code and detail.</summary>
-    private static async Task<JsonElement> AssertProblemAsync(
-        HttpResponseMessage response, HttpStatusCode status, string code, string detail)
-    {
-        Assert.Equal(status, response.StatusCode);
-        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        var body = await ReadJsonAsync(response);
-        var title = status switch
-        {
-            HttpStatusCode.BadRequest => "Invalid request",
-            HttpStatusCode.Unauthorized => "Not signed in",
-            HttpStatusCode.Forbidden => "Not allowed",
-            HttpStatusCode.NotFound => "Not found",
-            _ => "Conflict with current state",
-        };
-        Assert.Equal(title, body.GetProperty("title").GetString());
-        Assert.Equal(code, body.GetProperty("code").GetString());
-        Assert.Equal(detail, body.GetProperty("detail").GetString());
-        return body;
-    }
-
-    private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response)
-    {
-        var text = await response.Content.ReadAsStringAsync(Cancel);
-        using var document = JsonDocument.Parse(text);
-        return document.RootElement.Clone();
     }
 }

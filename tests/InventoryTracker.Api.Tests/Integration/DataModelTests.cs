@@ -403,7 +403,7 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     [Fact]
     public async Task Write_transaction_saves_and_returns_the_result()
     {
-        var name = UniqueName("Bag");
+        var name = Seed.UniqueName("Bag");
         await using (var scope = CreateScope())
         {
             var db = Db(scope);
@@ -428,7 +428,7 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     [Fact]
     public async Task Work_that_saves_itself_can_return_a_generated_key()
     {
-        var name = UniqueName("Keyed");
+        var name = Seed.UniqueName("Keyed");
         int returnedId;
         await using (var scope = CreateScope())
         {
@@ -456,8 +456,8 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     [Fact]
     public async Task Exception_inside_write_transaction_saves_nothing()
     {
-        var flushedName = UniqueName("Flushed");
-        var pendingName = UniqueName("Pending");
+        var flushedName = Seed.UniqueName("Flushed");
+        var pendingName = Seed.UniqueName("Pending");
         var failure = new InvalidOperationException("Simulated rule failure");
 
         await using (var scope = CreateScope())
@@ -489,7 +489,7 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     [Fact]
     public async Task Second_write_transaction_waits_for_the_first_and_sees_its_data()
     {
-        var name = UniqueName("Serialized");
+        var name = Seed.UniqueName("Serialized");
         // TaskCompletionSource is a task the test completes by hand, used here as a signal between the two
         // transactions. RunContinuationsAsynchronously stops the waiting code from running inside SetResult.
         var firstHasBegun = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -553,7 +553,7 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     [Fact]
     public async Task Nested_write_transaction_is_refused()
     {
-        var name = UniqueName("Nested");
+        var name = Seed.UniqueName("Nested");
         await using (var scope = CreateScope())
         {
             var db = Db(scope);
@@ -583,8 +583,6 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         return db.Model.GetEntityTypes().Where(entity => entity.ClrType.Namespace == typeof(Item).Namespace).ToList();
     }
 
-    private static string UniqueName(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
-
     private static UnitOfMeasure NewUnit(string name) =>
         new() { Name = name, NameNormalized = NameNormalizer.Normalize(name) };
 
@@ -611,13 +609,13 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
 
     private static async Task<Item> AddItemAsync(AppDbContext db, ItemType type, DateTime? createdAt = null)
     {
-        var name = UniqueName("Item");
+        var name = Seed.UniqueName("Item");
         var item = new Item
         {
             Name = name,
             NameNormalized = NameNormalizer.Normalize(name),
             Type = type,
-            Unit = NewUnit(UniqueName("Unit")),
+            Unit = NewUnit(Seed.UniqueName("Unit")),
             CreatedAt = createdAt ?? SampleTime,
         };
         db.Items.Add(item);

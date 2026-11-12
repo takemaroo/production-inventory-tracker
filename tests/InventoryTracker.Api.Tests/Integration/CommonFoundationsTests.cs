@@ -54,7 +54,12 @@ public class CommonFoundationsTests
 
         Assert.Same(TimeProvider.System, factory.Services.GetRequiredService<TimeProvider>());
         Assert.Same(clock, factory.Services.GetRequiredService<Clock>()); // singleton: one shared instance
-        Assert.InRange(DateTime.UtcNow - clock.UtcNow, TimeSpan.Zero, TimeSpan.FromSeconds(2));
+
+        // Clock first, real time second: the clock truncates to whole seconds, so read in this order a second boundary
+        // between the two reads cannot make the difference negative (the full reasoning is in ClockTests).
+        var clockNow = clock.UtcNow;
+        var realNow = DateTime.UtcNow;
+        Assert.InRange(realNow - clockNow, TimeSpan.Zero, TimeSpan.FromSeconds(2));
     }
 
     /// <summary>
