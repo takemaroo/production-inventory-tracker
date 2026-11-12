@@ -4,7 +4,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace InventoryTracker.Api.Auth;
 
 /// <summary>
-/// Sign-in (US-01). <c>POST /api/v1/auth/change-password</c> is added here by T-014.
+/// Sign-in (US-01). <c>POST /api/v1/auth/change-password</c> shares the prefix but lives in
+/// <c>Features/Users/AccountController</c> (T-014).
 /// </summary>
 /// <remarks>
 /// <c>[ApiController]</c> turns on MVC's API conventions: the body is read from JSON automatically, and a body that
