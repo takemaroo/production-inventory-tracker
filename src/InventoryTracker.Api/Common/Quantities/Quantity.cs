@@ -1,12 +1,19 @@
 namespace InventoryTracker.Api.Common.Quantities;
 
 /// <summary>
-/// The rounding and decimal-place rules for quantities (PRD 4.1, design 2.4).
+/// The rounding, decimal-place and maximum rules for quantities (PRD 4.1, design 2.4, decision #80).
 /// </summary>
 /// <remarks>
+/// <para>
 /// Quantities are always C# <c>decimal</c>, never <c>double</c>: decimal stores base-10 digits exactly, so
 /// 0.1 + 0.2 is exactly 0.3 and 12.5 kg stays 12.5 kg. Floating-point types would introduce tiny binary
 /// errors into stock sums and variance figures.
+/// </para>
+/// <para>
+/// This class is the one place the input maximums live (architecture 3.1 "Input maximums"). Every service checks a
+/// client's quantity with <see cref="IsWithinMax"/> or <see cref="IsWithinMaxAmountPerUnit"/> and reports it with
+/// <see cref="AboveMaxMessage"/> or <see cref="AmountPerUnitAboveMaxMessage"/>, so the limit is never typed twice.
+/// </para>
 /// </remarks>
 public static class Quantity
 {
@@ -15,6 +22,72 @@ public static class Quantity
 
     /// <summary>PRD 4.1: recipe amounts per unit have at most 6 decimal places.</summary>
     public const int MaxAmountPerUnitDecimals = 6;
+
+    /// <summary>
+    /// Decision #80: the largest quantity a client may send (receipts, ordered and produced quantities, sends,
+    /// complementary orders, leftover entered, adjustments, returns): 999,999,999.999, just under one thousand million.
+    /// </summary>
+    /// <remarks>
+    /// Why this number: a quantity column is <c>decimal(18,3)</c>, so it holds 15 digits before the point, up to
+    /// 999,999,999,999,999.999 (just under 1e15). The largest number the system computes from input is an amount per
+    /// unit times a quantity (the planned amount, AC-13.1, and the required amount, D-9). With both inputs at their
+    /// maximum that product is 999,999.999999 × 999,999,999.999 = 999,999,999,998,000.000000001, which is still below
+    /// 1e15, so every planned and required amount fits its column. The product has about 24 significant digits, and C#
+    /// <c>decimal</c> keeps 28, so the multiplication itself is exact and cannot overflow either.
+    /// This is the client limit only. <c>StockLedger.MaxQuantity</c> is the column's full capacity, a separate guard for
+    /// computed movements, which can be larger than any single input (decision #81).
+    /// </remarks>
+    public const decimal MaxQuantity = 999_999_999.999m;
+
+    /// <summary>
+    /// Decision #80: the largest amount per unit a recipe line may have (AC-08.2): 999,999.999999, just under one
+    /// million. Together with <see cref="MaxQuantity"/> it keeps every planned amount inside <c>decimal(18,3)</c>; see
+    /// the remarks there.
+    /// </summary>
+    public const decimal MaxAmountPerUnit = 999_999.999999m;
+
+    /// <summary>
+    /// Design 7.2: the message for a recipe amount above <see cref="MaxAmountPerUnit"/>, under
+    /// <c>lines[i].amountPerUnit</c>.
+    /// </summary>
+    /// <remarks>
+    /// The limit is written as literal text rather than through <see cref="MessageFormat.Number"/>: that helper keeps 3
+    /// decimal places, so it would print 999,999.999999 as "1,000,000", which is a different (and wrong) limit.
+    /// </remarks>
+    public const string AmountPerUnitAboveMaxMessage = "Amount per unit must be 999,999.999999 or less.";
+
+    /// <summary>
+    /// Decision #80: true when the size of <paramref name="value"/> is at most <see cref="MaxQuantity"/>.
+    /// </summary>
+    /// <remarks>
+    /// It compares the absolute value, so the same check serves signed adjustments (US-12), where -999,999,999.999 is
+    /// the lowest accepted value. For quantities that must be above 0 the sign rule runs first, so only the upper limit
+    /// matters there.
+    /// </remarks>
+    public static bool IsWithinMax(decimal value) => Math.Abs(value) <= MaxQuantity;
+
+    /// <summary>
+    /// Decision #80: true when the size of a recipe amount per unit is at most <see cref="MaxAmountPerUnit"/>.
+    /// </summary>
+    /// <remarks>
+    /// Amounts must be above 0, a rule checked before this one (decision #75), so in practice only the upper limit is
+    /// tested. The absolute value keeps it the same shape as <see cref="IsWithinMax"/>.
+    /// </remarks>
+    public static bool IsWithinMaxAmountPerUnit(decimal value) => Math.Abs(value) <= MaxAmountPerUnit;
+
+    /// <summary>
+    /// Design 7.2: the message for a quantity above <see cref="MaxQuantity"/>, "{fieldLabel} must be 999,999,999.999
+    /// or less.", for example <c>AboveMaxMessage("Ordered quantity")</c>.
+    /// </summary>
+    /// <param name="fieldLabel">
+    /// The name the field's other messages already use: "Quantity", "Ordered quantity", "Produced quantity",
+    /// "Leftover" or "Requested amount" (design 7.2).
+    /// </param>
+    /// <remarks>
+    /// Literal text for the limit, for the same reason as <see cref="AmountPerUnitAboveMaxMessage"/>: one wording
+    /// everywhere, independent of how <see cref="MessageFormat.Number"/> rounds.
+    /// </remarks>
+    public static string AboveMaxMessage(string fieldLabel) => $"{fieldLabel} must be 999,999,999.999 or less.";
 
     /// <summary>
     /// PRD 4.1: computed quantities (planned amount, range limits, required amount) are rounded to 3 decimal

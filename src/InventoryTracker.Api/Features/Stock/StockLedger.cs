@@ -84,11 +84,17 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
     public const string InsufficientStockCode = "insufficient-stock";
 
     /// <summary>
-    /// The largest quantity one movement may carry: the capacity of a <c>decimal(18,3)</c> column (architecture 3.1).
-    /// SQLite would store a larger value anyway (it does not enforce precision), but PostgreSQL would refuse it, and a
-    /// handful of such values could overflow the stock sums. Services refuse larger input with a <c>400</c>; the ledger
-    /// refuses it as a programming error.
+    /// The largest change one movement may carry: the capacity of a <c>decimal(18,3)</c> column (architecture 3.1).
+    /// SQLite would store a larger value anyway (it does not enforce precision), but PostgreSQL would refuse it. The
+    /// ledger refuses a larger change as a programming error (<c>ArgumentException</c>, <c>500</c>).
     /// </summary>
+    /// <remarks>
+    /// This is not the client limit. Services check what a client sends against <see cref="Quantity.MaxQuantity"/>
+    /// (999,999,999.999, decision #80) and answer <c>400</c>; they never use this constant (decision #81). The ledger's
+    /// guard stays at the column's full capacity because computed movements are not input: a
+    /// <c>ConsumedInProduction</c> movement carries the actual usage (D-9), which is at most the leftover applied plus
+    /// every send, and so can be larger than any single entered quantity.
+    /// </remarks>
     public const decimal MaxQuantity = 999_999_999_999_999.999m;
 
     /// <summary>

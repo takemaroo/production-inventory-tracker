@@ -135,7 +135,8 @@ public sealed class RecipeService(AppDbContext db, Clock clock)
 
     /// <summary>
     /// Design 2.2 step 4 for a recipe body (AC-08.2): at least one line; on each line an existing raw material that is
-    /// not on an earlier line, and an amount greater than 0 with at most 6 decimal places. Every problem is reported
+    /// not on an earlier line, and an amount greater than 0 with at most 6 decimal places and no more than
+    /// <see cref="Quantity.MaxAmountPerUnit"/> (decision #80). Every problem is reported
     /// in one <c>400</c>, keyed by the line's JSON path (design 6), for example <c>lines[2].itemId</c>.
     /// </summary>
     private async Task<IReadOnlyList<ValidLine>> ValidateLinesAsync(RecipeRequest request, CancellationToken cancellationToken)
@@ -204,6 +205,13 @@ public sealed class RecipeService(AppDbContext db, Clock clock)
                 // AC-08.2, PRD assumption 12: recipe amounts have at most 6 decimal places (trailing zeros do not count).
                 errors.Add(amountPath,
                     $"Amount per unit can have at most {Quantity.MaxAmountPerUnitDecimals} decimal places.");
+            }
+            else if (!Quantity.IsWithinMaxAmountPerUnit(amount))
+            {
+                // Decision #80: at most 999,999.999999 per unit, so amount × the largest ordered or produced quantity
+                // still fits decimal(18,3), both as a planned amount (AC-13.1) and as the required amount for actual
+                // output (D-9). It is the last rule on this field (decision #75).
+                errors.Add(amountPath, Quantity.AmountPerUnitAboveMaxMessage);
             }
 
             if (line is { ItemId: { } validId, AmountPerUnit: { } validAmount })

@@ -178,15 +178,18 @@ public class ReceiptsTests(ReceiptsTests.FixedClockFactory factory) : IClassFixt
     /// <summary>
     /// AC-09.2 and design 7.2: each invalid field is <c>400</c> <c>validation</c> with the field named in <c>errors</c>,
     /// and no stock changes (PRD 4.1 "rejected"). Covers quantity zero or less, more than 3 decimals, missing and
-    /// unknown item, a date later than today, a note over 500, plus the cases the design leaves to the API: a missing
-    /// quantity or date, a malformed date, a quantity beyond the column's capacity, and values of the wrong JSON type.
+    /// unknown item, a date later than today, a note over 500, a quantity above 999,999,999.999 (decision #80: the next
+    /// whole number, the limit plus 0.001, and a value far beyond the column's capacity), plus the cases the design
+    /// leaves to the API: a missing quantity or date, a malformed date, and values of the wrong JSON type.
     /// </summary>
     [Theory]
     [InlineData("""{ "itemId": {item}, "quantity": 0, "receiptDate": "{today}" }""", "quantity", "Quantity must be greater than 0.")]
     [InlineData("""{ "itemId": {item}, "quantity": -5, "receiptDate": "{today}" }""", "quantity", "Quantity must be greater than 0.")]
     [InlineData("""{ "itemId": {item}, "quantity": 1.0001, "receiptDate": "{today}" }""", "quantity", "Quantity can have at most 3 decimal places.")]
     [InlineData("""{ "itemId": {item}, "receiptDate": "{today}" }""", "quantity", "Quantity is required.")]
-    [InlineData("""{ "itemId": {item}, "quantity": 1000000000000000, "receiptDate": "{today}" }""", "quantity", "Quantity cannot be more than 999,999,999,999,999.999.")]
+    [InlineData("""{ "itemId": {item}, "quantity": 1000000000, "receiptDate": "{today}" }""", "quantity", ExpectedMessages.QuantityAboveMax)]
+    [InlineData("""{ "itemId": {item}, "quantity": 1000000000.000, "receiptDate": "{today}" }""", "quantity", ExpectedMessages.QuantityAboveMax)]
+    [InlineData("""{ "itemId": {item}, "quantity": 1000000000000000, "receiptDate": "{today}" }""", "quantity", ExpectedMessages.QuantityAboveMax)]
     [InlineData("""{ "quantity": 10, "receiptDate": "{today}" }""", "itemId", "Item is required.")]
     [InlineData("""{ "itemId": 999999, "quantity": 10, "receiptDate": "{today}" }""", "itemId", "Item 999999 does not exist.")]
     [InlineData("""{ "itemId": {item}, "quantity": 10, "receiptDate": "{tomorrow}" }""", "receiptDate", "Receipt date cannot be later than today (UTC).")]
@@ -212,6 +215,65 @@ public class ReceiptsTests(ReceiptsTests.FixedClockFactory factory) : IClassFixt
 
         await ApiAssert.ValidationAsync(response, path, message);
         Assert.Equal(before, await CountMovementsAsync());
+        Assert.Equal(0m, await WarehouseStockAsync(item.Id));
+    }
+
+    /// <summary>
+    /// T-008a, decision #80: a receipt of exactly 999,999,999.999 (the largest quantity a client may send) is accepted
+    /// with <c>201</c>, stored unchanged, and counted in full in the Warehouse stock.
+    /// </summary>
+    [Fact]
+    public async Task Receipt_of_exactly_the_maximum_quantity_is_accepted()
+    {
+        var item = await CreateRawMaterialAsync();
+        var warehouse = await factory.CreateClientAsAsync(Roles.Warehouse);
+
+        var response = await warehouse.PostAsync(ReceiptsPath, ApiJson.Content(
+            $$"""{ "itemId": {{item.Id}}, "quantity": 999999999.999, "receiptDate": "{{Today}}" }"""), Cancel);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(999_999_999.999m, (await ApiJson.ReadAsync(response)).GetProperty("warehouseChange").GetDecimal());
+        Assert.Equal(999_999_999.999m, await WarehouseStockAsync(item.Id));
+    }
+
+    /// <summary>
+    /// T-008a, decision #75 and architecture 3.1 "Order of checks on one field": the maximum is the last rule on
+    /// <c>quantity</c>, so a value that is both above the limit and has too many decimals, or is both huge and negative,
+    /// gets only the earlier rule's message. Nothing is saved.
+    /// </summary>
+    [Theory]
+    [InlineData("1000000000.0001", "Quantity can have at most 3 decimal places.")]
+    [InlineData("-1000000000", "Quantity must be greater than 0.")]
+    public async Task Maximum_is_the_last_rule_on_the_quantity(string quantity, string message)
+    {
+        var item = await CreateRawMaterialAsync();
+        var warehouse = await factory.CreateClientAsAsync(Roles.Warehouse);
+        var before = await CountMovementsAsync();
+
+        var response = await warehouse.PostAsync(ReceiptsPath, ApiJson.Content(
+            $$"""{ "itemId": {{item.Id}}, "quantity": {{quantity}}, "receiptDate": "{{Today}}" }"""), Cancel);
+
+        await ApiAssert.ValidationAsync(response, "quantity", message);
+        Assert.Equal(before, await CountMovementsAsync());
+    }
+
+    /// <summary>
+    /// T-008a, architecture 3.1: the maximum is an ordinary field error, so it is reported in the same <c>400</c> as
+    /// every other field problem, in body order.
+    /// </summary>
+    [Fact]
+    public async Task Quantity_above_the_maximum_is_reported_with_other_field_errors()
+    {
+        var item = await CreateRawMaterialAsync();
+        var warehouse = await factory.CreateClientAsAsync(Roles.Warehouse);
+
+        var response = await warehouse.PostAsync(ReceiptsPath, ApiJson.Content(
+            $$"""{ "itemId": {{item.Id}}, "quantity": 1000000000, "receiptDate": "{{Tomorrow}}" }"""), Cancel);
+
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation",
+            $"{ExpectedMessages.QuantityAboveMax} Receipt date cannot be later than today (UTC).");
+        Assert.Equal([ExpectedMessages.QuantityAboveMax], ApiJson.Messages(body, "quantity"));
+        Assert.Equal(["Receipt date cannot be later than today (UTC)."], ApiJson.Messages(body, "receiptDate"));
         Assert.Equal(0m, await WarehouseStockAsync(item.Id));
     }
 

@@ -15,7 +15,7 @@ Kept current by the delivery manager. Last updated: 2026-11-11
 | 1 | Discovery | done | `docs/01-prd.md` | Approved by owner 2026-11-11. |
 | 2 | Design | done | `docs/02-design.md` | API spec: 48 endpoints, ProblemDetails errors, flows. Owner settled 2 questions (decisions #17, #18). |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` | Skeleton builds (0 warnings), 4 of 4 tests pass (re-run by delivery manager). 21 tasks. |
-| 4 | Build | in progress | code | tasks done: 9 of 22 (T-001 to T-008, T-014; T-008a added) |
+| 4 | Build | in progress | code | tasks done: 10 of 22 (T-001 to T-008, T-008a, T-014) |
 | 5 | QA | not started | `docs/05-test-plan.md` | round 0 |
 | 6 | Security | not started | `docs/06-security-review.md` | |
 | 7 | Release | not started | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
@@ -51,6 +51,7 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - 2026-11-12 Chore: shared test helpers moved to tests/.../Infrastructure (ApiAssert, ApiJson, ExpectedMessages, Seed, BeforeSaveInterceptor) and clock-test race fixed; approved by `code-reviewer`, committed and pushed. Started T-007 and T-008 in parallel.
 - 2026-11-13 T-007 approved by `code-reviewer` (after one fix round), committed and pushed. Owner set quantity limits (#80); design, PRD, architecture and board updated (T-008a added before T-009; #81-#84). T-008 in review.
 - 2026-11-13 T-008 approved by `code-reviewer` after three rounds (stray-movement guard, link rules, snapshot reads), committed and pushed. Started T-008a and T-013 in parallel.
+- 2026-11-13 T-008a (quantity limits, #80) approved by `code-reviewer`, committed and pushed. Started T-009. T-013 in progress.
 
 ## Follow-ups to route
 

@@ -71,8 +71,8 @@ public sealed class ReceiptService(AppDbContext db, StockLedger ledger, Clock cl
 
     /// <summary>
     /// Design 2.2 step 4 for a receipt body (AC-09.2): item present and known, quantity above 0 with at most 3 decimal
-    /// places, a valid receipt date not after today (UTC), a note of at most 500 characters. Every problem is reported
-    /// in one <c>400</c>, in body order.
+    /// places and no more than <see cref="Quantity.MaxQuantity"/> (decision #80), a valid receipt date not after today
+    /// (UTC), a note of at most 500 characters. Every problem is reported in one <c>400</c>, in body order.
     /// </summary>
     private async Task<ValidReceipt> ValidateAsync(ReceiptRequest request, CancellationToken cancellationToken)
     {
@@ -106,11 +106,13 @@ public sealed class ReceiptService(AppDbContext db, StockLedger ledger, Clock cl
         {
             errors.Add("quantity", "Quantity can have at most 3 decimal places.");
         }
-        else if (quantity > StockLedger.MaxQuantity)
+        else if (!Quantity.IsWithinMax(quantity))
         {
-            // Not in the PRD: the largest value a quantity column holds (architecture 3.1). Without it, a few huge
-            // receipts could overflow the item's stock sum, and movements cannot be deleted to repair it.
-            errors.Add("quantity", $"Quantity cannot be more than {MessageFormat.Number(StockLedger.MaxQuantity)}.");
+            // Decision #80: every entered quantity is at most 999,999,999.999, checked last on the field (decision #75).
+            // The limit is the shared client limit, not StockLedger.MaxQuantity (the column's capacity, decision #81):
+            // it keeps every amount computed from an entered quantity (planned and required amounts) inside
+            // decimal(18,3), and movements cannot be deleted to repair a value that should never have been accepted.
+            errors.Add("quantity", Quantity.AboveMaxMessage("Quantity"));
         }
 
         // Received as text and parsed here, so a malformed date gets a readable message (architecture 4.1 item 3).

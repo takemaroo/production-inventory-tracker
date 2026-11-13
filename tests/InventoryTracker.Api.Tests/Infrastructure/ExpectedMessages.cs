@@ -1,13 +1,19 @@
 namespace InventoryTracker.Api.Tests.Infrastructure;
 
 /// <summary>
-/// The exact <c>detail</c> texts of the sign-in and role refusals (<c>401</c> and <c>403</c>, design 7.1) that tests of
-/// many endpoints check. Kept in one place so every endpoint's <c>401</c> and <c>403</c> tests compare against the same
-/// wording.
+/// The exact message texts that tests of many endpoints check: the sign-in and role refusals (<c>401</c> and
+/// <c>403</c>, design 7.1) and the input maximums (design 7.2, decision #80). Kept in one place so every endpoint's
+/// tests compare against the same wording.
 /// </summary>
 /// <remarks>
+/// <para>
+/// The texts are typed out here rather than taken from the API's own helpers (such as <c>Quantity.AboveMaxMessage</c>),
+/// so a wrong message in the API fails the tests instead of being copied into them.
+/// </para>
+/// <para>
 /// These are <c>const</c>, not <c>static readonly</c>, so they can also be used inside attributes such as
 /// <c>[InlineData(...)]</c>, which only accept values known when the code is compiled.
+/// </para>
 /// </remarks>
 public static class ExpectedMessages
 {
@@ -25,4 +31,13 @@ public static class ExpectedMessages
 
     /// <summary>AC-05.1: <c>403</c> <c>forbidden</c> on an action for the Production or Manager role.</summary>
     public const string ProductionOrManager = "Your roles do not allow this action. It needs the Production or Manager role.";
+
+    /// <summary>
+    /// Decision #80, design 7.2: <c>400</c> <c>validation</c> for a field labelled "Quantity" (receipts, sends,
+    /// complementary sends, adjustments, returns) above 999,999,999.999.
+    /// </summary>
+    public const string QuantityAboveMax = "Quantity must be 999,999,999.999 or less.";
+
+    /// <summary>Decision #80, design 7.2: <c>400</c> <c>validation</c> for a recipe amount per unit above 999,999.999999.</summary>
+    public const string AmountPerUnitAboveMax = "Amount per unit must be 999,999.999999 or less.";
 }

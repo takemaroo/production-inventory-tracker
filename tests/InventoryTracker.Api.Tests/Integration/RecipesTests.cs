@@ -324,7 +324,8 @@ public class RecipesTests(TestApiFactory factory) : IClassFixture<TestApiFactory
     /// AC-08.2, each case alone: <c>400</c> <c>validation</c> with the design 7.2 message under the line's JSON path
     /// (design 6), and nothing saved. Cases: no lines (empty, missing or null list); a line whose item is a finished
     /// product, including the product itself; the same raw item on two lines (the later line is named); an unknown
-    /// item; an amount of zero or less; more than 6 decimal places; and a missing item or amount.
+    /// item; an amount of zero or less; more than 6 decimal places; an amount above 999,999.999999 (decision #80: 1,000,000,
+    /// which is also the limit plus 0.000001, written both ways); and a missing item or amount.
     /// </summary>
     /// <param name="template">
     /// The body. <c>{raw}</c> and <c>{raw2}</c> become raw materials, <c>{other}</c> another finished product and
@@ -350,6 +351,10 @@ public class RecipesTests(TestApiFactory factory) : IClassFixture<TestApiFactory
         "lines[0].amountPerUnit", "Amount per unit must be greater than 0.")]
     [InlineData("""{ "lines": [ { "itemId": {raw}, "amountPerUnit": 1 }, { "itemId": {raw2}, "amountPerUnit": 0.0000001 } ] }""",
         "lines[1].amountPerUnit", "Amount per unit can have at most 6 decimal places.")]
+    [InlineData("""{ "lines": [ { "itemId": {raw}, "amountPerUnit": 1000000 } ] }""",
+        "lines[0].amountPerUnit", ExpectedMessages.AmountPerUnitAboveMax)]
+    [InlineData("""{ "lines": [ { "itemId": {raw}, "amountPerUnit": 1000000.000000 } ] }""",
+        "lines[0].amountPerUnit", ExpectedMessages.AmountPerUnitAboveMax)]
     [InlineData("""{ "lines": [ { "amountPerUnit": 1 } ] }""", "lines[0].itemId", "Item is required.")]
     [InlineData("""{ "lines": [ { "itemId": {raw} } ] }""", "lines[0].amountPerUnit", "Amount per unit is required.")]
     public async Task Invalid_recipe_is_rejected(string template, string path, string message)
@@ -407,6 +412,77 @@ public class RecipesTests(TestApiFactory factory) : IClassFixture<TestApiFactory
         Assert.Equal(["Item 999999 does not exist."], ApiJson.Messages(body, "lines[2].itemId"));
         Assert.Equal(["Amount per unit can have at most 6 decimal places."], ApiJson.Messages(body, "lines[2].amountPerUnit"));
         Assert.Equal(6, body.GetProperty("errors").EnumerateObject().Count());
+    }
+
+    // ---- Decision #80: the amount maximum (T-008a) -----------------------------------------------------------
+
+    /// <summary>
+    /// T-008a, decision #80: an amount per unit of exactly 999,999.999999 (the largest allowed, with all 6 decimal
+    /// places) is saved, and the <c>PUT</c> response, the <c>GET</c> and the stored row all hold it unchanged.
+    /// </summary>
+    [Fact]
+    public async Task Amount_of_exactly_the_maximum_is_saved_and_read_back_unchanged()
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
+        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
+
+        var put = await manager.PutAsync(RecipePath(product.Id), ApiJson.Content(
+            $$"""{ "lines": [ { "itemId": {{cheese.Id}}, "amountPerUnit": 999999.999999 } ] }"""), Cancel);
+
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        var saved = Assert.Single((await ApiJson.ReadAsync(put)).GetProperty("lines").EnumerateArray());
+        Assert.Equal(999_999.999999m, saved.GetProperty("amountPerUnit").GetDecimal());
+        var read = Assert.Single((await ApiJson.ReadAsync(await manager.GetAsync(RecipePath(product.Id), Cancel)))
+            .GetProperty("lines").EnumerateArray());
+        Assert.Equal(999_999.999999m, read.GetProperty("amountPerUnit").GetDecimal());
+        Assert.Equal(999_999.999999m, Assert.Single(await LoadLinesAsync(factory, product.Id)).AmountPerUnit);
+    }
+
+    /// <summary>
+    /// T-008a, decision #80, design 6: on a two-line recipe where only the second amount is above the maximum, the one
+    /// error is listed under that line's path alone; the valid first line gets no error, and nothing is saved.
+    /// </summary>
+    [Fact]
+    public async Task Amount_above_the_maximum_is_reported_only_on_its_own_line()
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
+        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
+        var salt = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
+
+        var response = await manager.PutAsync(RecipePath(product.Id), ApiJson.Content($$"""
+            { "lines": [ { "itemId": {{cheese.Id}}, "amountPerUnit": 999999.999999 },
+                         { "itemId": {{salt.Id}}, "amountPerUnit": 1000000 } ] }
+            """), Cancel);
+
+        var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation",
+            ExpectedMessages.AmountPerUnitAboveMax);
+        var error = Assert.Single(body.GetProperty("errors").EnumerateObject());
+        Assert.Equal("lines[1].amountPerUnit", error.Name);
+        Assert.Equal([ExpectedMessages.AmountPerUnitAboveMax], ApiJson.Messages(body, "lines[1].amountPerUnit"));
+        Assert.Null(await LoadRecipeAsync(factory, product.Id));
+    }
+
+    /// <summary>
+    /// T-008a, decision #75 and architecture 3.1 "Order of checks on one field": the maximum is the last rule on
+    /// <c>amountPerUnit</c> (required, greater than 0, 6 decimal places, maximum). An amount that is both above the limit
+    /// and breaks an earlier rule gets only the earlier rule's message.
+    /// </summary>
+    [Theory]
+    [InlineData("1000000.0000001", "Amount per unit can have at most 6 decimal places.")]
+    [InlineData("-1000000", "Amount per unit must be greater than 0.")]
+    public async Task Maximum_is_the_last_rule_on_the_amount(string amount, string message)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
+        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
+
+        var response = await manager.PutAsync(RecipePath(product.Id), ApiJson.Content(
+            $$"""{ "lines": [ { "itemId": {{cheese.Id}}, "amountPerUnit": {{amount}} } ] }"""), Cancel);
+
+        await ApiAssert.ValidationAsync(response, "lines[0].amountPerUnit", message);
+        Assert.Null(await LoadRecipeAsync(factory, product.Id));
     }
 
     /// <summary>
