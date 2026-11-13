@@ -15,7 +15,7 @@ Kept current by the delivery manager. Last updated: 2026-11-11
 | 1 | Discovery | done | `docs/01-prd.md` | Approved by owner 2026-11-11. |
 | 2 | Design | done | `docs/02-design.md` | API spec: 48 endpoints, ProblemDetails errors, flows. Owner settled 2 questions (decisions #17, #18). |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` | Skeleton builds (0 warnings), 4 of 4 tests pass (re-run by delivery manager). 21 tasks. |
-| 4 | Build | in progress | code | tasks done: 8 of 21 (T-001 to T-007, T-014) |
+| 4 | Build | in progress | code | tasks done: 9 of 22 (T-001 to T-008, T-014; T-008a added) |
 | 5 | QA | not started | `docs/05-test-plan.md` | round 0 |
 | 6 | Security | not started | `docs/06-security-review.md` | |
 | 7 | Release | not started | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
@@ -50,6 +50,7 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - 2026-11-12 T-014 approved by `code-reviewer` after three rounds (password hashing moved out of the write lock, owner decisions #71/#72), committed and pushed. Next: shared test-helper chore, then T-007 and T-013.
 - 2026-11-12 Chore: shared test helpers moved to tests/.../Infrastructure (ApiAssert, ApiJson, ExpectedMessages, Seed, BeforeSaveInterceptor) and clock-test race fixed; approved by `code-reviewer`, committed and pushed. Started T-007 and T-008 in parallel.
 - 2026-11-13 T-007 approved by `code-reviewer` (after one fix round), committed and pushed. Owner set quantity limits (#80); design, PRD, architecture and board updated (T-008a added before T-009; #81-#84). T-008 in review.
+- 2026-11-13 T-008 approved by `code-reviewer` after three rounds (stray-movement guard, link rules, snapshot reads), committed and pushed. Started T-008a and T-013 in parallel.
 
 ## Follow-ups to route
 
@@ -57,3 +58,6 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - qa-engineer (phase 5): displayed percentages follow round(round(x, 6), 2) (decision #58), which can differ from a single rounding in rare cases (e.g. 1.0049996 shows 1.01). Test against the two-step formula. Threshold checks use the unrounded value.
 - security-reviewer (phase 6): sign-in has no rate limit; each request costs about 45 ms of CPU. Belongs with the lock-out denial-of-service note.
 - ux-designer (small): design 2.4 says the limits keep every computed amount inside the stored range; soften to match architecture risk 12 (an extreme stock total from about a million maximum-size movements is the one exception).
+- tech-lead: decide whether AppDbContext.SaveChanges should refuse any Added Movement not written by StockLedger (full 'only writer' guarantee, decision #86). Test helpers that insert movements directly (ItemsTests in-use theory, StockTests AC-10.3) would then need to go through the ledger.
+- qa-engineer (phase 5): a location with movements but no change shows 0.0 in stock, while an item with no movements shows 0; both valid per design 2.4 (T-008 review).
+- tech-lead (next doc update): add decision #87 (ledger link rules) and #86 (stray-movement refusal) to architecture 3.2/5.1 'contract as built'. BEFORE T-019: decide whether a received return's ReturnedToWarehouse movement copies the return's linked ProductionOrderNumber (affects GET /movements?orderNumber=).
