@@ -57,6 +57,7 @@ These rules apply to every endpoint. Section 5 lists each endpoint against them.
 
 - **Quantities are JSON numbers, not strings.** System.Text.Json reads a JSON number straight into a C# `decimal` without going through floating point, so input is exact. Numbers are the ASP.NET Core and OpenAPI default, so no custom converters are needed. The usual reason for sending decimals as strings is client-side arithmetic in JavaScript. Here clients do no arithmetic, because every computed value comes back already rounded.
 - **Decimal places on input** (PRD 4.1): at most 3 for quantities and 6 for recipe amounts per unit. Trailing zeros do not count: `12.5000` is accepted as 12.5. A quantity sent as a string (`"12.5"`) is `400`.
+- **Maximums on input** (decision #80, owner): every entered quantity (receipts, ordered and produced quantities, sends, complementary requested amounts and sends, leftover entered, adjustments, returns) is at most 999,999,999.999; a recipe amount per unit is at most 999,999.999999. For an adjustment the limit applies to the size, so -999,999,999.999 is the lowest. Above the limit is `400` `validation` (7.2). These limits keep every computed amount inside the stored range.
 - **Computed values** (planned amount, estimates, send ranges, usage, variances) are rounded by the server to 3 decimal places, half away from zero, before they are returned. Every displayed percentage, in API responses and in notification messages and data, is round(round(unrounded, 6), 2), both steps half away from zero, so a notification and the order response always show the same value (decision #58). Clients must not rely on trailing zeros being present: `1000` and `1000.000` mean the same thing.
 - **Percentages are percent values**, not fractions: `1.5` means 1.50%. Field names end in `Percent`.
 - **Sign:** a variance or difference is signed. Positive means more than planned or required.
@@ -879,7 +880,7 @@ ASP.NET Core's JWT handler returns an empty `401` by default. It must be configu
 
 ### 7.2 Business-rule rejections
 
-Placeholders are in braces. Messages marked PRD are exact.
+Placeholders are in braces. Messages marked PRD are exact. The rows marked "any quantity" under Receipts and adjustments apply to every quantity in every section below. A field message goes under the field's JSON path as its `errors` key (section 6): `quantity`, `orderedQuantity`, `producedQuantity`, `lines[0].quantity`, `lines[0].leftover`, `lines[0].requestedAmount`, `lines[0].amountPerUnit`.
 
 **Users (US-03)**
 
@@ -920,6 +921,7 @@ Placeholders are in braces. Messages marked PRD are exact.
 | 400 | `validation` | Same item twice | {item} appears on more than one line. |
 | 400 | `validation` | Amount zero or less | Amount per unit must be greater than 0. |
 | 400 | `validation` | More than 6 decimals | Amount per unit can have at most 6 decimal places. |
+| 400 | `validation` | Amount above 999,999.999999 (decision #80) | Amount per unit must be 999,999.999999 or less. |
 | 400 | `validation` | No lines | A recipe needs at least one line. |
 
 **Receipts and adjustments (US-09, US-12)**
@@ -928,6 +930,8 @@ Placeholders are in braces. Messages marked PRD are exact.
 |--------|------|------|---------|
 | 400 | `validation` | Quantity zero or less (receipt) | Quantity must be greater than 0. |
 | 400 | `validation` | More than 3 decimals (any quantity) | Quantity can have at most 3 decimal places. |
+| 400 | `validation` | Above 999,999,999.999 (any quantity: receipt, ordered, send, requested amount, complementary send, produced, leftover, adjustment, return; decision #80) | {Field} must be 999,999,999.999 or less. *({Field} is the name the field's other messages use: Quantity, Ordered quantity, Produced quantity, Leftover, Requested amount.)* |
+| 400 | `validation` | Adjustment quantity below -999,999,999.999 | Quantity must be between -999,999,999.999 and 999,999,999.999. |
 | 400 | `validation` | Missing item | Item is required. |
 | 400 | `validation` | Unknown item | Item {itemId} does not exist. |
 | 400 | `validation` | Future receipt date | Receipt date cannot be later than today (UTC). |

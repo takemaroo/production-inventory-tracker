@@ -14,7 +14,8 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-006 | Units and items | backend-developer | T-003 | todo |
 | T-007 | Recipes | backend-developer | T-006 | todo |
 | T-008 | Stock ledger, receipts, current stock | backend-developer | T-004, T-006 | todo |
-| T-009 | Create and view production orders | backend-developer | T-007, T-008 | todo |
+| T-008a | Input quantity maximums: shared check, retrofit recipes and receipts | backend-developer | T-007, T-008 | todo |
+| T-009 | Create and view production orders | backend-developer | T-007, T-008, T-008a | todo |
 | T-010 | Send materials for an order | backend-developer | T-009 | todo |
 | T-011 | Complete an order: output, variances, notifications | backend-developer | T-005, T-010 | todo |
 | T-012 | Notifications API | backend-developer | T-011 | todo |
@@ -28,9 +29,9 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-020 | End-to-end scenarios, role matrix, concurrency | backend-developer | T-012 to T-019 | todo |
 | T-021 | OpenAPI completeness and sample requests | backend-developer | T-012 to T-019 | todo |
 
-**Thin slice first.** T-001 to T-012 give a working path through every layer: sign in, set up master data, receive stock, create an order, send, complete, read the notifications. T-013 to T-019 add breadth. T-020 and T-021 close out.
+**Thin slice first.** T-001 to T-012 give a working path through every layer: sign in, set up master data, receive stock, create an order, send, complete, read the notifications. T-013 to T-019 add breadth. T-020 and T-021 close out. T-008a was added on 2026-11-13 for decision #80 (owner): it puts the input maximums in place before the first task that multiplies quantities (T-009).
 
-**Running tasks at the same time.** Tasks can run in parallel when their dependencies are done and their "Touches" lists do not overlap. Safe pairs once their dependencies are met include: T-001 with T-002; T-004 with T-002 or T-003; T-005 with T-003 or T-004; T-007 with T-008; T-013 and T-014 with almost anything; T-017 with T-011; T-019 with T-011, T-015 or T-017. T-010, T-011 and T-016 share `ProductionOrdersController.cs` and are chained on purpose. T-011 adds a migration (decision #63), so it must not run alongside any other task that touches `Data/`. T-017 may run alongside T-011 (it does not touch `Data/`; SQLite does not enforce the old limit), but it must not add its own length check or migration for notification messages.
+**Running tasks at the same time.** Tasks can run in parallel when their dependencies are done and their "Touches" lists do not overlap. Safe pairs once their dependencies are met include: T-001 with T-002; T-004 with T-002 or T-003; T-005 with T-003 or T-004; T-007 with T-008; T-008a with T-013 (T-008a must not run alongside any change to `Features/Recipes/` or `Features/Stock/`); T-013 and T-014 with almost anything; T-017 with T-011; T-019 with T-011, T-015 or T-017. T-010, T-011 and T-016 share `ProductionOrdersController.cs` and are chained on purpose. T-011 adds a migration (decision #63), so it must not run alongside any other task that touches `Data/`. T-017 may run alongside T-011 (it does not touch `Data/`; SQLite does not enforce the old limit), but it must not add its own length check or migration for notification messages.
 
 ## Done criteria for every task
 
@@ -39,7 +40,8 @@ Each task is done only when all of these hold, as well as its own criteria below
 - `dotnet build` from the repository root gives **0 errors and 0 warnings**, and `dotnet test` passes in full. The developer's report includes both commands and their results.
 - **Code is commented to the owner's comment standard (CLAUDE.md, "Code comments for learning")**: a `///` summary on every class and public method or endpoint, the *why* and the PRD id beside each business rule, a short explanation the first time a framework concept appears, and a comment on each test naming the acceptance criterion it proves. `code-reviewer` checks this.
 - Status codes, `code` values and messages match `docs/02-design.md` section 7 exactly where the PRD gives the wording, and keep the same facts elsewhere. Checks run in the design's order (design 2.2, architecture 5.1).
-- Every request that changes data runs inside `InWriteTransactionAsync`, and every movement is written through `StockLedger` (architecture 5.1, 5.2).
+- Every request that changes data runs inside `InWriteTransactionAsync`, and every movement is written through `StockLedger` (architecture 5.1, 5.2). `StockLedger` and `StockQueries` are taken through the constructor, never created with `new` (decision #77).
+- From T-008a on, every quantity the client sends is checked against the input maximums with the shared helpers in `Common/Quantities/Quantity.cs` (architecture 3.1, decision #80), never a re-typed number. The task's own criteria name its fields.
 - Every acceptance criterion listed under "Serves" has at least one test, and every new endpoint has a `401` test (no token) and a `403` test (a role without access).
 - No secrets in tracked files. No changes to `docs/01-prd.md`, `docs/02-design.md` or `docs/03-architecture.md`. If the task does not fit the architecture, stop and report it so the tech lead can change the document first.
 - The delivery manager commits each task as `T-0NN: short description` after review.
@@ -166,6 +168,24 @@ Each task is done only when all of these hold, as well as its own criteria below
   - Concurrency: 10 parallel receipts all succeed and the stock equals their sum.
   - The receipt response is the movement shape of design 5.6, with `Location: /api/v1/movements/{id}`.
 
+### T-008a: Input quantity maximums: shared check, retrofit recipes and receipts
+
+- **Owner:** backend-developer
+- **Serves:** decision #80 (owner, Q45); design 2.4 "Maximums on input" and 7.2 (Recipes, Receipts and adjustments); architecture 3.1 "Input maximums"; AC-08.2 and US-09 (one more `400` case each)
+- **Depends on:** T-007, T-008 (both committed first). Must be done before T-009.
+- **Touches:** `src/InventoryTracker.Api/Common/Quantities/Quantity.cs`, `src/InventoryTracker.Api/Features/Recipes/RecipeService.cs`, `src/InventoryTracker.Api/Features/Stock/ReceiptService.cs`, `src/InventoryTracker.Api/Features/Stock/StockLedger.cs` (comment on `MaxQuantity` only), `tests/InventoryTracker.Api.Tests/Unit/Common/QuantityTests.cs`, `tests/InventoryTracker.Api.Tests/Integration/RecipesTests.cs`, `tests/InventoryTracker.Api.Tests/Integration/ReceiptsTests.cs`, `tests/InventoryTracker.Api.Tests/Infrastructure/ExpectedMessages.cs` (if the messages are kept there)
+- **What to build:**
+  1. In `Quantity.cs`, the one shared check of architecture 3.1: `MaxQuantity` = 999,999,999.999m, `MaxAmountPerUnit` = 999,999.999999m, `IsWithinMax(decimal)` (`Math.Abs(value) <= MaxQuantity`), `IsWithinMaxAmountPerUnit(decimal)`, `AboveMaxMessage(string fieldLabel)` giving "{fieldLabel} must be 999,999,999.999 or less.", and `AmountPerUnitAboveMaxMessage` = "Amount per unit must be 999,999.999999 or less." (design 7.2). Write both limits into the messages as literal text: `MessageFormat.Number` keeps 3 places and would print the amount limit as "1,000,000". The `///` comments explain the overflow reasoning of architecture 3.1 in plain words.
+  2. Recipes (`PUT /items/{id}/recipe`): an amount per unit above `MaxAmountPerUnit` gets `400` `validation` with `AmountPerUnitAboveMaxMessage` under `lines[i].amountPerUnit`, as the last rule in that field's chain (required, greater than 0, 6 decimal places, maximum; one message per field, decision #75).
+  3. Receipts (`POST /receipts`): replace the provisional cap of decision #79. The quantity check uses `Quantity.IsWithinMax` and `AboveMaxMessage("Quantity")` ("Quantity must be 999,999,999.999 or less."), still as the last rule for `quantity`. No service refers to `StockLedger.MaxQuantity` any more.
+  4. `StockLedger.MaxQuantity` stays at the `decimal(18,3)` capacity (999,999,999,999,999.999) as the ledger's programming-error guard, because computed movements (`ConsumedInProduction`, D-9) can be larger than any single input (decision #81). Change only its comment: it is not the client limit, which is `Quantity.MaxQuantity`.
+- **Acceptance criteria:**
+  - Unit (`QuantityTests.cs`): `IsWithinMax(999_999_999.999m)` is true and `IsWithinMax(1_000_000_000m)` is false; `IsWithinMax(-999_999_999.999m)` is true and `IsWithinMax(-1_000_000_000m)` is false; the same pair for `IsWithinMaxAmountPerUnit` at 999,999.999999 and 1,000,000. Both messages equal the design 7.2 text exactly.
+  - Unit, **max × max**: `Quantity.MaxAmountPerUnit * Quantity.MaxQuantity` does not throw `OverflowException`, and `Quantity.Round3` of it is 999,999,999,998,000.000, which is less than 999,999,999,999,999.999 (the `decimal(18,3)` maximum) and has at most 3 decimal places. The test comment names decision #80 and says this proves every planned amount (AC-13.1) and required amount (D-9) fits its column.
+  - Integration, recipes: amount 999,999.999999 is saved and read back unchanged; 1,000,000 gives `400` `validation` with the message under `lines[0].amountPerUnit`; on a two-line recipe with one bad amount, only that line's path has the error.
+  - Integration, receipts: quantity 999,999,999.999 is accepted (`201`); 1,000,000,000 gives `400` `validation` "Quantity must be 999,999,999.999 or less." under `quantity`, and no movement is created. The #79 message no longer appears anywhere in code or tests.
+  - `dotnet build` 0 warnings, `dotnet test` all pass.
+
 ### T-009: Create and view production orders
 
 - **Owner:** backend-developer
@@ -178,6 +198,7 @@ Each task is done only when all of these hold, as well as its own criteria below
   - AC-08.4: change the recipe after creating an order; the order keeps its amounts, and a new order uses the new recipe.
   - AC-15.5 estimates: with 50 kg of free leftover (set up through a receipt and a ledger movement in the test) and orders #7, #8, #9, the three estimates match the PRD.
   - AC-13.4: creating an order creates no movement.
+  - Decision #80: `orderedQuantity` above 999,999,999.999 gives `400` `validation` "Ordered quantity must be 999,999,999.999 or less." under `orderedQuantity`, through `Quantity.IsWithinMax` / `AboveMaxMessage` (T-008a). Test: an order of exactly 999,999,999.999 for a recipe line of 999,999.999999 is created, and its planned amount is 999,999,999,998,000 (no overflow, fits `decimal(18,3)`).
 - **Notes:**
   - **Decision #58, percentages.** The detail and summary mappings that T-009 writes are reused for Completed orders, so every percentage they return (`outputVariancePercent`, each line's `usageVariancePercent`, `toleranceAtCompletionPercent` where shown) is round(stored 6-place value, 2), half away from zero, never a fresh calculation from the quantities. A stored `null` (decision #49) is returned as `null`. Use the same rule as `NotificationComposer.RoundPercentForDisplay` (T-005: round to 6 places, then to 2, both half away from zero), in one place inside `Features/ProductionOrders/` (the mapping code), so T-011's responses reuse it. Test it with a stored value such as 2.004999 → 2.00 and 2.005 → 2.01 (on a Completed order inserted through the DbContext).
 
@@ -193,14 +214,16 @@ Each task is done only when all of these hold, as well as its own criteria below
   - AC-15.6: all failing lines are named in one `400` `send-out-of-range`, with `errors` per line.
   - AC-15.11: a Pending return inserted through the DbContext blocks the send with the PRD message.
   - Concurrency: two simultaneous sends of the same order give exactly one `200`. Simultaneous sends of two different orders give exactly one `200` and one `409` `another-order-in-production`. Warehouse stock is never negative.
+  - Decision #80: a line's `quantity` above 999,999,999.999 gives `400` `validation` "Quantity must be 999,999,999.999 or less." under `lines[i].quantity` (shared check, T-008a), as a field error before the range check.
 
 ### T-011: Complete an order: output, variances, notifications
 
 - **Owner:** backend-developer
 - **Serves:** US-19 (AC-19.1 to AC-19.8), US-20 (AC-20.1 to AC-20.10), AC-23.2 (first three types created)
 - **Depends on:** T-005, T-010
-- **Touches:** `src/InventoryTracker.Api/Features/ProductionOrders/CompleteOrderService.cs`, `ProductionOrdersController.cs` (one action), `ProductionOrderContracts.cs`, `src/InventoryTracker.Api/Data/Configurations/NotificationConfiguration.cs`, `src/InventoryTracker.Api/Data/Configurations/ColumnRules.cs`, `src/InventoryTracker.Api/Data/Migrations/` (new migration and the model snapshot), `tests/InventoryTracker.Api.Tests/Integration/CompleteOrderTests.cs`, `tests/InventoryTracker.Api.Tests/Integration/DataModelTests.cs`. Because it touches `Data/`, T-011 must not run at the same time as any other task that touches `Data/`.
+- **Touches:** `src/InventoryTracker.Api/Features/ProductionOrders/CompleteOrderService.cs`, `ProductionOrdersController.cs` (one action), `ProductionOrderContracts.cs`, `src/InventoryTracker.Api/Data/Configurations/NotificationConfiguration.cs`, `src/InventoryTracker.Api/Data/Configurations/ColumnRules.cs`, `src/InventoryTracker.Api/Data/Configurations/ProductionOrderConfiguration.cs`, `src/InventoryTracker.Api/Data/Configurations/ProductionOrderLineConfiguration.cs`, `src/InventoryTracker.Api/Data/Migrations/` (new migration and the model snapshot), `tests/InventoryTracker.Api.Tests/Integration/CompleteOrderTests.cs`, `tests/InventoryTracker.Api.Tests/Integration/DataModelTests.cs`. Because it touches `Data/`, T-011 must not run at the same time as any other task that touches `Data/`.
 - **Step 1, schema change (decision #63, architecture 3.2 Notification):** remove the 1,000-character limit on `Notification.Message`. Delete `HasMaxLength(ColumnRules.MessageLength)` in `NotificationConfiguration` and the `ColumnRules.MessageLength` constant, then generate the migration named **`NotificationMessageUnbounded`** with `dotnet tool run dotnet-ef migrations add NotificationMessageUnbounded --project src/InventoryTracker.Api --output-dir Data/Migrations`. Do not edit the committed `DomainModel` migration. No code anywhere truncates or length-checks a notification message. Do this before saving any notification; T-016 and T-017 also save notifications and rely on it.
+- **Step 1b, percentage precision (decision #82, architecture 3.1):** add `ColumnRules.IsPercentage()` with `HasPrecision(28, 6)` and use it for `ProductionOrder.OutputVariancePercent`, `ProductionOrder.ToleranceAtCompletionPercent` and `ProductionOrderLine.UsageVariancePercent` (they use `IsFineDecimal()` today, which stays for recipe and order-line `AmountPerUnit`). Then generate a second migration named **`PercentagePrecision`** the same way. On SQLite every decimal is `TEXT`, so its `Up`/`Down` may contain no column change; keep it anyway, because the model snapshot is what records the precision for a later PostgreSQL port. With capped inputs a variance percentage can reach about 1e14, which `(18, 6)` cannot hold (architecture 3.1).
 - **What to build:** `POST /production-orders/{number}/complete` in one write transaction. It creates the ProducedOutput movement and ConsumedInProduction movements (none for zero), fills every completion field on the order and its lines through T-004, stores the tolerance in force, and creates the OutputVariance, UsageVariance and LeftoverAtCompletion notifications through T-005. It also cancels the order's PendingApproval and Approved complementary orders with "Parent order completed" (AC-19.6).
 - **Acceptance criteria:**
   - Every criterion of US-19 and US-20, with the exact PRD messages for AC-19.4.
@@ -208,6 +231,8 @@ Each task is done only when all of these hold, as well as its own criteria below
   - AC-19.6: complementary orders inserted through the DbContext in PendingApproval and Approved become Cancelled with the note; Rejected and Sent ones are unchanged.
   - AC-20.10: changing the tolerance setting after completion does not change the stored values.
   - Concurrency: two simultaneous completions give exactly one `200`.
+  - Decision #80: `producedQuantity` above 999,999,999.999 gives `400` "Produced quantity must be 999,999,999.999 or less." under `producedQuantity`, and a line's `leftover` above it gives "Leftover must be 999,999,999.999 or less." under `lines[i].leftover` (shared check, T-008a).
+  - Decision #82: an order of 0.001 completed with a produced quantity of 999,999,999.999 stores and returns its output variance percentage without error, and the model snapshot shows `(28, 6)` for the three percentage columns.
   - Decision #63: the app starts on a database created before this task (with `DomainModel` only) and migrates it; a notification whose message is longer than 1,000 characters (for example an order with long item names, units and many lines) is saved and read back unchanged, character for character. Test in `DataModelTests.cs` or `CompleteOrderTests.cs`.
 - **Notes:**
   - **Decision #58, percentages.** `OutputVariancePercent` and `UsageVariancePercent` are stored as the unrounded value rounded to 6 places, half away from zero. Round in code before saving: SQLite does not apply `HasPrecision` on write. Every percentage in the completion response is round(stored 6-place value, 2), half away from zero, which is the same value the notifications show. A test compares a response percentage with the matching notification's `data`.
@@ -266,6 +291,7 @@ Each task is done only when all of these hold, as well as its own criteria below
   - Every criterion of US-12 with the exact PRD messages, including the AC-12.3 example (−13 refused, −12 accepted, leaves 0).
   - AC-12.4: after a −20 kg write-off in Production storage, a Created order's Cheese estimate drops by 20 kg.
   - Concurrency (PRD section 5): two simultaneous −8 kg adjustments on 12 kg of stock give one `201` and one `409`; stock ends at 4.
+  - Decision #80: the limit applies to the size of the signed `quantity`, through `Quantity.IsWithinMax` (T-008a). 999,999,999.999 and -999,999,999.999 pass the input check; 1,000,000,000 gives `400` "Quantity must be 999,999,999.999 or less." and -1,000,000,000 gives `400` "Quantity must be between -999,999,999.999 and 999,999,999.999." (design 7.2), both under `quantity`.
 
 ### T-016: Cancel an order
 
@@ -290,6 +316,7 @@ Each task is done only when all of these hold, as well as its own criteria below
   - Every criterion of US-16 and US-17 with the design 7.2 messages.
   - The parent order's detail (T-009) lists the complementary order with its status.
   - A Manager can raise a request and approve it themselves (PRD row 6).
+  - Decision #80: a line's `requestedAmount` above 999,999,999.999 gives `400` `validation` "Requested amount must be 999,999,999.999 or less." under `lines[i].requestedAmount` (shared check, T-008a).
 
 ### T-018: Complementary order send
 
@@ -302,6 +329,7 @@ Each task is done only when all of these hold, as well as its own criteria below
   - Every criterion of US-18, including the AC-18.2 numbers and `409` stating the status for each non-Approved status.
   - After the send, the parent's detail shows the increased `complementarySends`, and `GET /stock` shows the increased committed amount.
   - Concurrency: two simultaneous sends of one complementary order give exactly one `200`.
+  - Decision #80: a line's `quantity` above 999,999,999.999 gives `400` `validation` "Quantity must be 999,999,999.999 or less." under `lines[i].quantity` (shared check, T-008a), as a field error before the range check.
 
 ### T-019: Leftover returns
 
@@ -315,6 +343,7 @@ Each task is done only when all of these hold, as well as its own criteria below
   - Decision #18: receiving a return larger than current Production storage stock gives `409` `insufficient-stock` with the design message.
   - AC-15.11 through HTTP: a Pending return blocks the send of an order that uses that material; after it is received, the send succeeds.
   - `GET /stock/{itemId}` shows the return in `pendingReturns` and reduces `freeLeftover` while it is Pending.
+  - Decision #80: `quantity` above 999,999,999.999 on `POST /returns` gives `400` `validation` "Quantity must be 999,999,999.999 or less." under `quantity` (shared check, T-008a).
 
 ### T-020: End-to-end scenarios, role matrix, concurrency
 
@@ -356,8 +385,8 @@ Every user story appears at least once.
 | US-05 Role checks and audit | T-003 (mechanism), every endpoint task (403 tests), T-002 (audit columns), T-020 (full matrix and audit) |
 | US-06 Units | T-006 |
 | US-07 Items | T-006 |
-| US-08 Recipes | T-007, T-009 (AC-08.4) |
-| US-09 Stock receipt | T-008 |
+| US-08 Recipes | T-007, T-008a (amount maximum), T-009 (AC-08.4) |
+| US-09 Stock receipt | T-008, T-008a (quantity maximum) |
 | US-10 Current stock | T-008, T-019 (pending returns end to end) |
 | US-11 Movement history | T-013, T-020 (AC-11.4) |
 | US-12 Adjustments | T-015 |
