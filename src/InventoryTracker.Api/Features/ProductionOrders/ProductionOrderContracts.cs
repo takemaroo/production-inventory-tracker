@@ -18,8 +18,32 @@ namespace InventoryTracker.Api.Features.ProductionOrders;
 public sealed record ProductionOrderRequest(int? FinishedProductId, decimal? OrderedQuantity);
 
 /// <summary>
+/// Body of <c>POST /api/v1/production-orders/{number}/send</c> (design 5.7, AC-15.1): one quantity for every line of the
+/// order, for example <c>{ "lines": [ { "itemId": 3, "quantity": 995 }, { "itemId": 4, "quantity": 15 } ] }</c>.
+/// </summary>
+/// <param name="Lines">
+/// Every order line exactly once, in any order (design 5.7). A missing list counts as an empty one, so every order line
+/// is reported as missing (AC-15.8).
+/// </param>
+/// <remarks>
+/// The list and its elements are nullable so that a missing or <c>null</c> value reaches <see cref="SendOrderService"/>,
+/// which answers with the design's own messages under each field's JSON path (architecture 6, Validation).
+/// </remarks>
+public sealed record SendOrderRequest(IReadOnlyList<SendOrderLineRequest?>? Lines);
+
+/// <summary>One line of a send: which raw material, and how much of it the Warehouse sends (design 5.7).</summary>
+/// <param name="ItemId">The raw material; it must be on the order (AC-15.8).</param>
+/// <param name="Quantity">
+/// The quantity taken from the Warehouse for this line: 0 or more, at most 3 decimal places, at most 999,999,999.999
+/// (AC-15.8, decision #80), and inside the line's send range (D-7, AC-15.6). Zero is allowed where the range starts at
+/// zero (AC-15.4).
+/// </param>
+public sealed record SendOrderLineRequest(int? ItemId, decimal? Quantity);
+
+/// <summary>
 /// The full order as the API returns it (design 5.7, AC-14.2): from <c>GET /api/v1/production-orders/{number}</c>, from
-/// <c>POST /api/v1/production-orders</c>, and later from the send, complete and cancel actions.
+/// <c>POST /api/v1/production-orders</c>, from <c>POST /api/v1/production-orders/{number}/send</c> (T-010), and later from
+/// the complete and cancel actions.
 /// </summary>
 /// <remarks>
 /// Every field is always present; a value that is not known yet is <c>null</c> (design 2.3, AC-14.2 "values not yet

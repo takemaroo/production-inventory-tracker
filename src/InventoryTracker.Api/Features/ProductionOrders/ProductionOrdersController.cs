@@ -8,18 +8,19 @@ namespace InventoryTracker.Api.Features.ProductionOrders;
 
 /// <summary>
 /// The <c>/api/v1/production-orders</c> endpoints (US-13, US-14, design 4 and 5.7). Any signed-in user may list and view
-/// orders (PRD 4.2, AC-14.1); only a Manager may create one (AC-13.7). The send, complete and cancel actions are added
-/// to this controller by T-010, T-011 and T-016.
+/// orders (PRD 4.2, AC-14.1); only a Manager may create one (AC-13.7); a Warehouse user or a Manager sends the
+/// materials (AC-15.1, AC-15.12). The complete and cancel actions are added to this controller by T-011 and T-016.
 /// </summary>
 /// <remarks>
 /// Built the same way as <c>UnitsController</c>, which explains the request flow, model binding, <c>[Authorize]</c> and
 /// <c>CreatedAtAction</c>. Orders are addressed by their number, not an id (design 2.1). There is no <c>PUT</c> or
 /// <c>DELETE</c>: an order's product, quantity and planned amounts never change after creation (AC-13.6), so those
-/// methods get the framework's <c>405</c>. All rules are in <see cref="ProductionOrderService"/>.
+/// methods get the framework's <c>405</c>. All rules are in <see cref="ProductionOrderService"/> and, for the send,
+/// <see cref="SendOrderService"/>.
 /// </remarks>
 [ApiController]
 [Route("api/v1/production-orders")]
-public sealed class ProductionOrdersController(ProductionOrderService orders) : ControllerBase
+public sealed class ProductionOrdersController(ProductionOrderService orders, SendOrderService sends) : ControllerBase
 {
     /// <summary>
     /// <c>GET /api/v1/production-orders</c>: one page of order summaries, newest first, optionally filtered with
@@ -57,5 +58,26 @@ public sealed class ProductionOrdersController(ProductionOrderService orders) : 
         var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
         var order = await orders.CreateAsync(request, userId, cancellationToken);
         return CreatedAtAction(nameof(Get), new { number = order.Number }, order);
+    }
+
+    /// <summary>
+    /// <c>POST /api/v1/production-orders/{number}/send</c>: sends the materials for a Created order in one go, one
+    /// quantity per line (AC-15.1, design 5.7). <c>200</c> with the order detail, now InProduction, with leftover
+    /// applied, warehouse send and carried leftover fixed per line. <c>404</c> for an unknown number; <c>400</c>
+    /// <c>validation</c> for a bad body (AC-15.8); <c>409</c> when the order is not Created (AC-15.9), another order is
+    /// InProduction (AC-15.10) or a return of one of its materials is Pending (AC-15.11); <c>400</c>
+    /// <c>send-out-of-range</c> (AC-15.6); <c>409</c> <c>insufficient-stock</c> (AC-15.7).
+    /// </summary>
+    /// <remarks>
+    /// PRD 4.2, "Send materials for an order": Warehouse or Manager. A Production-only user gets <c>403</c> (AC-15.12)
+    /// before the order or the body is looked at (design 2.2).
+    /// </remarks>
+    [HttpPost("{number:int}/send")]
+    [Authorize(Roles = Roles.WarehouseOrManager)]
+    public Task<ProductionOrderResponse> Send(int number, SendOrderRequest request, CancellationToken cancellationToken)
+    {
+        // AC-05.3, AC-15.1: the send records who sent it, taken from the checked token, never from the body.
+        var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
+        return sends.SendAsync(number, request, userId, cancellationToken);
     }
 }

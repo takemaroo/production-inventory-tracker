@@ -254,8 +254,8 @@ public sealed class ProductionOrderService(
     /// send (D-6, T-010), with the same allocator.
     /// </para>
     /// <para>
-    /// Only Created orders that are older than this one (or created in the same second with a lower number) are loaded:
-    /// younger orders come after it in the queue and cannot change its share.
+    /// The queue and the allocation come from <see cref="WaitingOrderQueue"/>, the same method the send uses to fix the
+    /// leftover applied (decision #97), so the estimate shown is exactly what a send at that moment would apply.
     /// </para>
     /// </remarks>
     private async Task<Func<ProductionOrderLine, LineEstimateResponse>> EstimatorAsync(
@@ -267,17 +267,8 @@ public sealed class ProductionOrderService(
         var figures = await stock.GetFiguresAsync(materialIds, cancellationToken);
         var freeLeftover = figures.ToDictionary(pair => pair.Key, pair => pair.Value.FreeLeftover);
 
-        // D-5: the queue up to and including this order. Lines must be loaded: the allocator reads each order's lines,
-        // and an order without them would silently take nothing (see LeftoverAllocator.Allocate).
-        var queue = await db.ProductionOrders
-            .AsNoTracking()
-            .Where(waiting => waiting.Status == OrderStatus.Created
-                && (waiting.CreatedAt < order.CreatedAt
-                    || (waiting.CreatedAt == order.CreatedAt && waiting.Number <= order.Number)))
-            .Include(waiting => waiting.Lines)
-            .ToListAsync(cancellationToken);
-
-        var allocation = LeftoverAllocator.Allocate(queue, freeLeftover);
+        // D-5: oldest order first, through the one shared queue (decision #97).
+        var allocation = await WaitingOrderQueue.AllocateAsync(db, order, freeLeftover, cancellationToken);
         var tolerance = options.Value.TolerancePercent;
 
         // Decision #94: the tolerance shown in the estimate is a displayed percentage like every other, so it follows the

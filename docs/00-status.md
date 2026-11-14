@@ -15,7 +15,7 @@ Kept current by the delivery manager. Last updated: 2026-11-11
 | 1 | Discovery | done | `docs/01-prd.md` | Approved by owner 2026-11-11. |
 | 2 | Design | done | `docs/02-design.md` | API spec: 48 endpoints, ProblemDetails errors, flows. Owner settled 2 questions (decisions #17, #18). |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` | Skeleton builds (0 warnings), 4 of 4 tests pass (re-run by delivery manager). 21 tasks. |
-| 4 | Build | in progress | code | tasks done: 12 of 22 (T-001 to T-009, T-008a, T-013, T-014) |
+| 4 | Build | in progress | code | tasks done: 13 of 22 (T-001 to T-010, T-008a, T-013, T-014) |
 | 5 | QA | not started | `docs/05-test-plan.md` | round 0 |
 | 6 | Security | not started | `docs/06-security-review.md` | |
 | 7 | Release | not started | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
@@ -54,6 +54,7 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - 2026-11-13 T-008a (quantity limits, #80) approved by `code-reviewer`, committed and pushed. Started T-009. T-013 in progress.
 - 2026-11-14 T-013 approved by `code-reviewer` (after one fix round), committed and pushed. T-009 in progress. Owner: switch to one agent at a time after the next usage-limit stop.
 - 2026-11-14 T-009 approved by `code-reviewer` after two rounds (single-snapshot estimate, shared DisplayPercent, unsaved-changes guard), committed and pushed. Started T-010.
+- 2026-11-14 T-010 approved by `code-reviewer` after two rounds (shared waiting-order queue #97, body-order errors, log after commit), committed and pushed. Started T-011.
 
 ## Follow-ups to route
 
@@ -68,3 +69,4 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - T-018 (or tech-lead, in the ledger as part of #87): when writing a complementary send, verify the movement's ProductionOrderNumber is really the complementary order's parent; movements can never be corrected once stored, and GET /movements?orderNumber= relies on it.
 - T-021 (or next owner of ReceiptsController.cs): the comment "The movements endpoints arrive in T-013..." is stale; switch to CreatedAtAction or update the comment. Location is already correct and tested.
 - ux-designer (next design update): design 7.2's generic '(any quantity)' decimals row should read '{Field} can have at most 3 decimal places.' (decision #95).
+- Common/ owner (low priority): a JSON number too large for decimal (e.g. 1e30) is reported by the T-001 framework handler as "{path} has the wrong type.", which is slightly misleading; could say it is too large (T-010 review).
