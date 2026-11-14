@@ -37,17 +37,26 @@ public static class Seed
     }
 
     /// <summary>
-    /// Creates an item with a unique name through <c>POST /api/v1/items</c> and checks it got <c>201</c>. Without a
-    /// <paramref name="unit"/>, a new unit is created for it first.
+    /// Creates an item through <c>POST /api/v1/items</c> and checks it got <c>201</c>. Without a
+    /// <paramref name="unit"/>, a new unit is created for it first. Without a <paramref name="name"/>, the item gets a
+    /// unique one; pass an exact name (such as "Cheese") when a test checks a message that quotes it word for word. A
+    /// given name must come back from the API exactly as typed.
     /// </summary>
     public static async Task<CreatedItem> CreateItemAsync(
-        HttpClient manager, ItemType type, CreatedUnit? unit = null, string? description = null)
+        HttpClient manager, ItemType type, CreatedUnit? unit = null, string? description = null, string? name = null)
     {
         unit ??= await CreateUnitAsync(manager);
         var response = await manager.PostAsJsonAsync("/api/v1/items",
-            new { name = UniqueName(type.ToString()), description, type = type.ToString(), unitId = unit.Id }, Cancel);
+            new { name = name ?? UniqueName(type.ToString()), description, type = type.ToString(), unitId = unit.Id }, Cancel);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await ApiJson.ReadAsync(response);
+        if (name is not null)
+        {
+            // Tests build expected messages from item.Name. Checking it against the name the test typed means a change
+            // the API makes to the name (trimming, for example) fails here, rather than slipping into the expected text.
+            Assert.Equal(name, body.GetProperty("name").GetString());
+        }
+
         return new CreatedItem(
             body.GetProperty("id").GetInt32(),
             body.GetProperty("name").GetString()!,
@@ -61,6 +70,7 @@ public static class Seed
 public sealed record CreatedUnit(int Id, string Name);
 
 /// <summary>
-/// An item created through the API by <see cref="Seed.CreateItemAsync"/>, with the fields tests compare against.
+/// An item created through the API by <see cref="Seed.CreateItemAsync"/>, with the fields tests compare against. The
+/// name is the one the API stored and returned.
 /// </summary>
 public sealed record CreatedItem(int Id, string Name, int UnitId, string UnitName, string CreatedAt);

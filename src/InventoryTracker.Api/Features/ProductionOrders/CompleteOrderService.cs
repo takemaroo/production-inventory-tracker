@@ -486,5 +486,4 @@ public sealed class CompleteOrderService(
     /// leftover entered), and the cleaned reason (or null).
     /// </summary>
     private sealed record CompletionInput(decimal ProducedQuantity, IReadOnlyList<MatchedOrderLine> Leftovers, string? Reason);
-
 }

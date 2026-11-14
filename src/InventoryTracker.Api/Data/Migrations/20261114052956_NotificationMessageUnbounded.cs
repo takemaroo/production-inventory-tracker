@@ -19,9 +19,10 @@ namespace InventoryTracker.Api.Data.Migrations
     /// <b>Why <c>Up</c> and <c>Down</c> are empty.</b> EF Core's SQLite provider declares every string column as
     /// <c>TEXT</c>, with or without a maximum length, and SQLite never enforces a length, so there is no column to
     /// change: the column was declared <c>TEXT</c> before and is declared <c>TEXT</c> after. The provider therefore
-    /// generates no operation. (SQLite does keep each column's declared type; it simply does not enforce a length.) The migration is still needed: it moves the model snapshot to "no maximum
-    /// length", so a later PostgreSQL port creates <c>text</c> rather than <c>character varying(1000)</c>, which
-    /// PostgreSQL would enforce. The committed <c>DomainModel</c> migration is left untouched (task T-011, step 1).
+    /// generates no operation. (SQLite does keep each column's declared type; it simply does not enforce a length.)
+    /// The migration is still needed: it moves the model snapshot to "no maximum length", so a later PostgreSQL port
+    /// creates <c>text</c> rather than <c>character varying(1000)</c>, which PostgreSQL would enforce. The committed
+    /// <c>DomainModel</c> migration is left untouched (task T-011, step 1).
     /// </para>
     /// </remarks>
     public partial class NotificationMessageUnbounded : Migration

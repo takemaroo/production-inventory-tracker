@@ -1,16 +1,14 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using InventoryTracker.Api.Auth;
-using InventoryTracker.Api.Common.Time;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Domain;
-using InventoryTracker.Api.Features.Stock;
 using InventoryTracker.Api.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
+using static InventoryTracker.Api.Tests.Infrastructure.OrderFlow;
 
 namespace InventoryTracker.Api.Tests.Integration;
 
@@ -33,16 +31,11 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// </remarks>
 public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 {
-    private const string OrdersPath = "/api/v1/production-orders";
-
     /// <summary>The finished product of design 5.7's example.</summary>
     private const string ProductName = "Shredded cheese 1 kg bag";
 
     /// <summary>The reason of worked example A (AC-20.5).</summary>
     private const string JammedReason = "Last bag line jammed";
-
-    /// <summary>The design 5.7 example's creation time, 08:00 UTC on 11 November 2026.</summary>
-    private static readonly DateTimeOffset EightAm = new(2026, 11, 11, 8, 0, 0, TimeSpan.Zero);
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
@@ -363,8 +356,8 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
         var (manager, _) = await SignedInAsync(app, Roles.Manager);
         var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
         var kg = await Seed.CreateUnitAsync(manager, "kg");
-        var cheese = await CreateNamedItemAsync(manager, "Cheese", ItemType.RawMaterial, kg);
-        var starch = await CreateNamedItemAsync(manager, "Potato starch", ItemType.RawMaterial, kg);
+        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Cheese");
+        var starch = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Potato starch");
         var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m), (starch.Id, 0.015m));
         await ReceiveAsync(manager, cheese.Id, 1020m);
         await ReceiveAsync(manager, starch.Id, 15.3m);
@@ -550,7 +543,8 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
         var materials = new List<CreatedItem>();
         for (var i = 0; i < 10; i++)
         {
-            var material = await CreateNamedItemAsync(manager, $"Material {i} {Guid.NewGuid():N}".PadRight(100, 'm'), ItemType.RawMaterial, unit);
+            var material = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, unit,
+                name: $"Material {i} {Guid.NewGuid():N}".PadRight(100, 'm'));
             materials.Add(material);
             await ReceiveAsync(manager, material.Id, 20m);
         }
@@ -744,9 +738,9 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
     public async Task Orders_that_are_not_in_production_cannot_be_completed()
     {
         var (manager, managerUser) = await SignedInAsync(factory, Roles.Manager);
-        var (created, cheese, starch) = await TwoLineOrderAsync(manager);
-        var (cancelled, _, _) = await TwoLineOrderAsync(manager);
-        await SetCancelledAsync(factory, cancelled, managerUser.Id);
+        var (created, cheese, starch) = await TwoLineOrderAsync(manager, receive: false);
+        var (cancelled, _, _) = await TwoLineOrderAsync(manager, receive: false);
+        await SetStatusAsync(factory, cancelled, OrderStatus.Cancelled, managerUser.Id);
 
         await ApiAssert.ProblemAsync(await CompleteAsync(manager, created, 1000m, null, (cheese.Id, 0m), (starch.Id, 0m)),
             HttpStatusCode.Conflict, "order-not-sent",
@@ -792,7 +786,7 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
     public async Task Bad_completion_bodies_are_rejected(string problem)
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
-        var (number, cheese, starch) = await TwoLineOrderAsync(manager);
+        var (number, cheese, starch) = await TwoLineOrderAsync(manager, receive: false);
         var other = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
         var cheeseLine = $$"""{ "itemId": {{cheese.Id}}, "leftover": 0 }""";
         var starchLine = $$"""{ "itemId": {{starch.Id}}, "leftover": 0 }""";
@@ -962,9 +956,9 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
         var (manager, _) = await SignedInAsync(app, Roles.Manager);
         var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
         var kg = await Seed.CreateUnitAsync(manager, "kg");
-        var cheese = await CreateNamedItemAsync(manager, "Cheese", ItemType.RawMaterial, kg);
-        var starch = await CreateNamedItemAsync(manager, "Potato starch", ItemType.RawMaterial, kg);
-        var salt = await CreateNamedItemAsync(manager, "Salt", ItemType.RawMaterial, kg);
+        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Cheese");
+        var starch = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Potato starch");
+        var salt = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Salt");
         var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m), (starch.Id, 0.015m), (salt.Id, 0.01m));
         await ReceiveAsync(manager, cheese.Id, 1000m);
         await ReceiveAsync(manager, starch.Id, 15m);
@@ -1010,9 +1004,9 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
     public async Task Body_comes_before_state_and_state_before_the_stock_range()
     {
         var (manager, managerUser) = await SignedInAsync(factory, Roles.Manager);
-        var (cancelled, cheese, starch) = await TwoLineOrderAsync(manager);
-        await SetCancelledAsync(factory, cancelled, managerUser.Id);
-        var (created, createdCheese, createdStarch) = await TwoLineOrderAsync(manager);
+        var (cancelled, cheese, starch) = await TwoLineOrderAsync(manager, receive: false);
+        await SetStatusAsync(factory, cancelled, OrderStatus.Cancelled, managerUser.Id);
+        var (created, createdCheese, createdStarch) = await TwoLineOrderAsync(manager, receive: false);
 
         await ApiAssert.ValidationAsync(await CompleteAsync(manager, cancelled, 1000m, null, (cheese.Id, -1m), (starch.Id, 0m)),
             "lines[0].leftover", "Leftover cannot be negative.");
@@ -1077,12 +1071,12 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
         var (production, productionUser) = await SignedInAsync(app, Roles.Production);
         var kg = await Seed.CreateUnitAsync(manager, "kg");
         var bag = await Seed.CreateUnitAsync(manager, "Bag");
-        var cheese = await CreateNamedItemAsync(manager, "Cheese", ItemType.RawMaterial, kg);
-        var product = await CreateNamedItemAsync(manager, ProductName, ItemType.FinishedProduct, bag);
+        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Cheese");
+        var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct, bag, name: ProductName);
         await PutRecipeAsync(manager, product.Id, (cheese.Id, 1m));
         for (var i = 0; i < 11; i++)
         {
-            await SetCancelledAsync(app, await CreateOrderAsync(manager, product.Id, 1m), managerUser.Id);
+            await SetStatusAsync(app, await CreateOrderAsync(manager, product.Id, 1m), OrderStatus.Cancelled, managerUser.Id);
         }
 
         await ReceiveAsync(manager, cheese.Id, 1200m);
@@ -1110,11 +1104,11 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
         var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
         var (production, productionUser) = await SignedInAsync(app, Roles.Production);
         var kg = await Seed.CreateUnitAsync(manager, "kg");
-        var cheese = await CreateNamedItemAsync(manager, "Cheese", ItemType.RawMaterial, kg);
+        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Cheese");
         var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m));
         for (var i = 0; i < 6; i++)
         {
-            await SetCancelledAsync(app, await CreateOrderAsync(manager, product.Id, 1m), managerUser.Id);
+            await SetStatusAsync(app, await CreateOrderAsync(manager, product.Id, 1m), OrderStatus.Cancelled, managerUser.Id);
         }
 
         await ReceiveAsync(manager, cheese.Id, 2000m);
@@ -1143,7 +1137,7 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
         var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
         var (production, productionUser) = await SignedInAsync(app, Roles.Production);
         var kg = await Seed.CreateUnitAsync(manager, "kg");
-        var cheese = await CreateNamedItemAsync(manager, "Cheese", ItemType.RawMaterial, kg);
+        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Cheese");
         var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m));
         await ReceiveAsync(manager, cheese.Id, send);
         var number = await CreateOrderAsync(manager, product.Id, ordered);
@@ -1162,7 +1156,7 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
         var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
         var (production, productionUser) = await SignedInAsync(app, Roles.Production);
         var kg = await Seed.CreateUnitAsync(manager, "kg");
-        var starch = await CreateNamedItemAsync(manager, "Potato starch", ItemType.RawMaterial, kg);
+        var starch = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Potato starch");
         var product = await ProductWithRecipeAsync(manager, (starch.Id, 0.0004m));
         if (starchInStorage > 0m)
         {
@@ -1174,16 +1168,6 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
         Assert.Equal(HttpStatusCode.OK, sent.StatusCode);
         Assert.Equal(0m, Line(await ApiJson.ReadAsync(sent), starch.Id).GetProperty("plannedAmount").GetDecimal());
         return new TinyScene(production, productionUser, starch, number);
-    }
-
-    /// <summary>A Created order for 1,000 bags of a new product: 1 of a new "cheese" (planned 1,000) and 0.015 of a new "starch" (15).</summary>
-    private static async Task<(int Number, CreatedItem Cheese, CreatedItem Starch)> TwoLineOrderAsync(HttpClient manager)
-    {
-        var unit = await Seed.CreateUnitAsync(manager);
-        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, unit);
-        var starch = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, unit);
-        var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m), (starch.Id, 0.015m));
-        return (await CreateOrderAsync(manager, product.Id, 1000m), cheese, starch);
     }
 
     /// <summary>What a scene set up: the clients and users that act in it, its material, product and order number.</summary>
@@ -1202,112 +1186,11 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
 
     // ---- Helpers: requests -------------------------------------------------------------------------------------
 
-    /// <summary>A new user with the given roles, signed in, with the user record (for comparing ids).</summary>
-    private static async Task<(HttpClient Client, AppUser User)> SignedInAsync(TestApiFactory app, params string[] roles)
-    {
-        var email = Seed.UniqueEmail("completion");
-        var user = await app.CreateUserAsync(email, roles);
-        return (app.CreateClientWithToken(await app.SignInAsync(email)), user);
-    }
-
-    /// <summary>An item with an exact name (such as "Cheese"), so messages can be checked word for word.</summary>
-    private static async Task<CreatedItem> CreateNamedItemAsync(HttpClient manager, string name, ItemType type, CreatedUnit unit)
-    {
-        var response = await manager.PostAsJsonAsync("/api/v1/items", new { name, type = type.ToString(), unitId = unit.Id }, Cancel);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var body = await ApiJson.ReadAsync(response);
-        return new CreatedItem(body.GetProperty("id").GetInt32(), name, unit.Id, unit.Name, body.GetProperty("createdAt").GetString()!);
-    }
-
-    /// <summary>A new finished product with the given recipe (T-007), lines in the order given.</summary>
-    private static async Task<CreatedItem> ProductWithRecipeAsync(HttpClient manager, params (int ItemId, decimal Amount)[] lines)
-    {
-        var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
-        await PutRecipeAsync(manager, product.Id, lines);
-        return product;
-    }
-
-    private static async Task PutRecipeAsync(HttpClient manager, int productId, params (int ItemId, decimal Amount)[] lines)
-    {
-        var response = await manager.PutAsJsonAsync($"/api/v1/items/{productId}/recipe",
-            new { lines = lines.Select(line => new { itemId = line.ItemId, amountPerUnit = line.Amount }) }, Cancel);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
-
-    /// <summary>Creates an order through the API (T-009), checks the <c>201</c>, and returns its number.</summary>
-    private static async Task<int> CreateOrderAsync(HttpClient manager, int productId, decimal quantity)
-    {
-        var response = await manager.PostAsJsonAsync(OrdersPath, new { finishedProductId = productId, orderedQuantity = quantity }, Cancel);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return (await ApiJson.ReadAsync(response)).GetProperty("number").GetInt32();
-    }
-
-    /// <summary>A receipt through <c>POST /receipts</c> (T-008).</summary>
-    private static async Task ReceiveAsync(HttpClient client, int itemId, decimal quantity)
-    {
-        var response = await client.PostAsJsonAsync("/api/v1/receipts", new { itemId, quantity, receiptDate = "2026-11-01" }, Cancel);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-    }
-
-    /// <summary>The send (T-010), with one <c>{ itemId, quantity }</c> per pair.</summary>
-    private static Task<HttpResponseMessage> SendAsync(HttpClient client, int number, params (int ItemId, decimal Quantity)[] lines) =>
-        client.PostAsJsonAsync($"{OrdersPath}/{number}/send",
-            new { lines = lines.Select(line => new { itemId = line.ItemId, quantity = line.Quantity }) }, Cancel);
-
-    /// <summary>The completion under test, with one <c>{ itemId, leftover }</c> per pair, in the order given.</summary>
-    private static Task<HttpResponseMessage> CompleteAsync(
-        HttpClient client, int number, decimal producedQuantity, string? reason, params (int ItemId, decimal Leftover)[] lines) =>
-        client.PostAsJsonAsync($"{OrdersPath}/{number}/complete", new
-        {
-            producedQuantity,
-            lines = lines.Select(line => new { itemId = line.ItemId, leftover = line.Leftover }),
-            reason,
-        }, Cancel);
-
     /// <summary>The completion under test with exactly this JSON body.</summary>
     private static Task<HttpResponseMessage> CompleteRawAsync(HttpClient client, int number, string json) =>
         client.PostAsync($"{OrdersPath}/{number}/complete", ApiJson.Content(json), Cancel);
 
-    private static async Task<JsonElement> ReadOrderAsync(HttpClient client, int number)
-    {
-        var response = await client.GetAsync($"{OrdersPath}/{number}", Cancel);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return await ApiJson.ReadAsync(response);
-    }
-
-    private static async Task<JsonElement> StockAsync(HttpClient client, int itemId)
-    {
-        var response = await client.GetAsync($"/api/v1/stock/{itemId}", Cancel);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return await ApiJson.ReadAsync(response);
-    }
-
-    /// <summary>The order line for one raw material.</summary>
-    private static JsonElement Line(JsonElement order, int itemId) =>
-        order.GetProperty("lines").EnumerateArray().Single(line => line.GetProperty("itemId").GetInt32() == itemId);
-
     // ---- Helpers: the states other tasks will produce ------------------------------------------------------------
-
-    /// <summary>Runs <paramref name="work"/> in its own scope and write transaction, as a service would.</summary>
-    private static async Task InTransactionAsync(TestApiFactory app, Func<AppDbContext, StockLedger, DateTime, Task> work)
-    {
-        await using var scope = app.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var ledger = scope.ServiceProvider.GetRequiredService<StockLedger>();
-        var now = scope.ServiceProvider.GetRequiredService<Clock>().UtcNow;
-        await db.InWriteTransactionAsync(() => work(db, ledger, now), Cancel);
-    }
-
-    /// <summary>
-    /// Puts free leftover into production storage with a ledger Adjustment (adjustments are T-015), so it is free leftover
-    /// (D-4) unless an InProduction order commits it.
-    /// </summary>
-    private static Task PutLeftoverAsync(TestApiFactory app, int itemId, decimal quantity, string userId) =>
-        InTransactionAsync(app, (_, ledger, now) => ledger.AddAsync(new Movement
-        {
-            Type = MovementType.Adjustment, ItemId = itemId, ProductionStorageChange = quantity,
-            OccurredAt = now, UserId = userId, Reason = "Leftover from an earlier run",
-        }, Cancel));
 
     /// <summary>
     /// A complementary order requested, approved and sent for <paramref name="quantity"/> of one material, written as T-017
@@ -1368,18 +1251,6 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
         return number;
     }
 
-    /// <summary>Cancels an order directly in the database, as T-016 will.</summary>
-    private static Task SetCancelledAsync(TestApiFactory app, int number, string userId) =>
-        InTransactionAsync(app, async (db, _, now) =>
-        {
-            var order = await db.ProductionOrders.SingleAsync(candidate => candidate.Number == number, Cancel);
-            order.Status = OrderStatus.Cancelled;
-            order.StatusChangedAt = now;
-            order.CancelledAt = now;
-            order.CancelledById = userId;
-            order.CancellationReason = "Customer order withdrawn";
-        });
-
     // ---- Helpers: reading what was stored --------------------------------------------------------------------------
 
     /// <summary>The order's ConsumedInProduction and ProducedOutput movements (the ones a completion writes), oldest first.</summary>
@@ -1401,14 +1272,6 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
             .Where(notification => notification.ProductionOrderNumber == number)
             .OrderBy(notification => notification.Id)
             .ToListAsync(Cancel);
-    }
-
-    private static async Task<ProductionOrder> StoredOrderAsync(TestApiFactory app, int number)
-    {
-        await using var scope = app.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().ProductionOrders.AsNoTracking()
-            .Include(order => order.Lines)
-            .SingleAsync(order => order.Number == number, Cancel);
     }
 
     private static async Task<ComplementaryOrder> StoredComplementaryOrderAsync(TestApiFactory app, int number)
@@ -1562,15 +1425,5 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
         Assert.Equal(itemName, material.GetProperty("itemName").GetString());
         Assert.Equal(unit, material.GetProperty("unit").GetString());
         Assert.Equal(quantity, material.GetProperty(quantityField).GetDecimal());
-    }
-
-    /// <summary>AC-13.2: a Created order line's estimate, at the default 2% tolerance.</summary>
-    private static void AssertEstimate(JsonElement line, decimal leftover, decimal nominal, decimal min, decimal max)
-    {
-        var estimate = line.GetProperty("estimate");
-        Assert.Equal(leftover, estimate.GetProperty("leftoverApplied").GetDecimal());
-        Assert.Equal(nominal, estimate.GetProperty("nominalSend").GetDecimal());
-        Assert.Equal(min, estimate.GetProperty("sendRangeMin").GetDecimal());
-        Assert.Equal(max, estimate.GetProperty("sendRangeMax").GetDecimal());
     }
 }
