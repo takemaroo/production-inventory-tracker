@@ -15,7 +15,7 @@ Kept current by the delivery manager. Last updated: 2026-11-11
 | 1 | Discovery | done | `docs/01-prd.md` | Approved by owner 2026-11-11. |
 | 2 | Design | done | `docs/02-design.md` | API spec: 48 endpoints, ProblemDetails errors, flows. Owner settled 2 questions (decisions #17, #18). |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` | Skeleton builds (0 warnings), 4 of 4 tests pass (re-run by delivery manager). 21 tasks. |
-| 4 | Build | in progress | code | tasks done: 10 of 22 (T-001 to T-008, T-008a, T-014) |
+| 4 | Build | in progress | code | tasks done: 11 of 22 (T-001 to T-008, T-008a, T-013, T-014) |
 | 5 | QA | not started | `docs/05-test-plan.md` | round 0 |
 | 6 | Security | not started | `docs/06-security-review.md` | |
 | 7 | Release | not started | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
@@ -52,6 +52,7 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - 2026-11-13 T-007 approved by `code-reviewer` (after one fix round), committed and pushed. Owner set quantity limits (#80); design, PRD, architecture and board updated (T-008a added before T-009; #81-#84). T-008 in review.
 - 2026-11-13 T-008 approved by `code-reviewer` after three rounds (stray-movement guard, link rules, snapshot reads), committed and pushed. Started T-008a and T-013 in parallel.
 - 2026-11-13 T-008a (quantity limits, #80) approved by `code-reviewer`, committed and pushed. Started T-009. T-013 in progress.
+- 2026-11-14 T-013 approved by `code-reviewer` (after one fix round), committed and pushed. T-009 in progress. Owner: switch to one agent at a time after the next usage-limit stop.
 
 ## Follow-ups to route
 
@@ -62,3 +63,6 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - tech-lead: decide whether AppDbContext.SaveChanges should refuse any Added Movement not written by StockLedger (full 'only writer' guarantee, decision #86). Test helpers that insert movements directly (ItemsTests in-use theory, StockTests AC-10.3) would then need to go through the ledger.
 - qa-engineer (phase 5): a location with movements but no change shows 0.0 in stock, while an item with no movements shows 0; both valid per design 2.4 (T-008 review).
 - tech-lead (next doc update): add decision #87 (ledger link rules) and #86 (stray-movement refusal) to architecture 3.2/5.1 'contract as built'. BEFORE T-019: decide whether a received return's ReturnedToWarehouse movement copies the return's linked ProductionOrderNumber (affects GET /movements?orderNumber=).
+- tech-lead (cosmetic): non-numeric number query values (?itemId=abc, ?page=abc) get MVC's message naming the C# property ("...not valid for ItemId."), while the errors key is camelCase. A shared fix would touch PageQuery and every filter (T-013 report).
+- T-018 (or tech-lead, in the ledger as part of #87): when writing a complementary send, verify the movement's ProductionOrderNumber is really the complementary order's parent; movements can never be corrected once stored, and GET /movements?orderNumber= relies on it.
+- T-021 (or next owner of ReceiptsController.cs): the comment "The movements endpoints arrive in T-013..." is stale; switch to CreatedAtAction or update the comment. Location is already correct and tested.
