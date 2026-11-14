@@ -100,6 +100,57 @@ public static class Quantity
     public static decimal Round3(decimal value) => Math.Round(value, 3, MidpointRounding.AwayFromZero);
 
     /// <summary>
+    /// Decision #58, design 2.4 and 6.1: the percentage to <em>show</em> (in an API response, a notification message or
+    /// its data) is round(round(value, 6), 2), both steps half away from zero. A null percentage (decision #49: the
+    /// required amount rounded to 0, so there is nothing to divide by) stays null.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why two steps, not one.</b> Percentages are stored rounded to 6 places (architecture 3.1), and an order response
+    /// can only show that stored value rounded to 2. A notification is composed from the unrounded value at completion.
+    /// If it rounded straight to 2 places, the two could disagree by 0.01: 2.0049996 is stored as 2.005000, which the
+    /// order shows as 2.01, while a direct rounding gives 2.00. Taking the same two steps everywhere means a notification
+    /// and the order it is about always show the same figure. For a value that is already stored with 6 places the first
+    /// step changes nothing, so the rule gives the same answer whichever of the two it is given.
+    /// </para>
+    /// <para>
+    /// <c>MidpointRounding.AwayFromZero</c> is spelled out because <c>Math.Round</c> on its own rounds a half to the even
+    /// neighbour (2.005 would become 2.00); with it, 2.005 becomes 2.01 and -2.005 becomes -2.01 (PRD 4.1).
+    /// </para>
+    /// <para>
+    /// A small negative value such as -0.001 rounds to zero, but a C# <c>decimal</c> keeps the minus sign on that zero
+    /// (<c>decimal.IsNegative</c> is true). System.Text.Json and <c>MessageFormat.SignedPercent</c> happen to print it
+    /// without the sign today, but the value itself would still be a "negative zero". A zero result is therefore
+    /// returned as a plain <c>0.00</c>, so no client can ever receive "-0.00" whichever formatter writes it (the same
+    /// aim as decision #42 for messages), and a zero is always written the same way, <c>0.00</c>. Other values keep the
+    /// scale rounding gives them (2.1 is written <c>2.1</c>, 2 as <c>2</c>); clients must not rely on trailing zeros
+    /// (design 2.4).
+    /// </para>
+    /// <para>
+    /// This is display only. Whether a usage variance is above the tolerance is decided from the unrounded value
+    /// (AC-20.4), never from this one.
+    /// </para>
+    /// </remarks>
+    /// <param name="percent">The unrounded or stored percentage, or null.</param>
+    public static decimal? DisplayPercent(decimal? percent)
+        => percent is { } value ? DisplayPercent(value) : null;
+
+    /// <summary>
+    /// The same rule as <see cref="DisplayPercent(decimal?)"/>, for a percentage that always has a value (the output
+    /// variance: the ordered quantity is never 0). Having both forms lets the caller keep a plain <c>decimal</c> without
+    /// a null check that could never fail. The rule itself is written only here.
+    /// </summary>
+    /// <param name="percent">The unrounded or stored percentage.</param>
+    public static decimal DisplayPercent(decimal percent)
+    {
+        var stored = Math.Round(percent, 6, MidpointRounding.AwayFromZero);
+        var shown = Math.Round(stored, 2, MidpointRounding.AwayFromZero);
+
+        // -0.001 rounds to a zero that still carries the minus sign; return a plain 0.00 instead (see remarks above).
+        return shown == 0m ? 0.00m : shown;
+    }
+
+    /// <summary>
     /// PRD 4.1, design 2.4: true when <paramref name="value"/> has no more than <paramref name="places"/>
     /// significant decimal places. Trailing zeros do not count, so 12.5000 passes with 3 places, and
     /// 0.0001 fails.

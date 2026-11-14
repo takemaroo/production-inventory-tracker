@@ -108,18 +108,27 @@ public sealed class StockQueries(AppDbContext db)
     /// Runs <paramref name="read"/> inside one read-only transaction, so every query in it sees the same snapshot.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// Public so that a read which combines stock figures with other tables can take all of them from one snapshot
+    /// (decision #85). The production-order detail (T-009) uses it: the leftover estimate of a Created order needs the
+    /// waiting orders and the free leftover as they were at the same moment. Calls to <see cref="GetFiguresAsync"/>
+    /// inside <paramref name="read"/> use this transaction rather than opening their own. Must not be called inside a
+    /// write transaction: one connection holds one transaction at a time.
+    /// </para>
+    /// <para>
     /// EF Core's own <c>BeginTransactionAsync</c> is not used here: on SQLite it issues <c>BEGIN IMMEDIATE</c>, which takes
     /// the single write lock (that is what makes <c>InWriteTransactionAsync</c> serialize writers). A read must not queue
     /// behind every write, so this opens a <em>deferred</em> transaction (<c>BEGIN</c>) directly on the SQLite
     /// connection and hands it to EF Core with <c>UseTransactionAsync</c>. A deferred transaction takes no lock until it
     /// first reads, and then only a shared read snapshot. PostgreSQL later: replace the body with
     /// <c>BeginTransactionAsync(IsolationLevel.RepeatableRead)</c>, which gives the same one-snapshot reads.
+    /// </para>
     /// <para>
     /// The DbContext is left as it was found, whatever happens (a normal end, an error, a cancelled request): no
     /// transaction attached, and the connection closed again unless the caller had opened it.
     /// </para>
     /// </remarks>
-    private async Task<T> InReadTransactionAsync<T>(Func<Task<T>> read, CancellationToken cancellationToken)
+    public async Task<T> InReadTransactionAsync<T>(Func<Task<T>> read, CancellationToken cancellationToken)
     {
         // EF Core normally opens and closes the connection around each query; it must stay open for the transaction.
         // EF counts opens: CloseConnectionAsync below closes it only if this call is the one that opened it, so a

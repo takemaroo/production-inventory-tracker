@@ -64,7 +64,8 @@ public static class NotificationComposer
         var required = Quantity.Round3(completion.RequiredForActualOutput);
         var actualUsage = Quantity.Round3(completion.ActualUsage);
         var difference = Quantity.Round3(completion.UsageVariance);
-        var percent = RoundPercentForDisplay(completion.UsageVariancePercent);
+        // Decision #58: the one shared display rule, so the message, its data and the order response show the same figure.
+        var percent = Quantity.DisplayPercent(completion.UsageVariancePercent);
 
         // Decision #49 and #57: when the required amount rounds to 0 the percentage has no value (it would divide
         // by zero). The message then says so in words, and the data's "percent" is null.
@@ -114,7 +115,8 @@ public static class NotificationComposer
         var difference = Quantity.Round3(variance.Variance);
 
         // The ordered quantity is never 0 (validated at order creation), so this percentage always has a value.
-        var percent = RoundPercentForDisplay(variance.Percent);
+        // Decision #58: the one shared display rule (see UsageVariance).
+        var percent = Quantity.DisplayPercent(variance.Percent);
 
         var message =
             $"Order #{orderNumber}: produced {MessageFormat.Number(produced)} {finishedProduct.Unit}, " +
@@ -227,30 +229,6 @@ public static class NotificationComposer
             // data.GetType() makes the serializer write the record's own fields; with "object" it would write none.
             DataJson = JsonSerializer.Serialize(data, data.GetType(), DataJsonOptions),
         };
-
-    /// <summary>
-    /// PRD 4.1, design 2.4: percentages are shown rounded to 2 places, half away from zero. Null stays null
-    /// (decision #49).
-    /// </summary>
-    private static decimal? RoundPercentForDisplay(decimal? percent)
-        => percent is null ? null : RoundPercentForDisplay(percent.Value);
-
-    /// <summary>
-    /// Decision #58: a displayed percentage is the <em>stored</em> 6-place value rounded to 2 places, both steps
-    /// half away from zero.
-    /// </summary>
-    /// <remarks>
-    /// The order line keeps the percentage rounded to 6 places (architecture 3.1), and later order responses can
-    /// only show that stored value rounded to 2. Rounding the unrounded value straight to 2 places here could
-    /// then disagree by 0.01: 2.0049996 is stored as 2.005000, which an order response shows as 2.01, while a
-    /// direct rounding would give 2.00. Taking the same two steps here means a notification and the order it is
-    /// about always show the same percentage. The above-tolerance decision never uses this value (AC-20.4).
-    /// </remarks>
-    private static decimal RoundPercentForDisplay(decimal percent)
-    {
-        var stored = Math.Round(percent, 6, MidpointRounding.AwayFromZero);
-        return Math.Round(stored, 2, MidpointRounding.AwayFromZero);
-    }
 
     /// <summary>
     /// Keeps only materials with a quantity above zero, rounded to 3 places, in recipe line order (design 7.3).

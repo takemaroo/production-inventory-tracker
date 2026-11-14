@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using InventoryTracker.Api.Common.Quantities;
 
 namespace InventoryTracker.Api.Tests.Unit.Common;
@@ -154,5 +156,71 @@ public class QuantityTests
         Assert.Equal(999_999_999_998_000.000m, rounded);
         Assert.True(rounded < ColumnMaximum);
         Assert.True(Quantity.HasAtMostDecimals(rounded, 3));
+    }
+
+    /// <summary>
+    /// Decision #58, design 2.4 and 6.1: a shown percentage is round(round(value, 6), 2), both half away from zero.
+    /// The trap: 2.0049996 is stored as 2.005000, so it shows as 2.01 (rounding straight to 2 places would give 2.00).
+    /// Negatives mirror positives (-2.005 is -2.01, not the -2.00 of half-to-even); a stored 2.004999 stays 2.00.
+    /// </summary>
+    [Theory]
+    [InlineData("2.0049996", "2.01")]
+    [InlineData("-2.0049996", "-2.01")]
+    [InlineData("2.005", "2.01")]
+    [InlineData("-2.005", "-2.01")]
+    [InlineData("2.004999", "2.00")]
+    [InlineData("-2.004999", "-2.00")]
+    [InlineData("0.1", "0.1")]
+    [InlineData("1.4985014985", "1.50")]
+    [InlineData("100000000000000", "100000000000000")]
+    public void DisplayPercent_rounds_the_six_place_value_to_two_places(string value, string expected)
+    {
+        Assert.Equal(decimal.Parse(expected, CultureInfo.InvariantCulture),
+            Quantity.DisplayPercent(decimal.Parse(value, CultureInfo.InvariantCulture)));
+    }
+
+    /// <summary>
+    /// Decision #58 with decision #49: when the required amount rounds to 0 there is no percentage, and null stays null
+    /// (never 0, which would claim "no variance").
+    /// </summary>
+    [Fact]
+    public void DisplayPercent_keeps_null_as_null()
+    {
+        Assert.Null(Quantity.DisplayPercent(null));
+    }
+
+    /// <summary>
+    /// Decision #58: the nullable form (used for stored percentages that may be null) applies exactly the same rule as the
+    /// plain form when it has a value, including the 2.0049996 → 2.01 case and negatives.
+    /// </summary>
+    [Theory]
+    [InlineData("2.0049996", "2.01")]
+    [InlineData("-2.005", "-2.01")]
+    [InlineData("-0.001", "0")]
+    public void DisplayPercent_with_a_nullable_value_applies_the_same_rule(string value, string expected)
+    {
+        decimal? stored = decimal.Parse(value, CultureInfo.InvariantCulture);
+
+        Assert.Equal(decimal.Parse(expected, CultureInfo.InvariantCulture), Quantity.DisplayPercent(stored));
+    }
+
+    /// <summary>
+    /// Decision #58 (and #42 for messages): a small negative percentage that rounds to zero is shown as a plain zero:
+    /// the decimal itself carries no minus sign (rounding alone would leave one), and it is written "0.00" both as the
+    /// JSON number an API response or notification data carries and in a message.
+    /// </summary>
+    [Theory]
+    [InlineData("-0.001")]
+    [InlineData("-0.004999")]
+    [InlineData("-0.0049994")]
+    [InlineData("0")]
+    public void DisplayPercent_never_shows_negative_zero(string value)
+    {
+        var shown = Quantity.DisplayPercent(decimal.Parse(value, CultureInfo.InvariantCulture));
+
+        Assert.Equal(0m, shown);
+        Assert.False(decimal.IsNegative(shown));
+        Assert.Equal("0.00", JsonSerializer.Serialize(shown));
+        Assert.Equal("0.00%", MessageFormat.SignedPercent(shown));
     }
 }
