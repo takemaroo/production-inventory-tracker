@@ -386,7 +386,6 @@ namespace InventoryTracker.Api.Data.Migrations
 
                     b.Property<string>("Message")
                         .IsRequired()
-                        .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
                     b.Property<int>("ProductionOrderNumber")
@@ -471,7 +470,7 @@ namespace InventoryTracker.Api.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<decimal?>("OutputVariancePercent")
-                        .HasPrecision(18, 6)
+                        .HasPrecision(28, 6)
                         .HasColumnType("TEXT");
 
                     b.Property<decimal?>("ProducedQuantity")
@@ -493,7 +492,7 @@ namespace InventoryTracker.Api.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<decimal?>("ToleranceAtCompletionPercent")
-                        .HasPrecision(18, 6)
+                        .HasPrecision(28, 6)
                         .HasColumnType("TEXT");
 
                     b.HasKey("Number");
@@ -578,7 +577,7 @@ namespace InventoryTracker.Api.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<decimal?>("UsageVariancePercent")
-                        .HasPrecision(18, 6)
+                        .HasPrecision(28, 6)
                         .HasColumnType("TEXT");
 
                     b.Property<decimal?>("WarehouseSend")

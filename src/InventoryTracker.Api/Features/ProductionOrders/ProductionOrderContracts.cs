@@ -41,9 +41,43 @@ public sealed record SendOrderRequest(IReadOnlyList<SendOrderLineRequest?>? Line
 public sealed record SendOrderLineRequest(int? ItemId, decimal? Quantity);
 
 /// <summary>
+/// Body of <c>POST /api/v1/production-orders/{number}/complete</c> (design 5.7, AC-19.1): what was made, what is left in
+/// production storage, and why, for example
+/// <c>{ "producedQuantity": 1001, "lines": [ { "itemId": 3, "leftover": 4 } ], "reason": "Last bag line jammed" }</c>.
+/// </summary>
+/// <param name="ProducedQuantity">
+/// Finished product actually made, in the product's unit: greater than 0 (PRD section 6 row 7), at most 3 decimal places,
+/// at most 999,999,999.999 (decision #80).
+/// </param>
+/// <param name="Lines">
+/// The leftover of every order line exactly once, in any order (AC-19.1). A missing list counts as an empty one, so every
+/// order line is reported as missing (AC-19.4).
+/// </param>
+/// <param name="Reason">
+/// Why there is leftover: 1 to 500 characters after trimming, required when any leftover is above zero (AC-19.1, AC-19.4).
+/// It may be omitted or <c>null</c> when every leftover is zero (design 5.7); one reason covers all materials (PRD
+/// section 6 row 8).
+/// </param>
+/// <remarks>
+/// Every field is nullable so that a missing value reaches <see cref="CompleteOrderService"/>, which answers with the
+/// design's own messages under each field's JSON path (architecture 6, Validation).
+/// </remarks>
+public sealed record CompleteOrderRequest(
+    decimal? ProducedQuantity, IReadOnlyList<CompleteOrderLineRequest?>? Lines, string? Reason);
+
+/// <summary>One line of a completion: which raw material, and how much of it is physically left (design 5.7).</summary>
+/// <param name="ItemId">The raw material; it must be on the order (AC-19.4).</param>
+/// <param name="Leftover">
+/// The <b>total</b> quantity of this material physically in production storage now, carried leftover included (PRD section
+/// 6 row 1, decision #9): 0 or more, at most 3 decimal places, at most 999,999,999.999 (decision #80), and no more than
+/// production storage holds (AC-19.4).
+/// </param>
+public sealed record CompleteOrderLineRequest(int? ItemId, decimal? Leftover);
+
+/// <summary>
 /// The full order as the API returns it (design 5.7, AC-14.2): from <c>GET /api/v1/production-orders/{number}</c>, from
-/// <c>POST /api/v1/production-orders</c>, from <c>POST /api/v1/production-orders/{number}/send</c> (T-010), and later from
-/// the complete and cancel actions.
+/// <c>POST /api/v1/production-orders</c>, from <c>POST /api/v1/production-orders/{number}/send</c> (T-010), from
+/// <c>POST /api/v1/production-orders/{number}/complete</c> (T-011), and later from the cancel action.
 /// </summary>
 /// <remarks>
 /// Every field is always present; a value that is not known yet is <c>null</c> (design 2.3, AC-14.2 "values not yet

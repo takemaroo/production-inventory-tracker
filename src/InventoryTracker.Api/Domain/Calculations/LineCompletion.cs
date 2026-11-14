@@ -11,9 +11,9 @@ namespace InventoryTracker.Api.Domain.Calculations;
 /// <param name="UsageVariance">Actual usage − required. Positive means more was used than the output needed.</param>
 /// <param name="UsageVariancePercent">
 /// Usage variance ÷ required × 100, <b>not rounded</b>, so the threshold check (AC-20.4) is never affected by
-/// rounding. The completion service must round it itself: with
-/// <c>Math.Round(value, 6, MidpointRounding.AwayFromZero)</c> before storing it (architecture 3.1), and to 2 places
-/// for responses (PRD 4.1). The database does not do this: the SQLite provider ignores <c>HasPrecision</c> when
+/// rounding. The completion service must round it itself: with <see cref="Common.Quantities.Quantity.StoredPercent(decimal?)"/>
+/// (6 places) before storing it (architecture 3.1, decision #99), and with
+/// <see cref="Common.Quantities.Quantity.DisplayPercent(decimal?)"/> (2 places) for responses (PRD 4.1). The database does not do this: the SQLite provider ignores <c>HasPrecision</c> when
 /// writing and would store all 28 digits.
 /// <para>
 /// Null only when RequiredForActualOutput rounds to 0 (decision #49): there is nothing to divide by, so the

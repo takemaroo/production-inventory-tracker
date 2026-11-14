@@ -32,7 +32,7 @@ public class Notification
     /// <summary>When the notification was raised (UTC). Lists are newest first (decision #17).</summary>
     public DateTime CreatedAt { get; set; }
 
-    /// <summary>The finished text from design 7.3, up to 1,000 characters.</summary>
+    /// <summary>The finished text from design 7.3. No maximum length, and never truncated (decision #63).</summary>
     public string Message { get; set; } = string.Empty;
 
     /// <summary>The <c>data</c> object of design 5.10, stored as camelCase JSON text so its shape can differ per type.</summary>

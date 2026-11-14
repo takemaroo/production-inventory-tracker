@@ -30,7 +30,10 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
 
     // ---- Migrations ---------------------------------------------------------------------------------------
 
-    /// <summary>T-002: on an empty database, start-up applies InitialIdentity and then the single DomainModel migration.</summary>
+    /// <summary>
+    /// T-002, T-011: on an empty database, start-up applies InitialIdentity, the single DomainModel migration, and then
+    /// T-011's NotificationMessageUnbounded (decision #63) and PercentagePrecision (decision #82), in that order.
+    /// </summary>
     [Fact]
     public async Task Startup_on_an_empty_database_applies_the_domain_migration()
     {
@@ -38,9 +41,11 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         var db = Db(scope);
 
         var applied = db.Database.GetAppliedMigrations().ToList();
-        Assert.Equal(2, applied.Count);
+        Assert.Equal(4, applied.Count);
         Assert.EndsWith("_InitialIdentity", applied[0]);
         Assert.EndsWith("_DomainModel", applied[1]);
+        Assert.EndsWith("_NotificationMessageUnbounded", applied[2]);
+        Assert.EndsWith("_PercentagePrecision", applied[3]);
         Assert.Empty(await db.Database.GetPendingMigrationsAsync(Cancel));
 
         var tables = await db.Database
@@ -82,6 +87,116 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         Assert.Empty(await db.Database.GetPendingMigrationsAsync(Cancel));
         Assert.True(await db.Users.AnyAsync(u => u.Id == user.Id, Cancel));
         Assert.Equal(0, await db.Units.CountAsync(Cancel)); // the new tables exist and can be queried
+    }
+
+    /// <summary>
+    /// T-011, decisions #63 and #82: a database created before T-011 (InitialIdentity and DomainModel only, with a
+    /// notification already in it) is upgraded at start-up: both new migrations are applied, nothing is pending, and the
+    /// old row is unchanged. A notification whose message is far longer than the old 1,000-character limit, with accented
+    /// letters, quotes and a line break, is then saved and read back unchanged, character for character.
+    /// </summary>
+    [Fact]
+    public async Task Startup_upgrades_a_database_created_before_the_completion_migrations()
+    {
+        await using var freshFactory = new TestApiFactory();
+        var oldMessage = new string('a', 1000);
+        int oldNotificationId;
+        int orderNumber;
+
+        // Build the "old" database by hand, before the app starts: migrate only up to DomainModel, then add rows.
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite($"Data Source={freshFactory.DatabasePath}")
+            .Options;
+        await using (var oldDb = new AppDbContext(options))
+        {
+            var domainModel = oldDb.Database.GetMigrations().Single(m => m.EndsWith("_DomainModel"));
+            await oldDb.Database.GetService<IMigrator>().MigrateAsync(domainModel, Cancel);
+            Assert.DoesNotContain(oldDb.Database.GetAppliedMigrations(), m => m.EndsWith("_NotificationMessageUnbounded"));
+            Assert.DoesNotContain(oldDb.Database.GetAppliedMigrations(), m => m.EndsWith("_PercentagePrecision"));
+
+            var user = await AddUserAsync(oldDb);
+            var order = await AddOrderAsync(oldDb, await AddItemAsync(oldDb, ItemType.FinishedProduct), user, OrderStatus.Completed);
+            orderNumber = order.Number;
+            var old = NewNotification(orderNumber, oldMessage);
+            oldDb.Notifications.Add(old);
+            await oldDb.SaveChangesAsync(Cancel);
+            oldNotificationId = old.Id;
+        }
+
+        freshFactory.CreateClient(); // starts the app, which applies the missing migrations
+
+        await using (var scope = freshFactory.Services.CreateAsyncScope())
+        {
+            var db = Db(scope);
+            var applied = db.Database.GetAppliedMigrations().ToList();
+            Assert.Contains(applied, m => m.EndsWith("_NotificationMessageUnbounded"));
+            Assert.Contains(applied, m => m.EndsWith("_PercentagePrecision"));
+            Assert.Empty(await db.Database.GetPendingMigrationsAsync(Cancel));
+            Assert.Equal(oldMessage, (await db.Notifications.SingleAsync(n => n.Id == oldNotificationId, Cancel)).Message);
+        }
+
+        // Decision #63: 2,600 characters, more than twice the old limit. Built from varied text so a truncation, a
+        // trimmed end or a changed character anywhere would show.
+        var longMessage = string.Concat(Enumerable.Range(0, 100).Select(i => $"Línea {i:000}: «Queso» \"x\"\n"))
+            .PadRight(2600, 'é');
+        Assert.Equal(2600, longMessage.Length);
+        int longId;
+        await using (var scope = freshFactory.Services.CreateAsyncScope())
+        {
+            var db = Db(scope);
+            var notification = NewNotification(orderNumber, longMessage);
+            db.Notifications.Add(notification);
+            await db.SaveChangesAsync(Cancel);
+            longId = notification.Id;
+        }
+
+        await using (var scope = freshFactory.Services.CreateAsyncScope())
+        {
+            var stored = await Db(scope).Notifications.AsNoTracking().SingleAsync(n => n.Id == longId, Cancel);
+            Assert.Equal(longMessage, stored.Message);
+        }
+    }
+
+    /// <summary>
+    /// T-011, decisions #63 and #82: both the model the app runs with and the migration snapshot (the model as of the
+    /// last migration, which a PostgreSQL port would build its schema from) give the three stored percentages
+    /// precision (28, 6), keep amounts per unit at (18, 6), and give Notification.Message no maximum length. And the
+    /// migrations are complete: the model has no change that no migration records.
+    /// </summary>
+    [Fact]
+    public async Task Model_and_snapshot_have_wide_percentages_and_unbounded_messages()
+    {
+        await using var scope = CreateScope();
+        var db = Db(scope);
+        // The snapshot class is internal to the API project; EF Core's migrations service hands it out.
+        var snapshot = db.GetService<IMigrationsAssembly>().ModelSnapshot
+            ?? throw new InvalidOperationException("The API assembly has no model snapshot.");
+        IReadOnlyModel[] models = [db.Model, snapshot.Model];
+
+        foreach (var model in models)
+        {
+            var percentages = new[]
+            {
+                Property(model, typeof(ProductionOrder), nameof(ProductionOrder.OutputVariancePercent)),
+                Property(model, typeof(ProductionOrder), nameof(ProductionOrder.ToleranceAtCompletionPercent)),
+                Property(model, typeof(ProductionOrderLine), nameof(ProductionOrderLine.UsageVariancePercent)),
+            };
+            Assert.All(percentages, property =>
+            {
+                Assert.Equal(28, property.GetPrecision());
+                Assert.Equal(6, property.GetScale());
+            });
+
+            var amountPerUnit = Property(model, typeof(ProductionOrderLine), nameof(ProductionOrderLine.AmountPerUnit));
+            Assert.Equal(18, amountPerUnit.GetPrecision());
+            Assert.Equal(6, amountPerUnit.GetScale());
+
+            Assert.Null(Property(model, typeof(Notification), nameof(Notification.Message)).GetMaxLength());
+            Assert.Null(Property(model, typeof(Notification), nameof(Notification.DataJson)).GetMaxLength());
+        }
+
+        // EF Core compares the code's model with the snapshot: true would mean a configuration change with no migration.
+        Assert.False(db.Database.HasPendingModelChanges());
     }
 
     /// <summary>T-002: the start-up warning "No instantiatable types implementing IEntityTypeConfiguration" (EF event 10632) is gone.</summary>
@@ -171,7 +286,10 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         Assert.Equal("Completed", storedStatus);
     }
 
-    /// <summary>Architecture 3.1: quantities are decimal(18,3); recipe amounts and stored percentages are decimal(18,6).</summary>
+    /// <summary>
+    /// Architecture 3.1: quantities are decimal(18,3), recipe amounts per unit decimal(18,6), and stored percentages
+    /// decimal(28,6) (decision #82, widened by T-011).
+    /// </summary>
     [Fact]
     public void Decimals_have_the_architecture_precision()
     {
@@ -180,18 +298,20 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
             .Where(property => (Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType) == typeof(decimal))
             .ToList();
 
-        string[] sixPlaces =
+        string[] amountsPerUnit = ["RecipeLine.AmountPerUnit", "ProductionOrderLine.AmountPerUnit"];
+        string[] percentages =
         [
-            "RecipeLine.AmountPerUnit", "ProductionOrderLine.AmountPerUnit", "ProductionOrderLine.UsageVariancePercent",
-            "ProductionOrder.OutputVariancePercent", "ProductionOrder.ToleranceAtCompletionPercent",
+            "ProductionOrderLine.UsageVariancePercent", "ProductionOrder.OutputVariancePercent",
+            "ProductionOrder.ToleranceAtCompletionPercent",
         ];
         Assert.All(decimals, property =>
         {
             var name = $"{property.DeclaringType.ClrType.Name}.{property.Name}";
-            Assert.Equal(18, property.GetPrecision());
-            Assert.Equal(sixPlaces.Contains(name) ? 6 : 3, property.GetScale());
+            Assert.Equal(percentages.Contains(name) ? 28 : 18, property.GetPrecision());
+            Assert.Equal(amountsPerUnit.Contains(name) || percentages.Contains(name) ? 6 : 3, property.GetScale());
         });
-        Assert.Equal(sixPlaces.Length, decimals.Count(property => property.GetScale() == 6));
+        Assert.Equal(amountsPerUnit.Length + percentages.Length, decimals.Count(property => property.GetScale() == 6));
+        Assert.Equal(percentages.Length, decimals.Count(property => property.GetPrecision() == 28));
     }
 
     /// <summary>Architecture 3.1: every foreign key is Restrict, except recipe lines, which cascade with their recipe.</summary>
@@ -582,6 +702,23 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         return db.Model.GetEntityTypes().Where(entity => entity.ClrType.Namespace == typeof(Item).Namespace).ToList();
     }
+
+    /// <summary>
+    /// One property of an entity in <paramref name="model"/>. The snapshot's model knows entities by name only (it has
+    /// no CLR types), so the lookup is by the type's full name.
+    /// </summary>
+    private static IReadOnlyProperty Property(IReadOnlyModel model, Type entity, string property) =>
+        model.FindEntityType(entity.FullName!)!.FindProperty(property)!;
+
+    /// <summary>A notification about <paramref name="orderNumber"/> with exactly <paramref name="message"/>.</summary>
+    private static Notification NewNotification(int orderNumber, string message) => new()
+    {
+        Type = NotificationType.OutputVariance,
+        ProductionOrderNumber = orderNumber,
+        CreatedAt = SampleTime,
+        Message = message,
+        DataJson = "{}",
+    };
 
     private static UnitOfMeasure NewUnit(string name) =>
         new() { Name = name, NameNormalized = NameNormalizer.Normalize(name) };

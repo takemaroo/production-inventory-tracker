@@ -9,18 +9,20 @@ namespace InventoryTracker.Api.Features.ProductionOrders;
 /// <summary>
 /// The <c>/api/v1/production-orders</c> endpoints (US-13, US-14, design 4 and 5.7). Any signed-in user may list and view
 /// orders (PRD 4.2, AC-14.1); only a Manager may create one (AC-13.7); a Warehouse user or a Manager sends the
-/// materials (AC-15.1, AC-15.12). The complete and cancel actions are added to this controller by T-011 and T-016.
+/// materials (AC-15.1, AC-15.12); a Production user or a Manager completes the order (AC-19.1, AC-19.8). The cancel
+/// action is added to this controller by T-016.
 /// </summary>
 /// <remarks>
 /// Built the same way as <c>UnitsController</c>, which explains the request flow, model binding, <c>[Authorize]</c> and
 /// <c>CreatedAtAction</c>. Orders are addressed by their number, not an id (design 2.1). There is no <c>PUT</c> or
 /// <c>DELETE</c>: an order's product, quantity and planned amounts never change after creation (AC-13.6), so those
-/// methods get the framework's <c>405</c>. All rules are in <see cref="ProductionOrderService"/> and, for the send,
-/// <see cref="SendOrderService"/>.
+/// methods get the framework's <c>405</c>. All rules are in <see cref="ProductionOrderService"/> and, for the send and
+/// the completion, <see cref="SendOrderService"/> and <see cref="CompleteOrderService"/>.
 /// </remarks>
 [ApiController]
 [Route("api/v1/production-orders")]
-public sealed class ProductionOrdersController(ProductionOrderService orders, SendOrderService sends) : ControllerBase
+public sealed class ProductionOrdersController(
+    ProductionOrderService orders, SendOrderService sends, CompleteOrderService completions) : ControllerBase
 {
     /// <summary>
     /// <c>GET /api/v1/production-orders</c>: one page of order summaries, newest first, optionally filtered with
@@ -79,5 +81,26 @@ public sealed class ProductionOrdersController(ProductionOrderService orders, Se
         // AC-05.3, AC-15.1: the send records who sent it, taken from the checked token, never from the body.
         var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
         return sends.SendAsync(number, request, userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// <c>POST /api/v1/production-orders/{number}/complete</c>: registers the output of an InProduction order, once, with
+    /// the leftover of every line and a reason when any leftover is above zero (AC-19.1, design 5.7). <c>200</c> with the
+    /// order detail, now Completed, with every variance figure. <c>404</c> for an unknown number; <c>400</c>
+    /// <c>validation</c> for a bad body, <c>reason-required</c> for leftover without a reason (AC-19.4); <c>409</c> when the
+    /// order is not InProduction (AC-19.5); <c>400</c> <c>leftover-exceeds-stock</c> (AC-19.4).
+    /// </summary>
+    /// <remarks>
+    /// PRD 4.2, "Complete an order": Production or Manager. A Warehouse-only user gets <c>403</c> (AC-19.8) before the order
+    /// or the body is looked at (design 2.2).
+    /// </remarks>
+    [HttpPost("{number:int}/complete")]
+    [Authorize(Roles = Roles.ProductionOrManager)]
+    public Task<ProductionOrderResponse> Complete(
+        int number, CompleteOrderRequest request, CancellationToken cancellationToken)
+    {
+        // AC-05.3, AC-19.2: the completion records who completed it, taken from the checked token, never from the body.
+        var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
+        return completions.CompleteAsync(number, request, userId, cancellationToken);
     }
 }

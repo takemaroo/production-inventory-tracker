@@ -100,6 +100,39 @@ public static class Quantity
     public static decimal Round3(decimal value) => Math.Round(value, 3, MidpointRounding.AwayFromZero);
 
     /// <summary>
+    /// Architecture 3.1, decisions #58 and #99: the percentage to <em>store</em> is the unrounded value rounded to 6
+    /// decimal places, half away from zero. A null percentage (decision #49: the required amount rounded to 0) stays null.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the code rounds, not the database.</b> The percentage columns are <c>decimal(28,6)</c> (decision #82), but
+    /// SQLite ignores a column's precision: it would store every digit the division produced, for example
+    /// 1.498501498501498501498501498 for 15 ÷ 1,001 × 100 (worked example A). Rounding here stores 1.498501, the value a
+    /// PostgreSQL <c>numeric(28,6)</c> column would keep too, so both databases hold the same figure.
+    /// </para>
+    /// <para>
+    /// <b>Why it is shared.</b> <see cref="DisplayPercent(decimal)"/> starts with exactly this step, and a completion stores
+    /// with it. Written once, the stored value and the shown value can never follow different rules (decision #99).
+    /// Whether a usage variance is above the tolerance is still decided from the unrounded value (AC-20.4), never from
+    /// this one.
+    /// </para>
+    /// <para>
+    /// Examples: 2.0049996 → 2.005000 (the 7th place, 6, rounds the 6th up); 2.0049994 → 2.004999; −2.0049995 →
+    /// −2.005000 (half away from zero, so a negative half goes further from zero, not towards it).
+    /// </para>
+    /// </remarks>
+    /// <param name="percent">The unrounded percentage, or null.</param>
+    public static decimal? StoredPercent(decimal? percent)
+        => percent is { } value ? StoredPercent(value) : null;
+
+    /// <summary>
+    /// The same rule as <see cref="StoredPercent(decimal?)"/>, for a percentage that always has a value (the output
+    /// variance, the tolerance at completion). The rule itself is written only here.
+    /// </summary>
+    /// <param name="percent">The unrounded percentage.</param>
+    public static decimal StoredPercent(decimal percent) => Math.Round(percent, 6, MidpointRounding.AwayFromZero);
+
+    /// <summary>
     /// Decision #58, design 2.4 and 6.1: the percentage to <em>show</em> (in an API response, a notification message or
     /// its data) is round(round(value, 6), 2), both steps half away from zero. A null percentage (decision #49: the
     /// required amount rounded to 0, so there is nothing to divide by) stays null.
@@ -143,7 +176,8 @@ public static class Quantity
     /// <param name="percent">The unrounded or stored percentage.</param>
     public static decimal DisplayPercent(decimal percent)
     {
-        var stored = Math.Round(percent, 6, MidpointRounding.AwayFromZero);
+        // Step 1 is exactly the storage rule (decision #99), so a shown value always comes from the value that is stored.
+        var stored = StoredPercent(percent);
         var shown = Math.Round(stored, 2, MidpointRounding.AwayFromZero);
 
         // -0.001 rounds to a zero that still carries the minus sign; return a plain 0.00 instead (see remarks above).

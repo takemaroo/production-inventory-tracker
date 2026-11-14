@@ -23,8 +23,10 @@ public sealed class ProductionOrderConfiguration : IEntityTypeConfiguration<Prod
         builder.Property(o => o.OrderedQuantity).IsQuantity();
         builder.Property(o => o.ProducedQuantity).IsQuantity();
         builder.Property(o => o.OutputVariance).IsQuantity();
-        builder.Property(o => o.OutputVariancePercent).IsFineDecimal();
-        builder.Property(o => o.ToleranceAtCompletionPercent).IsFineDecimal();
+        // Decision #82: percentages are decimal(28,6), wider than the (18,6) of amounts per unit, because a variance
+        // divided by a tiny ordered quantity (0.001) can reach about 1e14 % (see ColumnRules.IsPercentage).
+        builder.Property(o => o.OutputVariancePercent).IsPercentage();
+        builder.Property(o => o.ToleranceAtCompletionPercent).IsPercentage();
         builder.Property(o => o.CompletionReason).HasMaxLength(ColumnRules.TextLength);
         builder.Property(o => o.CancellationReason).HasMaxLength(ColumnRules.TextLength);
 

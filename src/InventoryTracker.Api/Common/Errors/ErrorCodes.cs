@@ -7,7 +7,8 @@ namespace InventoryTracker.Api.Common.Errors;
 /// <c>code</c> is the stable, kebab-case identifier that client programs and tests match on, while
 /// <c>detail</c> is the human-readable message. Feature-specific codes such as <c>already-sent</c> are
 /// written next to the rule that raises them in each feature's service; only the codes that this
-/// foundation code produces live here.
+/// foundation code produces live here, plus the few that several features raise with the same meaning
+/// (decision #100), so one spelling serves them all.
 /// </remarks>
 public static class ErrorCodes
 {
@@ -25,6 +26,12 @@ public static class ErrorCodes
 
     /// <summary>Architecture 4.1 items 8 and 11: a database constraint stopped a write that the checks missed.</summary>
     public const string ConcurrentChange = "concurrent-change";
+
+    /// <summary>
+    /// Design 7.2, AC-15.9, AC-19.5, AC-21.5: an action on a Cancelled production order ("This order is cancelled.").
+    /// Raised by the send and the completion, and later by the cancellation (T-016) (decision #100).
+    /// </summary>
+    public const string OrderCancelled = "order-cancelled";
 
     /// <summary>Architecture 4.1 item 8: an exception nobody expected. Details go only to the log.</summary>
     public const string InternalError = "internal-error";

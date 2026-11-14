@@ -67,9 +67,6 @@ public sealed class SendOrderService(
     /// <summary>Design 7.2: the code for a send of an order that is InProduction or Completed (AC-15.9).</summary>
     public const string AlreadySentCode = "already-sent";
 
-    /// <summary>Design 7.2: the code for a send of a Cancelled order (AC-15.9).</summary>
-    public const string OrderCancelledCode = "order-cancelled";
-
     /// <summary>Design 7.2: the code for a send while another order is InProduction (AC-15.10).</summary>
     public const string AnotherOrderInProductionCode = "another-order-in-production";
 
@@ -147,87 +144,18 @@ public sealed class SendOrderService(
     /// and every quantity is given, not negative, has at most 3 decimal places and is at most 999,999,999.999 (decision
     /// #80). Every problem is reported in one <c>400</c> <c>validation</c>, keyed by the field's JSON path.
     /// </summary>
+    /// <remarks>
+    /// The rules and messages are the shared ones of <see cref="OrderLineMatcher"/> (decision #100), with the field
+    /// <c>quantity</c> labelled "Quantity". Whether a zero send is enough for its line is the range check's job, later.
+    /// </remarks>
     /// <returns>The valid sends, in the order the client listed them.</returns>
-    private static List<LineSend> Validate(ProductionOrder order, SendOrderRequest request)
+    private static List<MatchedOrderLine> Validate(ProductionOrder order, SendOrderRequest request)
     {
         var errors = new ValidationErrors();
-        var submitted = request.Lines ?? [];
-        var orderLines = order.Lines.ToDictionary(line => line.RawMaterialId);
-        var sends = new List<LineSend>(submitted.Count);
-        var materialsSeen = new HashSet<int>();
-
-        for (var index = 0; index < submitted.Count; index++)
-        {
-            var line = submitted[index];
-            var itemPath = $"lines[{index}].itemId";
-            var quantityPath = $"lines[{index}].quantity";
-
-            // One message per field, from the first rule it fails (decision #75). A line sent as null gets both
-            // "required" messages, as in recipes (decision #74).
-            ProductionOrderLine? orderLine = null;
-            if (line?.ItemId is not { } itemId)
-            {
-                errors.Add(itemPath, "Item is required.");
-            }
-            else if (!orderLines.TryGetValue(itemId, out orderLine))
-            {
-                // AC-15.8: "an item that is not on the order". An id that names no item at all gets the same answer:
-                // either way it is not one of this order's materials (design 2.2 step 4: 400, not 404).
-                errors.Add(itemPath, $"Item {itemId} is not on order #{order.Number}.");
-            }
-            else if (!materialsSeen.Add(itemId))
-            {
-                // Design 5.7: "every order line must appear exactly once". The first line naming the material is kept;
-                // each later one is reported, so the message points at the line to remove (decision #75).
-                errors.Add(itemPath, $"{orderLine.RawMaterial.Name} appears on more than one line.");
-                orderLine = null;
-            }
-
-            // Architecture 3.1 order of rules on a quantity: required, sign, decimal places, maximum.
-            var quantityValid = false;
-            if (line?.Quantity is not { } quantity)
-            {
-                errors.Add(quantityPath, "Quantity is required.");
-            }
-            else if (quantity < 0m)
-            {
-                // AC-15.8, D-7 "S ≥ 0": nothing can be sent back this way. Zero is allowed (AC-15.4); whether zero is
-                // enough for this line is the range check's job, later.
-                errors.Add(quantityPath, "Quantity cannot be negative.");
-            }
-            else if (!Quantity.HasAtMostDecimals(quantity, Quantity.MaxQuantityDecimals))
-            {
-                // AC-15.8, PRD 4.1; trailing zeros do not count (design 2.4). The message names the field (decision #95).
-                errors.Add(quantityPath, $"Quantity can have at most {Quantity.MaxQuantityDecimals} decimal places.");
-            }
-            else if (!Quantity.IsWithinMax(quantity))
-            {
-                // Decision #80: a field error, reported before any range is worked out (task T-010).
-                errors.Add(quantityPath, Quantity.AboveMaxMessage("Quantity"));
-            }
-            else
-            {
-                quantityValid = true;
-            }
-
-            if (orderLine is not null && quantityValid)
-            {
-                sends.Add(new LineSend(index, orderLine, line!.Quantity!.Value));
-            }
-        }
-
-        // AC-15.8: "a missing line". Named in recipe line order, all in one message (decision #96). A line that was
-        // present but had a bad quantity is not missing; its own message already says what is wrong with it.
-        var missing = order.Lines
-            .Where(line => !materialsSeen.Contains(line.RawMaterialId))
-            .OrderBy(line => line.LineNo)
-            .Select(line => line.RawMaterial.Name)
+        var submitted = (request.Lines ?? [])
+            .Select(line => line is null ? null : new SubmittedOrderLine(line.ItemId, line.Quantity))
             .ToList();
-        if (missing.Count > 0)
-        {
-            errors.Add("lines", $"Every order line needs a quantity. Missing: {string.Join(", ", missing)}.");
-        }
-
+        var sends = OrderLineMatcher.Match(order, submitted, "quantity", "Quantity", errors);
         errors.ThrowIfAny();
         return sends;
     }
@@ -246,7 +174,7 @@ public sealed class SendOrderService(
                 throw new ConflictException(AlreadySentCode,
                     "Materials have already been sent for this order. Raise a complementary order for more material.");
             case OrderStatus.Cancelled:
-                throw new ConflictException(OrderCancelledCode, "This order is cancelled.");
+                throw new ConflictException(ErrorCodes.OrderCancelled, "This order is cancelled.");
         }
 
         // AC-15.10, decision #6: only one order in production at a time. The reason: at completion, the leftover the
@@ -329,7 +257,7 @@ public sealed class SendOrderService(
     /// 30 kg of leftover against P = 30 kg gives 0 to 0.6 kg, so sending nothing is right. The limits are rounded to 3
     /// places, and a quantity is compared with exactly the rounded limits the order detail shows (decision #24).
     /// </remarks>
-    private void CheckRanges(ProductionOrder order, IReadOnlyList<LineSend> sends, LeftoverAllocation leftoverApplied)
+    private void CheckRanges(ProductionOrder order, IReadOnlyList<MatchedOrderLine> sends, LeftoverAllocation leftoverApplied)
     {
         var tolerance = options.Value.TolerancePercent;
         var errors = new ValidationErrors();
@@ -363,7 +291,7 @@ public sealed class SendOrderService(
     /// and names only that one (architecture 5.1). The ledger still checks each movement again as it is added, as the
     /// last line of defence. A line sending 0 needs no stock (AC-15.4).
     /// </remarks>
-    private static void CheckWarehouseStock(IReadOnlyList<LineSend> sends, IReadOnlyDictionary<int, StockFigures> figures)
+    private static void CheckWarehouseStock(IReadOnlyList<MatchedOrderLine> sends, IReadOnlyDictionary<int, StockFigures> figures)
     {
         var shortLines = sends
             .Where(send => send.Quantity > figures[send.Line.RawMaterialId].Warehouse)
@@ -384,7 +312,7 @@ public sealed class SendOrderService(
     /// </summary>
     private async Task WriteSendAsync(
         ProductionOrder order,
-        IReadOnlyList<LineSend> sends,
+        IReadOnlyList<MatchedOrderLine> sends,
         LeftoverAllocation leftoverApplied,
         IReadOnlyDictionary<int, StockFigures> figures,
         string userId,
@@ -436,7 +364,4 @@ public sealed class SendOrderService(
             }, cancellationToken);
         }
     }
-
-    /// <summary>One valid line of the body: its position in the request (for the error path), its order line, and the quantity.</summary>
-    private sealed record LineSend(int Index, ProductionOrderLine Line, decimal Quantity);
 }

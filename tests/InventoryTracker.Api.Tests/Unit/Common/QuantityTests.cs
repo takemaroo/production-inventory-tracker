@@ -223,4 +223,59 @@ public class QuantityTests
         Assert.Equal("0.00", JsonSerializer.Serialize(shown));
         Assert.Equal("0.00%", MessageFormat.SignedPercent(shown));
     }
+
+    /// <summary>
+    /// Architecture 3.1, decisions #58 and #99: a percentage is stored rounded to 6 places, half away from zero. The 7th
+    /// place decides: 2.0049996 is stored as 2.005 and 2.0049994 as 2.004999. A half at the 7th place goes away from zero
+    /// in both directions (2.0049995 → 2.005, −2.0049995 → −2.005), never to the even neighbour. Worked example A's
+    /// 15 ÷ 1,001 × 100 is stored as 1.498501, and a value with 6 places or fewer, such as 2, −2.0001 or about 1e14
+    /// (decision #82), is unchanged.
+    /// </summary>
+    [Theory]
+    [InlineData("2.0049996", "2.005")]
+    [InlineData("2.0049994", "2.004999")]
+    [InlineData("2.0049995", "2.005")]
+    [InlineData("-2.0049995", "-2.005")]
+    [InlineData("-2.0049994", "-2.004999")]
+    [InlineData("1.4985014985014985014985014985", "1.498501")]
+    [InlineData("-99.9999999999000000000999", "-100")]
+    [InlineData("2", "2")]
+    [InlineData("-2.0001", "-2.0001")]
+    [InlineData("99999999999800", "99999999999800")]
+    public void StoredPercent_rounds_to_six_places_half_away_from_zero(string value, string expected)
+    {
+        var percent = decimal.Parse(value, CultureInfo.InvariantCulture);
+        var stored = decimal.Parse(expected, CultureInfo.InvariantCulture);
+
+        Assert.Equal(stored, Quantity.StoredPercent(percent));
+
+        // The nullable form applies the same rule when it has a value.
+        Assert.Equal(stored, Quantity.StoredPercent((decimal?)percent));
+    }
+
+    /// <summary>
+    /// Decisions #49 and #99: when the required amount rounds to 0 there is no percentage, and storing keeps it null
+    /// (never 0, which would claim "no variance").
+    /// </summary>
+    [Fact]
+    public void StoredPercent_keeps_null_as_null()
+    {
+        Assert.Null(Quantity.StoredPercent(null));
+    }
+
+    /// <summary>
+    /// Decision #99: DisplayPercent's first step is StoredPercent, so showing the unrounded value and showing the stored
+    /// value always give the same figure. 2.0049996 is the case where a single rounding to 2 places (2.00) would
+    /// disagree with the stored value's (2.005 → 2.01).
+    /// </summary>
+    [Theory]
+    [InlineData("2.0049996")]
+    [InlineData("-2.0049995")]
+    [InlineData("1.4985014985014985014985014985")]
+    public void Showing_the_stored_value_equals_showing_the_unrounded_value(string value)
+    {
+        var percent = decimal.Parse(value, CultureInfo.InvariantCulture);
+
+        Assert.Equal(Quantity.DisplayPercent(percent), Quantity.DisplayPercent(Quantity.StoredPercent(percent)));
+    }
 }

@@ -23,7 +23,8 @@ public sealed class ProductionOrderLineConfiguration : IEntityTypeConfiguration<
         builder.Property(l => l.ActualUsage).IsQuantity();
         builder.Property(l => l.RequiredForActualOutput).IsQuantity();
         builder.Property(l => l.UsageVariance).IsQuantity();
-        builder.Property(l => l.UsageVariancePercent).IsFineDecimal();
+        // Decision #82: a percentage column, decimal(28,6); see ColumnRules.IsPercentage for why it is wider.
+        builder.Property(l => l.UsageVariancePercent).IsPercentage();
 
         // A raw material appears at most once per order, as on the recipe it was copied from (AC-08.2).
         builder.HasIndex(l => new { l.OrderNumber, l.RawMaterialId }).IsUnique();
