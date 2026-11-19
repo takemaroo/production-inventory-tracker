@@ -75,9 +75,25 @@ public sealed record CompleteOrderRequest(
 public sealed record CompleteOrderLineRequest(int? ItemId, decimal? Leftover);
 
 /// <summary>
+/// Body of <c>POST /api/v1/production-orders/{number}/cancel</c> (design 5.7, AC-21.1): why the order will not be
+/// produced, for example <c>{ "reason": "Customer order withdrawn" }</c>.
+/// </summary>
+/// <param name="Reason">
+/// Required: 1 to 500 characters after trimming (AC-21.1, AC-21.5, PRD assumption 9, design 2.6). Stored trimmed as the
+/// order's cancellation reason, shown as the note of the Cancelled history entry, and quoted in the
+/// OrderCancelledWithMaterial notification (design 7.3).
+/// </param>
+/// <remarks>
+/// Nullable so that a missing value reaches <see cref="CancelOrderService"/>, which answers with the design's own message
+/// under <c>reason</c> rather than a framework error (architecture 6, Validation).
+/// </remarks>
+public sealed record CancelOrderRequest(string? Reason);
+
+/// <summary>
 /// The full order as the API returns it (design 5.7, AC-14.2): from <c>GET /api/v1/production-orders/{number}</c>, from
 /// <c>POST /api/v1/production-orders</c>, from <c>POST /api/v1/production-orders/{number}/send</c> (T-010), from
-/// <c>POST /api/v1/production-orders/{number}/complete</c> (T-011), and later from the cancel action.
+/// <c>POST /api/v1/production-orders/{number}/complete</c> (T-011), and from <c>POST /api/v1/production-orders/{number}/cancel</c>
+/// (T-016).
 /// </summary>
 /// <remarks>
 /// Every field is always present; a value that is not known yet is <c>null</c> (design 2.3, AC-14.2 "values not yet

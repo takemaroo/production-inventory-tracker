@@ -19,7 +19,8 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// <remarks>
 /// <para>
 /// Orders are created and sent through the API. Free leftover reaches production storage through a ledger Adjustment
-/// (the adjustment endpoint is T-015). Complementary orders (T-017, T-018 are not built yet) are inserted through the
+/// (<see cref="PutLeftoverAsync"/>: the movement <c>POST /adjustments</c> writes, without a request). Complementary
+/// orders (T-017, T-018 are not built yet) are inserted through the
 /// DbContext; a complementary <em>send</em> is written the way T-018 will write it: a SentToProduction movement through
 /// the ledger, linked to the complementary order, and the line's ComplementarySends increased, in one write transaction.
 /// Notifications are read through the DbContext (their API is T-012).
@@ -227,7 +228,7 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
     {
         var time = new FakeTimeProvider(EightAm.AddHours(-1));
         await using var app = new TestApiFactory { FakeTime = time };
-        var scene = await OldestFirstSceneAsync(app, time);
+        var scene = await WorkedExampleDSceneAsync(app, time);
 
         var response = await CompleteAsync(scene.Production, 8, 1000m, "Carried leftover still on the shelf", (scene.Cheese.Id, 30m));
 
@@ -264,7 +265,7 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
     {
         var time = new FakeTimeProvider(EightAm.AddHours(-1));
         await using var app = new TestApiFactory { FakeTime = time };
-        var scene = await OldestFirstSceneAsync(app, time);
+        var scene = await WorkedExampleDSceneAsync(app, time);
 
         var response = await CompleteAsync(scene.Production, 8, 1000m, "Used some of the shelf stock", (scene.Cheese.Id, 20m));
 
@@ -1093,38 +1094,21 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
     }
 
     /// <summary>
-    /// The AC-15.5 starting point continued to worked example D (AC-20.8): Cheese in kg, 1 kg per bag, 2,000 kg in the
-    /// Warehouse, 50 kg of free leftover, Created orders #7 (08:00, 30 bags), #8 (09:00, 1,000 bags) and #9 (10:00, 500
-    /// bags) (orders #1 to #6 are created and cancelled first), and #8 sent first with 980 kg: leftover applied 20,
-    /// carried leftover 30, production storage 1,030 kg.
+    /// The AC-15.5 starting point (<see cref="OrderFlow.OldestFirstSceneAsync"/>: Cheese in kg, 1 kg per bag, 2,000 kg in
+    /// the Warehouse, 50 kg of free leftover, Created orders #7 (08:00, 30 bags), #8 (09:00, 1,000 bags) and #9 (10:00,
+    /// 500 bags)) continued to worked example D (AC-20.8): #8 sent first with 980 kg, so leftover applied 20, carried
+    /// leftover 30, production storage 1,030 kg.
     /// </summary>
-    private static async Task<OrderScene> OldestFirstSceneAsync(TestApiFactory app, FakeTimeProvider time)
+    private static async Task<OrderScene> WorkedExampleDSceneAsync(TestApiFactory app, FakeTimeProvider time)
     {
-        var (manager, managerUser) = await SignedInAsync(app, Roles.Manager);
-        var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
+        var start = await OrderFlow.OldestFirstSceneAsync(app, time);
         var (production, productionUser) = await SignedInAsync(app, Roles.Production);
-        var kg = await Seed.CreateUnitAsync(manager, "kg");
-        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Cheese");
-        var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m));
-        for (var i = 0; i < 6; i++)
-        {
-            await SetStatusAsync(app, await CreateOrderAsync(manager, product.Id, 1m), OrderStatus.Cancelled, managerUser.Id);
-        }
 
-        await ReceiveAsync(manager, cheese.Id, 2000m);
-        await PutLeftoverAsync(app, cheese.Id, 50m, managerUser.Id);
-        time.SetUtcNow(EightAm);
-        Assert.Equal(7, await CreateOrderAsync(manager, product.Id, 30m));
-        time.SetUtcNow(EightAm.AddHours(1));
-        Assert.Equal(8, await CreateOrderAsync(manager, product.Id, 1000m));
-        time.SetUtcNow(EightAm.AddHours(2));
-        Assert.Equal(9, await CreateOrderAsync(manager, product.Id, 500m));
-
-        var sent = await SendAsync(warehouse, 8, (cheese.Id, 980m));
+        var sent = await SendAsync(start.Warehouse, 8, (start.Cheese.Id, 980m));
         Assert.Equal(HttpStatusCode.OK, sent.StatusCode);
-        Assert.Equal(30m, Line(await ApiJson.ReadAsync(sent), cheese.Id).GetProperty("carriedLeftover").GetDecimal());
-        Assert.Equal(1030m, (await StockAsync(manager, cheese.Id)).GetProperty("productionStorage").GetDecimal());
-        return new OrderScene(manager, managerUser, production, productionUser, cheese, product, 8);
+        Assert.Equal(30m, Line(await ApiJson.ReadAsync(sent), start.Cheese.Id).GetProperty("carriedLeftover").GetDecimal());
+        Assert.Equal(1030m, (await StockAsync(start.Manager, start.Cheese.Id)).GetProperty("productionStorage").GetDecimal());
+        return new OrderScene(start.Manager, start.ManagerUser, production, productionUser, start.Cheese, start.Product, 8);
     }
 
     /// <summary>
@@ -1218,39 +1202,6 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
             }, Cancel);
         });
 
-    /// <summary>Inserts a complementary order of one line (T-017 builds them) in <paramref name="status"/> and returns its number.</summary>
-    private static async Task<int> InsertComplementaryOrderAsync(
-        TestApiFactory app, int parent, ComplementaryOrderStatus status, int itemId, string userId)
-    {
-        var number = 0;
-        await InTransactionAsync(app, async (db, _, now) =>
-        {
-            var complementary = new ComplementaryOrder
-            {
-                ParentOrderNumber = parent, Status = status, Reason = "Hopper spill at start of run",
-                RequestedAt = now, RequestedById = userId,
-                Lines = [new ComplementaryOrderLine { LineNo = 1, RawMaterialId = itemId, RequestedAmount = 20m }],
-            };
-            switch (status)
-            {
-                case ComplementaryOrderStatus.Approved:
-                    (complementary.ApprovedAt, complementary.ApprovedById) = (now, userId);
-                    break;
-                case ComplementaryOrderStatus.Rejected:
-                    (complementary.RejectedAt, complementary.RejectedById) = (now, userId);
-                    break;
-                case ComplementaryOrderStatus.Sent:
-                    (complementary.ApprovedAt, complementary.ApprovedById, complementary.SentAt, complementary.SentById) = (now, userId, now, userId);
-                    break;
-            }
-
-            db.ComplementaryOrders.Add(complementary);
-            await db.SaveChangesAsync(Cancel);
-            number = complementary.Number;
-        });
-        return number;
-    }
-
     // ---- Helpers: reading what was stored --------------------------------------------------------------------------
 
     /// <summary>The order's ConsumedInProduction and ProducedOutput movements (the ones a completion writes), oldest first.</summary>
@@ -1262,23 +1213,6 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
                 && (movement.Type == MovementType.ConsumedInProduction || movement.Type == MovementType.ProducedOutput))
             .OrderBy(movement => movement.Id)
             .ToListAsync(Cancel);
-    }
-
-    /// <summary>The order's notifications, in the order they were created.</summary>
-    private static async Task<List<Notification>> NotificationsOfOrderAsync(TestApiFactory app, int number)
-    {
-        await using var scope = app.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Notifications.AsNoTracking()
-            .Where(notification => notification.ProductionOrderNumber == number)
-            .OrderBy(notification => notification.Id)
-            .ToListAsync(Cancel);
-    }
-
-    private static async Task<ComplementaryOrder> StoredComplementaryOrderAsync(TestApiFactory app, int number)
-    {
-        await using var scope = app.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().ComplementaryOrders.AsNoTracking()
-            .SingleAsync(complementary => complementary.Number == number, Cancel);
     }
 
     /// <summary>Decision #98 (f): the Warning a completion logs when consumed stock and actual usage differ.</summary>

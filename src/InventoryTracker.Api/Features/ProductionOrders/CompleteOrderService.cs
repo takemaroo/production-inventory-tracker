@@ -103,9 +103,6 @@ public sealed class CompleteOrderService(
     /// <summary>Design 7.2: the code for a leftover larger than production storage holds (AC-19.4).</summary>
     public const string LeftoverExceedsStockCode = "leftover-exceeds-stock";
 
-    /// <summary>AC-19.6: the note on each complementary order cancelled because its parent was completed.</summary>
-    public const string ParentCompletedNote = "Parent order completed";
-
     /// <summary>
     /// AC-19.1, AC-19.2: completes InProduction order <paramref name="number"/>. Writes the ConsumedInProduction movement
     /// of each line (none for zero) and the ProducedOutput movement, stores every completion figure (D-9) and the
@@ -342,7 +339,12 @@ public sealed class CompleteOrderService(
         order.StatusChangedAt = now;
 
         var mismatches = await WriteMovementsAsync(order, completions, figures, input.ProducedQuantity, now, userId, cancellationToken);
-        await CancelUnsentComplementaryOrdersAsync(order.Number, now, userId, cancellationToken);
+
+        // AC-19.6, PRD section 6 row 6: complementary orders exist only to top up a running order, so once it is
+        // completed the unsent ones (PendingApproval, Approved) can never be used and become Cancelled with "Parent order
+        // completed". The same shared code as the cancellation's (AC-21.4), so the two cannot drift apart.
+        await UnsentComplementaryOrders.CancelAsync(
+            db, order.Number, UnsentComplementaryOrders.ParentCompletedNote, now, userId, cancellationToken);
         AddNotifications(order, input, completions, now);
         return mismatches;
     }
@@ -411,30 +413,6 @@ public sealed class CompleteOrderService(
         }, cancellationToken);
 
         return mismatches;
-    }
-
-    /// <summary>
-    /// AC-19.6, PRD section 6 row 6: complementary orders exist only to top up a running order, so once the order is
-    /// completed, those not yet sent (PendingApproval or Approved) can never be used and become Cancelled with the note
-    /// "Parent order completed", recording who completed the parent and when (AC-05.3). Rejected, Sent and Cancelled
-    /// ones are final and stay as they are.
-    /// </summary>
-    private async Task CancelUnsentComplementaryOrdersAsync(
-        int orderNumber, DateTime now, string userId, CancellationToken cancellationToken)
-    {
-        var unsent = await db.ComplementaryOrders
-            .Where(complementary => complementary.ParentOrderNumber == orderNumber
-                && (complementary.Status == ComplementaryOrderStatus.PendingApproval
-                    || complementary.Status == ComplementaryOrderStatus.Approved))
-            .ToListAsync(cancellationToken);
-
-        foreach (var complementary in unsent)
-        {
-            complementary.Status = ComplementaryOrderStatus.Cancelled;
-            complementary.CancelledAt = now;
-            complementary.CancelledById = userId;
-            complementary.CancellationNote = ParentCompletedNote;
-        }
     }
 
     /// <summary>

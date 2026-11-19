@@ -29,7 +29,7 @@ public static class ErrorCodes
 
     /// <summary>
     /// Design 7.2, AC-15.9, AC-19.5, AC-21.5: an action on a Cancelled production order ("This order is cancelled.").
-    /// Raised by the send and the completion, and later by the cancellation (T-016) (decision #100).
+    /// Raised by the send, the completion and the cancellation (decision #100).
     /// </summary>
     public const string OrderCancelled = "order-cancelled";
 

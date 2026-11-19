@@ -25,7 +25,8 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// <remarks>
 /// <para>
 /// Orders are created through the API. Stock reaches the Warehouse through receipts; free leftover reaches production
-/// storage through a ledger Adjustment (the adjustment endpoint is T-015), so it is free leftover (D-4). States that later
+/// storage through a ledger Adjustment (<see cref="PutLeftoverAsync"/>: the movement <c>POST /adjustments</c> writes,
+/// without a request), so it is free leftover (D-4). States that later
 /// tasks will produce (Completed, Cancelled, Pending and Cancelled returns) are written directly through the DbContext.
 /// </para>
 /// <para>
@@ -1023,35 +1024,6 @@ public class SendOrderTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     // ---- Helpers ----------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// The AC-15.5 starting point: Cheese in kg, a product using 1 kg per bag, 2,000 kg in the Warehouse, 50 kg of free
-    /// leftover in production storage, and Created orders #7 (08:00, 30 bags), #8 (09:00, 1,000 bags) and #9 (10:00, 500
-    /// bags). Orders #1 to #6 are created first and cancelled, so the next numbers are the PRD's.
-    /// </summary>
-    private static async Task<OldestFirstScene> OldestFirstSceneAsync(TestApiFactory app, FakeTimeProvider time)
-    {
-        var (manager, managerUser) = await SignedInAsync(app, Roles.Manager);
-        var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
-        var kg = await Seed.CreateUnitAsync(manager, "kg");
-        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Cheese");
-        var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m));
-        for (var i = 0; i < 6; i++)
-        {
-            await SetStatusAsync(app, await CreateOrderAsync(manager, product.Id, 1m), OrderStatus.Cancelled, managerUser.Id);
-        }
-
-        await ReceiveAsync(manager, cheese.Id, 2000m);
-        await PutLeftoverAsync(app, cheese.Id, 50m, managerUser.Id);
-
-        time.SetUtcNow(EightAm);
-        Assert.Equal(7, await CreateOrderAsync(manager, product.Id, 30m));
-        time.SetUtcNow(EightAm.AddHours(1));
-        Assert.Equal(8, await CreateOrderAsync(manager, product.Id, 1000m));
-        time.SetUtcNow(EightAm.AddHours(2));
-        Assert.Equal(9, await CreateOrderAsync(manager, product.Id, 500m));
-        return new OldestFirstScene(manager, managerUser, warehouse, cheese);
-    }
-
-    /// <summary>
     /// An EF Core transaction interceptor (called around EF's own transactions, such as the one
     /// <c>InWriteTransactionAsync</c> opens): once armed, it makes the next commit fail, once. Used to fail a send at the
     /// very end of its transaction.
@@ -1079,9 +1051,6 @@ public class SendOrderTests(TestApiFactory factory) : IClassFixture<TestApiFacto
             return base.TransactionCommittingAsync(transaction, eventData, result, cancellationToken);
         }
     }
-
-    /// <summary>What <see cref="OldestFirstSceneAsync"/> set up.</summary>
-    private sealed record OldestFirstScene(HttpClient Manager, AppUser ManagerUser, HttpClient Warehouse, CreatedItem Cheese);
 
     /// <summary>The token of a new Warehouse user, for tests that send from several clients at once.</summary>
     private static async Task<string> WarehouseTokenAsync(TestApiFactory app)
@@ -1138,15 +1107,6 @@ public class SendOrderTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         leftoverReturn.CancelledAt = now;
         leftoverReturn.CancelledById = userId;
         await db.SaveChangesAsync(Cancel);
-    }
-
-    private static async Task<List<Movement>> MovementsOfOrderAsync(TestApiFactory app, int number)
-    {
-        await using var scope = app.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Movements.AsNoTracking()
-            .Where(movement => movement.ProductionOrderNumber == number)
-            .OrderBy(movement => movement.Id)
-            .ToListAsync(Cancel);
     }
 
     /// <summary>

@@ -9,20 +9,24 @@ namespace InventoryTracker.Api.Features.ProductionOrders;
 /// <summary>
 /// The <c>/api/v1/production-orders</c> endpoints (US-13, US-14, design 4 and 5.7). Any signed-in user may list and view
 /// orders (PRD 4.2, AC-14.1); only a Manager may create one (AC-13.7); a Warehouse user or a Manager sends the
-/// materials (AC-15.1, AC-15.12); a Production user or a Manager completes the order (AC-19.1, AC-19.8). The cancel
-/// action is added to this controller by T-016.
+/// materials (AC-15.1, AC-15.12); a Production user or a Manager completes the order (AC-19.1, AC-19.8); only a Manager
+/// cancels it (AC-21.1, AC-21.6).
 /// </summary>
 /// <remarks>
 /// Built the same way as <c>UnitsController</c>, which explains the request flow, model binding, <c>[Authorize]</c> and
 /// <c>CreatedAtAction</c>. Orders are addressed by their number, not an id (design 2.1). There is no <c>PUT</c> or
 /// <c>DELETE</c>: an order's product, quantity and planned amounts never change after creation (AC-13.6), so those
-/// methods get the framework's <c>405</c>. All rules are in <see cref="ProductionOrderService"/> and, for the send and
-/// the completion, <see cref="SendOrderService"/> and <see cref="CompleteOrderService"/>.
+/// methods get the framework's <c>405</c>. All rules are in <see cref="ProductionOrderService"/> and, for the send, the
+/// completion and the cancellation, <see cref="SendOrderService"/>, <see cref="CompleteOrderService"/> and
+/// <see cref="CancelOrderService"/>.
 /// </remarks>
 [ApiController]
 [Route("api/v1/production-orders")]
 public sealed class ProductionOrdersController(
-    ProductionOrderService orders, SendOrderService sends, CompleteOrderService completions) : ControllerBase
+    ProductionOrderService orders,
+    SendOrderService sends,
+    CompleteOrderService completions,
+    CancelOrderService cancellations) : ControllerBase
 {
     /// <summary>
     /// <c>GET /api/v1/production-orders</c>: one page of order summaries, newest first, optionally filtered with
@@ -102,5 +106,24 @@ public sealed class ProductionOrdersController(
         // AC-05.3, AC-19.2: the completion records who completed it, taken from the checked token, never from the body.
         var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
         return completions.CompleteAsync(number, request, userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// <c>POST /api/v1/production-orders/{number}/cancel</c>: cancels a Created or InProduction order with a reason
+    /// (AC-21.1, design 5.7), moving no stock. <c>200</c> with the order detail, now Cancelled, with
+    /// <c>cancellationReason</c> filled. <c>404</c> for an unknown number; <c>400</c> <c>validation</c> for a missing,
+    /// blank or too long reason; <c>409</c> <c>order-completed</c> or <c>order-cancelled</c> (AC-21.5).
+    /// </summary>
+    /// <remarks>
+    /// PRD 4.2, "Create or cancel an order": Manager only. Any other user gets <c>403</c> (AC-21.6) before the order or
+    /// the body is looked at (design 2.2).
+    /// </remarks>
+    [HttpPost("{number:int}/cancel")]
+    [Authorize(Roles = Roles.Manager)]
+    public Task<ProductionOrderResponse> Cancel(int number, CancelOrderRequest request, CancellationToken cancellationToken)
+    {
+        // AC-05.3, AC-21.1: the cancellation records who cancelled it, taken from the checked token, never from the body.
+        var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
+        return cancellations.CancelAsync(number, request, userId, cancellationToken);
     }
 }

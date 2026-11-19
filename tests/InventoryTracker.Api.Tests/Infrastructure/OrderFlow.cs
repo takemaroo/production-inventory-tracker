@@ -8,6 +8,7 @@ using InventoryTracker.Api.Domain;
 using InventoryTracker.Api.Features.Stock;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 
 namespace InventoryTracker.Api.Tests.Infrastructure;
 
@@ -25,10 +26,11 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 /// </para>
 /// <para>
 /// Most helpers go through the real API and check its status code, so a broken set-up fails at the line that caused it
-/// (like <see cref="Seed"/>). A few write straight to the database, for states that the endpoints of later tasks will
-/// produce (cancelling an order is T-016, adjustments are T-015). Those still run inside <c>InWriteTransactionAsync</c>
-/// and write movements through <see cref="StockLedger"/>, as a real service must (architecture 5.1, 5.2), so the stored
-/// data is the same as the future endpoint's.
+/// (like <see cref="Seed"/>). A few write straight to the database: for states that endpoints of later tasks will
+/// produce (complementary orders are T-017 and T-018), and for set-up that is quicker or more exact without a request
+/// (leftover put into production storage, an order's status changed in one step). Those still run inside
+/// <c>InWriteTransactionAsync</c> and write movements through <see cref="StockLedger"/>, as a real service must
+/// (architecture 5.1, 5.2), so the stored data is the same as an endpoint's.
 /// </para>
 /// </remarks>
 public static class OrderFlow
@@ -131,6 +133,44 @@ public static class OrderFlow
             reason,
         }, Cancel);
 
+    /// <summary>
+    /// Cancels an order (<c>POST /production-orders/{number}/cancel</c>, T-016) with <c>{ "reason": ... }</c>. Returns the
+    /// response unchecked, because the cancellation is often the request under test.
+    /// </summary>
+    public static Task<HttpResponseMessage> CancelAsync(HttpClient client, int number, string? reason) =>
+        client.PostAsJsonAsync($"{OrdersPath}/{number}/cancel", new { reason }, Cancel);
+
+    /// <summary>
+    /// The AC-15.5 starting point: Cheese (named exactly that) in kg, a product using 1 kg per bag, 2,000 kg in the
+    /// Warehouse, 50 kg of free leftover in production storage, and Created orders #7 (08:00, 30 bags), #8 (09:00, 1,000
+    /// bags) and #9 (10:00, 500 bags). Orders #1 to #6 are created first and cancelled, so the next numbers are the PRD's.
+    /// Needs a factory of its own (the exact names, the numbers) with <paramref name="time"/> as its clock, which is left
+    /// at 10:00.
+    /// </summary>
+    public static async Task<OldestFirstScene> OldestFirstSceneAsync(TestApiFactory app, FakeTimeProvider time)
+    {
+        var (manager, managerUser) = await SignedInAsync(app, Roles.Manager);
+        var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
+        var kg = await Seed.CreateUnitAsync(manager, "kg");
+        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial, kg, name: "Cheese");
+        var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m));
+        for (var i = 0; i < 6; i++)
+        {
+            await SetStatusAsync(app, await CreateOrderAsync(manager, product.Id, 1m), OrderStatus.Cancelled, managerUser.Id);
+        }
+
+        await ReceiveAsync(manager, cheese.Id, 2000m);
+        await PutLeftoverAsync(app, cheese.Id, 50m, managerUser.Id);
+
+        time.SetUtcNow(EightAm);
+        Assert.Equal(7, await CreateOrderAsync(manager, product.Id, 30m));
+        time.SetUtcNow(EightAm.AddHours(1));
+        Assert.Equal(8, await CreateOrderAsync(manager, product.Id, 1000m));
+        time.SetUtcNow(EightAm.AddHours(2));
+        Assert.Equal(9, await CreateOrderAsync(manager, product.Id, 500m));
+        return new OldestFirstScene(manager, managerUser, warehouse, cheese, product);
+    }
+
     /// <summary>Reads an order's detail through <c>GET /production-orders/{number}</c> and checks it got <c>200</c>.</summary>
     public static async Task<JsonElement> ReadOrderAsync(HttpClient client, int number)
     {
@@ -192,8 +232,9 @@ public static class OrderFlow
         InTransactionAsync(app, (_, ledger, _) => ledger.AddAsync(movement, Cancel));
 
     /// <summary>
-    /// Puts free leftover into production storage with a ledger Adjustment at the clock's current time (the adjustment
-    /// endpoint is T-015). It is free leftover (D-4) unless an InProduction order commits it.
+    /// Puts free leftover into production storage with a ledger Adjustment at the clock's current time: the same movement
+    /// <c>POST /adjustments</c> (T-015) writes, without needing a request. It is free leftover (D-4) unless an
+    /// InProduction order commits it.
     /// </summary>
     public static Task PutLeftoverAsync(TestApiFactory app, int itemId, decimal quantity, string userId) =>
         InTransactionAsync(app, (_, ledger, now) => ledger.AddAsync(new Movement
@@ -205,7 +246,7 @@ public static class OrderFlow
     /// <summary>
     /// Changes an order's status directly in the database to Completed or Cancelled, in its own write transaction, as
     /// completing (T-011) and cancelling (T-016) do. See <see cref="ApplyStatusAsync"/> for exactly what is stored: only
-    /// the status fields, and no movement.
+    /// the status fields, and no movement. For set-up only: a test of completion or cancellation itself uses the endpoint.
     /// </summary>
     public static Task SetStatusAsync(TestApiFactory app, int number, OrderStatus status, string userId) =>
         InTransactionAsync(app, (db, _, now) => ApplyStatusAsync(db, number, status, userId, now));
@@ -252,6 +293,72 @@ public static class OrderFlow
             .SingleAsync(order => order.Number == number, Cancel);
     }
 
+    /// <summary>
+    /// Inserts a complementary order of one line (20 of <paramref name="itemId"/>) for order <paramref name="parent"/>,
+    /// in <paramref name="status"/>, with the who-and-when pairs that status needs, and returns its number. Written
+    /// directly because the complementary order endpoints are T-017 and T-018. A Sent one gets no movement and does not
+    /// change the parent line: tests of the automatic cancellation (AC-19.6, AC-21.4) only need its status.
+    /// </summary>
+    public static async Task<int> InsertComplementaryOrderAsync(
+        TestApiFactory app, int parent, ComplementaryOrderStatus status, int itemId, string userId)
+    {
+        var number = 0;
+        await InTransactionAsync(app, async (db, _, now) =>
+        {
+            var complementary = new ComplementaryOrder
+            {
+                ParentOrderNumber = parent, Status = status, Reason = "Hopper spill at start of run",
+                RequestedAt = now, RequestedById = userId,
+                Lines = [new ComplementaryOrderLine { LineNo = 1, RawMaterialId = itemId, RequestedAmount = 20m }],
+            };
+            switch (status)
+            {
+                case ComplementaryOrderStatus.Approved:
+                    (complementary.ApprovedAt, complementary.ApprovedById) = (now, userId);
+                    break;
+                case ComplementaryOrderStatus.Rejected:
+                    (complementary.RejectedAt, complementary.RejectedById) = (now, userId);
+                    break;
+                case ComplementaryOrderStatus.Sent:
+                    (complementary.ApprovedAt, complementary.ApprovedById, complementary.SentAt, complementary.SentById) = (now, userId, now, userId);
+                    break;
+            }
+
+            db.ComplementaryOrders.Add(complementary);
+            await db.SaveChangesAsync(Cancel);
+            number = complementary.Number;
+        });
+        return number;
+    }
+
+    /// <summary>Every movement linked to order <paramref name="number"/>, oldest first, read in a new scope.</summary>
+    public static async Task<List<Movement>> MovementsOfOrderAsync(TestApiFactory app, int number)
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Movements.AsNoTracking()
+            .Where(movement => movement.ProductionOrderNumber == number)
+            .OrderBy(movement => movement.Id)
+            .ToListAsync(Cancel);
+    }
+
+    /// <summary>A complementary order as stored, read in a new scope.</summary>
+    public static async Task<ComplementaryOrder> StoredComplementaryOrderAsync(TestApiFactory app, int number)
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().ComplementaryOrders.AsNoTracking()
+            .SingleAsync(complementary => complementary.Number == number, Cancel);
+    }
+
+    /// <summary>An order's notifications as stored, in the order they were created.</summary>
+    public static async Task<List<Notification>> NotificationsOfOrderAsync(TestApiFactory app, int number)
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Notifications.AsNoTracking()
+            .Where(notification => notification.ProductionOrderNumber == number)
+            .OrderBy(notification => notification.Id)
+            .ToListAsync(Cancel);
+    }
+
     // ---- Assertions -------------------------------------------------------------------------------------------------
 
     /// <summary>
@@ -271,3 +378,7 @@ public static class OrderFlow
         Assert.Equal(tolerance, estimate.GetProperty("tolerancePercent").GetDecimal());
     }
 }
+
+/// <summary>What <see cref="OrderFlow.OldestFirstSceneAsync"/> set up: who acts, the material and the product.</summary>
+public sealed record OldestFirstScene(
+    HttpClient Manager, AppUser ManagerUser, HttpClient Warehouse, CreatedItem Cheese, CreatedItem Product);
