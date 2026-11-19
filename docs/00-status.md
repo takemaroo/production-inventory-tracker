@@ -15,7 +15,7 @@ Kept current by the delivery manager. Last updated: 2026-11-11
 | 1 | Discovery | done | `docs/01-prd.md` | Approved by owner 2026-11-11. |
 | 2 | Design | done | `docs/02-design.md` | API spec: 48 endpoints, ProblemDetails errors, flows. Owner settled 2 questions (decisions #17, #18). |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` | Skeleton builds (0 warnings), 4 of 4 tests pass (re-run by delivery manager). 21 tasks. |
-| 4 | Build | in progress | code | tasks done: 17 of 22 (T-001 to T-016, T-008a) |
+| 4 | Build | in progress | code | tasks done: 18 of 22 (T-001 to T-017, T-008a) |
 | 5 | QA | not started | `docs/05-test-plan.md` | round 0 |
 | 6 | Security | not started | `docs/06-security-review.md` | |
 | 7 | Release | not started | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
@@ -61,6 +61,7 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - 2026-11-14 T-012 approved by `code-reviewer` after two rounds (one-statement read-all, testable tie-order), committed and pushed. Started T-015.
 - 2026-11-19 T-015 approved by `code-reviewer` (all five race orderings forced and exact), committed and pushed. Started T-016.
 - 2026-11-19 T-016 approved by `code-reviewer` after two rounds (four forced race orderings; shared UnsentComplementaryOrders), committed and pushed. Started T-017.
+- 2026-11-19 T-017 approved by `code-reviewer` after two rounds (state machine and races forced; OrderLineMatcher rules option), committed and pushed. Started T-018.
 
 ## Follow-ups to route
 
@@ -86,3 +87,5 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - Optional comment (next owner of AdjustmentService.cs): explain why AC-12.6's 400 before AC-12.5's 409 never conflicts with design 2.2 (a finished product can never be an order line).
 - tech-lead (next doc update): T-016's board wording ('when any of the order's materials has Production storage stock above zero') is broader than AC-21.3 / design 3.8; built per the PRD (only InProduction cancels notify, decision #104a). Tighten the board text.
 - T-020 (optional): the full suite takes about 70 s on this machine (T-016 adds only a few seconds; HEAD without it measured the same). Trivial tests take 4-5 s each under parallel load, which points to per-factory start-up contention; sharing factories where safe could cut it.
+- ux-designer (next design update): design 7.2 words "item not on the order" two ways (sends: "Item {itemId} is not on order #N."; complementary requests: "{item} is not on order #N."). Built as written (#105a); consider one wording. Also design 5.8 gives no row shape for GET /complementary-orders; built as the full 5.8 shape per row (#105f); confirm.
+- T-020 (must, before QA): the 100,000-movement performance tests (StockTests, MovementsTests) can fail under full-suite parallel load (seen once: GET /stock p95 2.7 s vs the 1 s target; passed alone and on rerun). Run performance tests in a non-parallel collection (or a separate category) so they measure the app, not test contention.

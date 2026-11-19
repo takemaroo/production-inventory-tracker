@@ -20,8 +20,7 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// <para>
 /// Orders are created and sent through the API. Free leftover reaches production storage through a ledger Adjustment
 /// (<see cref="PutLeftoverAsync"/>: the movement <c>POST /adjustments</c> writes, without a request). Complementary
-/// orders (T-017, T-018 are not built yet) are inserted through the
-/// DbContext; a complementary <em>send</em> is written the way T-018 will write it: a SentToProduction movement through
+/// orders are inserted through the DbContext, so a test can hold any status in one step (a Sent one needs T-018); a complementary <em>send</em> is written the way T-018 will write it: a SentToProduction movement through
 /// the ledger, linked to the complementary order, and the line's ComplementarySends increased, in one write transaction.
 /// Notifications are read through the DbContext (their API is T-012).
 /// </para>
@@ -577,7 +576,7 @@ public class CompleteOrderTests(TestApiFactory factory) : IClassFixture<TestApiF
     // ---- AC-19.6: unsent complementary orders are cancelled ---------------------------------------------------------
 
     /// <summary>
-    /// AC-19.6, PRD section 6 row 6, AC-05.3: the order's complementary orders (inserted directly; T-017 builds them) that
+    /// AC-19.6, PRD section 6 row 6, AC-05.3: the order's complementary orders (inserted directly, to include a Sent one) that
     /// are PendingApproval or Approved become Cancelled with the note "Parent order completed", recording the completing
     /// user and the completion time. Rejected and Sent ones are unchanged, and a complementary order of another order is
     /// not touched. The response lists the new statuses.

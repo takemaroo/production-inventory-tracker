@@ -21,7 +21,8 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// Orders are created, sent and completed through the API; the cancellation under test always goes through the API too.
 /// Free leftover reaches production storage through <see cref="OrderFlow.PutLeftoverAsync"/>. Orders that only need to be
 /// in a final state as set-up (Completed, Cancelled) have their status set directly. Complementary orders are inserted
-/// through the DbContext, because their endpoints are T-017 and T-018.
+/// through the DbContext, so one test can hold every status, including Sent (T-018); the same check through the T-017
+/// endpoints is in <c>ComplementaryOrdersTests</c>.
 /// </para>
 /// <para>
 /// The database allows only one InProduction order (AC-15.10), and the PRD's examples need exact names and order numbers,
@@ -301,7 +302,7 @@ public class CancelOrderTests(TestApiFactory factory) : IClassFixture<TestApiFac
 
     /// <summary>
     /// AC-21.4, PRD assumption 6, AC-05.3, architecture 3.2: on cancelling an InProduction order, its PendingApproval and
-    /// Approved complementary orders (inserted directly; T-017 builds them) become Cancelled with the note "Parent order
+    /// Approved complementary orders (inserted directly, to include a Sent one) become Cancelled with the note "Parent order
     /// cancelled", recording the cancelling Manager and the cancellation time. Rejected and Sent ones are unchanged, and a
     /// complementary order of another order is not touched. The response lists the new statuses.
     /// </summary>
@@ -802,103 +803,8 @@ public class CancelOrderTests(TestApiFactory factory) : IClassFixture<TestApiFac
     }
 
     // ---- Helpers ---------------------------------------------------------------------------------------------------
-
-    /// <summary>
-    /// The set-up of the forced-order tests: a Manager, a Warehouse and a Production user, one material at 1 per unit of
-    /// a new product, 1,000 of it received, and an order for 1,000. With <paramref name="send"/> the order is sent with
-    /// 1,000 (InProduction); otherwise it stays Created.
-    /// </summary>
-    private static async Task<RaceScene> RaceSceneAsync(TestApiFactory app, bool send)
-    {
-        var (manager, _) = await SignedInAsync(app, Roles.Manager);
-        var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
-        var (production, _) = await SignedInAsync(app, Roles.Production);
-        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
-        var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m));
-        await ReceiveAsync(manager, cheese.Id, 1000m);
-        var number = await CreateOrderAsync(manager, product.Id, 1000m);
-        if (send)
-        {
-            Assert.Equal(HttpStatusCode.OK, (await SendAsync(warehouse, number, (cheese.Id, 1000m))).StatusCode);
-        }
-
-        return new RaceScene(manager, warehouse, production, cheese, number);
-    }
-
-    /// <summary>What <see cref="RaceSceneAsync"/> set up.</summary>
-    private sealed record RaceScene(HttpClient Manager, HttpClient Warehouse, HttpClient Production, CreatedItem Cheese, int Number);
-
-    /// <summary>
-    /// A factory of its own whose DbContexts carry an <see cref="AfterFirstReadInterceptor"/>, and
-    /// <see cref="RunAsync"/>, which makes one request run strictly before another that arrives while it is in progress.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>How the order is forced.</b> Send, complete and cancel each begin with <c>InWriteTransactionAsync</c>, which on
-    /// SQLite takes the database's single write lock (<c>BEGIN IMMEDIATE</c>, architecture 5.2), and then read the order
-    /// from <c>ProductionOrders</c>. The interceptor fires on that first read inside a transaction, so at that moment the
-    /// first request holds the lock. It then starts the second request and waits 1.5 seconds. The second request cannot
-    /// begin its own write transaction until the first commits, so it is still unfinished when the wait ends; that is
-    /// checked, which proves it really queued behind the lock rather than running first or alongside. When the first
-    /// request commits, the second continues with the committed data.
-    /// </para>
-    /// <para>
-    /// The interceptor is created before the factory, because the factory's services are configured with it, but the
-    /// requests it starts exist only once the test has set up its users. So the interceptor calls a field,
-    /// <c>_whileFirstHoldsTheLock</c>, that <see cref="RunAsync"/> fills in just before arming it.
-    /// </para>
-    /// </remarks>
-    private sealed class ForcedOrder : IAsyncDisposable
-    {
-        private Func<Task> _whileFirstHoldsTheLock = () => Task.CompletedTask;
-
-        /// <summary>Creates the factory with the interceptor on every DbContext it builds.</summary>
-        public ForcedOrder()
-        {
-            Interceptor = new AfterFirstReadInterceptor(
-                command => command.Transaction is not null
-                    && command.CommandText.Contains("ProductionOrders", StringComparison.Ordinal),
-                () => _whileFirstHoldsTheLock());
-            App = new TestApiFactory
-            {
-                ReplaceServices = services =>
-                    services.ConfigureDbContext<AppDbContext>(options => options.AddInterceptors(Interceptor)),
-            };
-        }
-
-        /// <summary>The app under test.</summary>
-        public TestApiFactory App { get; }
-
-        /// <summary>The interceptor that opens the gap; armed only by <see cref="RunAsync"/>, so set-up never triggers it.</summary>
-        public AfterFirstReadInterceptor Interceptor { get; }
-
-        /// <summary>
-        /// Runs <paramref name="first"/>; once it holds the write lock, starts <paramref name="second"/>, and checks that
-        /// the second was still waiting 1.5 seconds later. Returns both responses.
-        /// </summary>
-        public async Task<(HttpResponseMessage First, HttpResponseMessage Second)> RunAsync(
-            Func<Task<HttpResponseMessage>> first, Func<Task<HttpResponseMessage>> second)
-        {
-            Task<HttpResponseMessage>? secondTask = null;
-            var secondWasWaiting = false;
-            _whileFirstHoldsTheLock = async () =>
-            {
-                secondTask = second();
-                await Task.Delay(TimeSpan.FromSeconds(1.5), Cancel);
-                secondWasWaiting = !secondTask.IsCompleted;
-            };
-
-            Interceptor.Arm();
-            var firstResponse = await first();
-            Assert.True(Interceptor.HasRun, "The first request never read ProductionOrders inside a transaction.");
-            var secondResponse = await secondTask!;
-            Assert.True(secondWasWaiting, "The second request finished while the first still held the write lock.");
-            return (firstResponse, secondResponse);
-        }
-
-        /// <inheritdoc />
-        public ValueTask DisposeAsync() => App.DisposeAsync();
-    }
+    //
+    // The forced-order tests set up with OrderFlow.RaceSceneAsync (shared with T-017, decision #101).
 
     /// <summary>The cancellation under test with exactly this JSON body (an empty string sends no body).</summary>
     private static Task<HttpResponseMessage> CancelRawAsync(HttpClient client, int number, string json) =>

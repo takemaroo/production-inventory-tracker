@@ -27,7 +27,7 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 /// <para>
 /// Most helpers go through the real API and check its status code, so a broken set-up fails at the line that caused it
 /// (like <see cref="Seed"/>). A few write straight to the database: for states that endpoints of later tasks will
-/// produce (complementary orders are T-017 and T-018), and for set-up that is quicker or more exact without a request
+/// produce (a Sent complementary order is T-018), and for set-up that is quicker or more exact without a request
 /// (leftover put into production storage, an order's status changed in one step). Those still run inside
 /// <c>InWriteTransactionAsync</c> and write movements through <see cref="StockLedger"/>, as a real service must
 /// (architecture 5.1, 5.2), so the stored data is the same as an endpoint's.
@@ -140,6 +140,56 @@ public static class OrderFlow
     public static Task<HttpResponseMessage> CancelAsync(HttpClient client, int number, string? reason) =>
         client.PostAsJsonAsync($"{OrdersPath}/{number}/cancel", new { reason }, Cancel);
 
+    // ---- Complementary orders through the API ---------------------------------------------------------------------
+
+    /// <summary>The base path of the complementary order endpoints once created (design 2.1, 4).</summary>
+    public const string ComplementaryPath = "/api/v1/complementary-orders";
+
+    /// <summary>
+    /// Requests a complementary order for order <paramref name="number"/>
+    /// (<c>POST /production-orders/{number}/complementary-orders</c>, T-017) with the reason and one
+    /// <c>{ itemId, requestedAmount }</c> per pair, in the order given. Returns the response unchecked, because the request
+    /// is often the request under test.
+    /// </summary>
+    public static Task<HttpResponseMessage> RequestComplementaryAsync(
+        HttpClient client, int number, string? reason, params (int ItemId, decimal Amount)[] lines) =>
+        client.PostAsJsonAsync($"{OrdersPath}/{number}/complementary-orders", new
+        {
+            reason,
+            lines = lines.Select(line => new { itemId = line.ItemId, requestedAmount = line.Amount }),
+        }, Cancel);
+
+    /// <summary>
+    /// <see cref="RequestComplementaryAsync"/> for set-up: checks the <c>201</c> and returns the new complementary order's
+    /// number.
+    /// </summary>
+    public static async Task<int> RequestedComplementaryAsync(
+        HttpClient client, int number, string reason, params (int ItemId, decimal Amount)[] lines)
+    {
+        var response = await RequestComplementaryAsync(client, number, reason, lines);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await ApiJson.ReadAsync(response)).GetProperty("number").GetInt32();
+    }
+
+    /// <summary>Approves a complementary order (<c>POST /complementary-orders/{number}/approve</c>, T-017), unchecked.</summary>
+    public static Task<HttpResponseMessage> ApproveAsync(HttpClient client, int complementaryNumber) =>
+        client.PostAsync($"{ComplementaryPath}/{complementaryNumber}/approve", content: null, Cancel);
+
+    /// <summary>
+    /// Rejects a complementary order (<c>POST /complementary-orders/{number}/reject</c>, T-017) with
+    /// <c>{ "note": ... }</c>, unchecked.
+    /// </summary>
+    public static Task<HttpResponseMessage> RejectAsync(HttpClient client, int complementaryNumber, string? note) =>
+        client.PostAsJsonAsync($"{ComplementaryPath}/{complementaryNumber}/reject", new { note }, Cancel);
+
+    /// <summary>Reads one complementary order through <c>GET /complementary-orders/{number}</c> and checks it got <c>200</c>.</summary>
+    public static async Task<JsonElement> ReadComplementaryAsync(HttpClient client, int complementaryNumber)
+    {
+        var response = await client.GetAsync($"{ComplementaryPath}/{complementaryNumber}", Cancel);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ApiJson.ReadAsync(response);
+    }
+
     /// <summary>
     /// The AC-15.5 starting point: Cheese (named exactly that) in kg, a product using 1 kg per bag, 2,000 kg in the
     /// Warehouse, 50 kg of free leftover in production storage, and Created orders #7 (08:00, 30 bags), #8 (09:00, 1,000
@@ -169,6 +219,29 @@ public static class OrderFlow
         time.SetUtcNow(EightAm.AddHours(2));
         Assert.Equal(9, await CreateOrderAsync(manager, product.Id, 500m));
         return new OldestFirstScene(manager, managerUser, warehouse, cheese, product);
+    }
+
+    /// <summary>
+    /// The usual set-up of a race test (T-016, T-017): a Manager, a Warehouse and a Production user, one new material at 1
+    /// per unit of a new product, 1,000 of it received, and a Created order for 1,000. With <paramref name="send"/> the
+    /// Warehouse user sends the 1,000, so the order is InProduction. Only one order can be InProduction per database
+    /// (AC-15.10), so a test that sends gives this its own factory.
+    /// </summary>
+    public static async Task<RaceScene> RaceSceneAsync(TestApiFactory app, bool send)
+    {
+        var (manager, _) = await SignedInAsync(app, Roles.Manager);
+        var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
+        var (production, productionUser) = await SignedInAsync(app, Roles.Production);
+        var cheese = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
+        var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m));
+        await ReceiveAsync(manager, cheese.Id, 1000m);
+        var number = await CreateOrderAsync(manager, product.Id, 1000m);
+        if (send)
+        {
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(warehouse, number, (cheese.Id, 1000m))).StatusCode);
+        }
+
+        return new RaceScene(manager, warehouse, production, productionUser, cheese, number);
     }
 
     /// <summary>Reads an order's detail through <c>GET /production-orders/{number}</c> and checks it got <c>200</c>.</summary>
@@ -296,8 +369,10 @@ public static class OrderFlow
     /// <summary>
     /// Inserts a complementary order of one line (20 of <paramref name="itemId"/>) for order <paramref name="parent"/>,
     /// in <paramref name="status"/>, with the who-and-when pairs that status needs, and returns its number. Written
-    /// directly because the complementary order endpoints are T-017 and T-018. A Sent one gets no movement and does not
-    /// change the parent line: tests of the automatic cancellation (AC-19.6, AC-21.4) only need its status.
+    /// directly so a test can have any status in one step, including Sent, whose endpoint is T-018; the request, approve
+    /// and reject endpoints (T-017) are <see cref="RequestComplementaryAsync"/>, <see cref="ApproveAsync"/> and
+    /// <see cref="RejectAsync"/>. A Sent one gets no movement and does not change the parent line: tests of the automatic
+    /// cancellation (AC-19.6, AC-21.4) and of AC-17.3 only need its status.
     /// </summary>
     public static async Task<int> InsertComplementaryOrderAsync(
         TestApiFactory app, int parent, ComplementaryOrderStatus status, int itemId, string userId)
@@ -378,6 +453,10 @@ public static class OrderFlow
         Assert.Equal(tolerance, estimate.GetProperty("tolerancePercent").GetDecimal());
     }
 }
+
+/// <summary>What <see cref="OrderFlow.RaceSceneAsync"/> set up: who acts, the material and the order.</summary>
+public sealed record RaceScene(
+    HttpClient Manager, HttpClient Warehouse, HttpClient Production, AppUser ProductionUser, CreatedItem Cheese, int Number);
 
 /// <summary>What <see cref="OrderFlow.OldestFirstSceneAsync"/> set up: who acts, the material and the product.</summary>
 public sealed record OldestFirstScene(
