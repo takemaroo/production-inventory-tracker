@@ -90,6 +90,21 @@ public static class Quantity
     public static string AboveMaxMessage(string fieldLabel) => $"{fieldLabel} must be 999,999,999.999 or less.";
 
     /// <summary>
+    /// Design 7.2: the message for a <em>signed</em> quantity below -<see cref="MaxQuantity"/>, "{fieldLabel} must be
+    /// between -999,999,999.999 and 999,999,999.999.". Only adjustments (US-12) accept negative quantities, so only they
+    /// use it, for example <c>BelowMinMessage("Quantity")</c>.
+    /// </summary>
+    /// <param name="fieldLabel">The name the field's other messages already use ("Quantity" for adjustments).</param>
+    /// <remarks>
+    /// <see cref="IsWithinMax"/> answers for both ends, because it compares the size. The two ends get different
+    /// sentences: a value above the maximum reads naturally as "must be 999,999,999.999 or less"
+    /// (<see cref="AboveMaxMessage"/>), but saying that to someone who sent -1,000,000,000 would be wrong (their number
+    /// <em>is</em> less), so the low end names the whole range instead. Literal text, as for the other messages.
+    /// </remarks>
+    public static string BelowMinMessage(string fieldLabel) =>
+        $"{fieldLabel} must be between -999,999,999.999 and 999,999,999.999.";
+
+    /// <summary>
     /// PRD 4.1: computed quantities (planned amount, range limits, required amount) are rounded to 3 decimal
     /// places, half away from zero. So 1.0005 becomes 1.001 and -1.0005 becomes -1.001.
     /// </summary>

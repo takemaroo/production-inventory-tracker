@@ -15,7 +15,7 @@ Kept current by the delivery manager. Last updated: 2026-11-11
 | 1 | Discovery | done | `docs/01-prd.md` | Approved by owner 2026-11-11. |
 | 2 | Design | done | `docs/02-design.md` | API spec: 48 endpoints, ProblemDetails errors, flows. Owner settled 2 questions (decisions #17, #18). |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` | Skeleton builds (0 warnings), 4 of 4 tests pass (re-run by delivery manager). 21 tasks. |
-| 4 | Build | in progress | code | tasks done: 15 of 22 (T-001 to T-014, T-008a) |
+| 4 | Build | in progress | code | tasks done: 16 of 22 (T-001 to T-015, T-008a) |
 | 5 | QA | not started | `docs/05-test-plan.md` | round 0 |
 | 6 | Security | not started | `docs/06-security-review.md` | |
 | 7 | Release | not started | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
@@ -59,6 +59,7 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - 2026-11-14 T-011 approved by `code-reviewer` after two rounds (worked examples A-D recomputed; shared StoredPercent #99 and OrderLineMatcher #100), committed and pushed. Core flow order -> send -> complete -> compare is in place. Next: order-flow test-helper chore, then T-012.
 - 2026-11-14 Chore: shared order-flow test helpers (OrderFlow, #101) approved by `code-reviewer` after one round, committed and pushed. Started T-012.
 - 2026-11-14 T-012 approved by `code-reviewer` after two rounds (one-statement read-all, testable tie-order), committed and pushed. Started T-015.
+- 2026-11-19 T-015 approved by `code-reviewer` (all five race orderings forced and exact), committed and pushed. Started T-016.
 
 ## Follow-ups to route
 
@@ -80,3 +81,6 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - T-019: SendOrderTests.InsertReturnAsync and SetReturnStatusAsync write without a transaction; move return helpers into OrderFlow (with transactions) when T-019 lands.
 - T-021: the OpenAPI document advertises a "Skip" query parameter on every list endpoint (public PageQuery.Skip getter) and describes integers as "integer or string" although strings are refused. Fix in T-021 (OpenAPI completeness).
 - ux-designer (next design update): design 2.1 says actions such as /read answer 200 with the updated resource, while 2.2, 4 and 7.2 say 204 for notification reads. Built as 204 (T-012); align 2.1.
+- tech-lead (next doc update): architecture 3.1 lists the Quantity message helpers; add `Quantity.BelowMinMessage` (T-015, #103).
+- Next owner of the order tests (T-016+): OrderFlow.PutLeftoverAsync's comment and remarks in SendOrderTests/CompleteOrderTests still say "the adjustment endpoint is T-015"; update them (the direct helper stays, CompleteOrderTests uses it on purpose for the #98(f) case).
+- Optional comment (next owner of AdjustmentService.cs): explain why AC-12.6's 400 before AC-12.5's 409 never conflicts with design 2.2 (a finished product can never be an order line).

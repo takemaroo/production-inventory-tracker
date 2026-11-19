@@ -126,6 +126,16 @@ public class QuantityTests
         Assert.Equal(expected, Quantity.AboveMaxMessage(fieldLabel));
     }
 
+    /// <summary>
+    /// T-015, decision #80, design 7.2 (US-12): an adjustment below -999,999,999.999 gets "Quantity must be between
+    /// -999,999,999.999 and 999,999,999.999.", typed out here so a wrong text fails.
+    /// </summary>
+    [Fact]
+    public void BelowMinMessage_matches_the_design_text()
+    {
+        Assert.Equal("Quantity must be between -999,999,999.999 and 999,999,999.999.", Quantity.BelowMinMessage("Quantity"));
+    }
+
     /// <summary>T-008a, design 7.2: the recipe amount message is "Amount per unit must be 999,999.999999 or less.".</summary>
     [Fact]
     public void AmountPerUnitAboveMaxMessage_matches_the_design_text()

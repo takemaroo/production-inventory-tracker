@@ -42,3 +42,20 @@ public sealed record StockResponse(
 /// wrong JSON type (a quantity sent as a string) is still refused by the framework first (architecture 4.1 item 2).
 /// </remarks>
 public sealed record ReceiptRequest(int? ItemId, decimal? Quantity, string? ReceiptDate, string? Note);
+
+/// <summary>Body of <c>POST /api/v1/adjustments</c> (design 5.6, AC-12.1).</summary>
+/// <param name="ItemId">The item whose stock is corrected. Required; must exist. Raw material or finished product.</param>
+/// <param name="Location">
+/// <c>Warehouse</c> or <c>ProductionStorage</c>, any letter case (design 2.3). Finished products only in the Warehouse
+/// (AC-12.6).
+/// </param>
+/// <param name="Quantity">
+/// The signed change: positive adds stock, negative removes it (a write-off). Not zero, at most 3 decimal places, from
+/// -999,999,999.999 to 999,999,999.999 (AC-12.2, decision #80).
+/// </param>
+/// <param name="Reason">Required; trimmed, then 1 to 500 characters (AC-12.1, AC-12.2). Stored on the movement.</param>
+/// <remarks>
+/// As for receipts, every field is nullable and the location is text, so a missing or unknown value reaches
+/// <see cref="AdjustmentService"/>, which answers with the design's own messages (architecture 4.1 item 3).
+/// </remarks>
+public sealed record AdjustmentRequest(int? ItemId, string? Location, decimal? Quantity, string? Reason);
