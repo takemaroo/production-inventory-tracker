@@ -478,61 +478,72 @@ public class MovementsTests(MovementsTests.HistoryFactory history) : IClassFixtu
     // ---- PRD section 5: performance -------------------------------------------------------------------------------
 
     /// <summary>
-    /// PRD section 5 performance target: with 100,000 movements over 500 items (four of the six types: Received,
-    /// SentToProduction, ConsumedInProduction and Adjustment, spread over about seven months) and 1,000 orders in the
-    /// database, each kind of history request answers within 1 second for 95% of requests
-    /// (asserted on the 19th of 20 sorted timings): the newest page, the last page, and pages filtered by item, type,
-    /// location, a month, an order and a combination, plus one movement by id. The counts and the stock sum are checked
-    /// too, so a fast but wrong answer fails.
+    /// The performance test of this class, in a class of its own so it can join <see cref="PerformanceCollection"/>,
+    /// which runs with nothing else beside it (T-020). xUnit sets collections per class, not per test. Nested inside
+    /// <see cref="MovementsTests"/>, it can still use that class's private helpers (<c>SeedVolumeAsync</c>,
+    /// <c>CountAsync</c>, <c>TimeAsync</c> and the rest), because a nested class may see the private members of the class
+    /// around it. It does not use the shared history, so it takes no fixture.
     /// </summary>
-    [Fact]
-    public async Task History_reads_meet_the_performance_target_with_100000_movements()
+    [Collection(nameof(PerformanceCollection))]
+    public class Performance
     {
-        await using var app = new TestApiFactory();
-        var manager = await app.CreateClientAsAsync(Roles.Manager);
-        var unit = await Seed.CreateUnitAsync(manager);
-        var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct, unit);
-        var user = await app.CreateUserAsync(Seed.UniqueEmail("perf"), Roles.Manager);
-        await SeedVolumeAsync(app, unit.Id, product.Id, user.Id);
-        var reader = await app.CreateClientAsAsync(Roles.Production);
-
-        var (firstItem, firstOrder, someMovement) = await VolumeKeysAsync(app);
-
-        // Counts from the seed's arithmetic (see SeedVolumeAsync).
-        Assert.Equal(100_000, await CountAsync(reader, ""));
-        Assert.Equal(200, await CountAsync(reader, $"itemId={firstItem}"));
-        Assert.Equal(25_000, await CountAsync(reader, "type=Received"));
-        Assert.Equal(50_000, await CountAsync(reader, "location=ProductionStorage"));
-        Assert.Equal(14_880, await CountAsync(reader, "from=2026-03-01&to=2026-03-31"));
-
-        // AC-11.4 at volume: the first item's history adds up to its stock (W 37.5, P 25).
-        var stock = await ApiJson.ReadAsync(await reader.GetAsync($"/api/v1/stock/{firstItem}", Cancel));
-        var rows = await AllRowsAsync(reader, $"itemId={firstItem}");
-        Assert.Equal(37.5m, stock.GetProperty("warehouse").GetDecimal());
-        Assert.Equal(25m, stock.GetProperty("productionStorage").GetDecimal());
-        Assert.Equal(37.5m, Sum(rows, "warehouseChange"));
-        Assert.Equal(25m, Sum(rows, "productionStorageChange"));
-
-        var paths = new[]
+        /// <summary>
+        /// PRD section 5 performance target: with 100,000 movements over 500 items (four of the six types: Received,
+        /// SentToProduction, ConsumedInProduction and Adjustment, spread over about seven months) and 1,000 orders in the
+        /// database, each kind of history request answers within 1 second for 95% of requests
+        /// (asserted on the 19th of 20 sorted timings): the newest page, the last page, and pages filtered by item, type,
+        /// location, a month, an order and a combination, plus one movement by id. The counts and the stock sum are checked
+        /// too, so a fast but wrong answer fails.
+        /// </summary>
+        [Fact]
+        public async Task History_reads_meet_the_performance_target_with_100000_movements()
         {
-            $"{MovementsPath}?pageSize=100",
-            $"{MovementsPath}?pageSize=100&page=1000",
-            $"{MovementsPath}?pageSize=100&itemId={firstItem}",
-            $"{MovementsPath}?pageSize=100&type=Received",
-            $"{MovementsPath}?pageSize=100&location=ProductionStorage",
-            $"{MovementsPath}?pageSize=100&from=2026-03-01&to=2026-03-31",
-            $"{MovementsPath}?pageSize=100&orderNumber={firstOrder}",
-            $"{MovementsPath}?pageSize=100&type=Adjustment&location=Warehouse&from=2026-02-01&to=2026-05-31",
-            $"{MovementsPath}/{someMovement}",
-        };
+            await using var app = new TestApiFactory();
+            var manager = await app.CreateClientAsAsync(Roles.Manager);
+            var unit = await Seed.CreateUnitAsync(manager);
+            var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct, unit);
+            var user = await app.CreateUserAsync(Seed.UniqueEmail("perf"), Roles.Manager);
+            await SeedVolumeAsync(app, unit.Id, product.Id, user.Id);
+            var reader = await app.CreateClientAsAsync(Roles.Production);
 
-        foreach (var path in paths)
-        {
-            var times = await TimeAsync(reader, path);
+            var (firstItem, firstOrder, someMovement) = await VolumeKeysAsync(app);
 
-            // Written to the test's output (visible in a TRX report), so a slow machine can be spotted before it fails.
-            TestContext.Current.TestOutputHelper?.WriteLine($"GET {path}: p95 {times[18]} ms, max {times[19]} ms.");
-            Assert.True(times[18] < 1000, $"GET {path} p95 was {times[18]} ms.");
+            // Counts from the seed's arithmetic (see SeedVolumeAsync).
+            Assert.Equal(100_000, await CountAsync(reader, ""));
+            Assert.Equal(200, await CountAsync(reader, $"itemId={firstItem}"));
+            Assert.Equal(25_000, await CountAsync(reader, "type=Received"));
+            Assert.Equal(50_000, await CountAsync(reader, "location=ProductionStorage"));
+            Assert.Equal(14_880, await CountAsync(reader, "from=2026-03-01&to=2026-03-31"));
+
+            // AC-11.4 at volume: the first item's history adds up to its stock (W 37.5, P 25).
+            var stock = await ApiJson.ReadAsync(await reader.GetAsync($"/api/v1/stock/{firstItem}", Cancel));
+            var rows = await AllRowsAsync(reader, $"itemId={firstItem}");
+            Assert.Equal(37.5m, stock.GetProperty("warehouse").GetDecimal());
+            Assert.Equal(25m, stock.GetProperty("productionStorage").GetDecimal());
+            Assert.Equal(37.5m, Sum(rows, "warehouseChange"));
+            Assert.Equal(25m, Sum(rows, "productionStorageChange"));
+
+            var paths = new[]
+            {
+                $"{MovementsPath}?pageSize=100",
+                $"{MovementsPath}?pageSize=100&page=1000",
+                $"{MovementsPath}?pageSize=100&itemId={firstItem}",
+                $"{MovementsPath}?pageSize=100&type=Received",
+                $"{MovementsPath}?pageSize=100&location=ProductionStorage",
+                $"{MovementsPath}?pageSize=100&from=2026-03-01&to=2026-03-31",
+                $"{MovementsPath}?pageSize=100&orderNumber={firstOrder}",
+                $"{MovementsPath}?pageSize=100&type=Adjustment&location=Warehouse&from=2026-02-01&to=2026-05-31",
+                $"{MovementsPath}/{someMovement}",
+            };
+
+            foreach (var path in paths)
+            {
+                var times = await TimeAsync(reader, path);
+
+                // Written to the test's output (visible in a TRX report), so a slow machine can be spotted before it fails.
+                TestContext.Current.TestOutputHelper?.WriteLine($"GET {path}: p95 {times[18]} ms, max {times[19]} ms.");
+                Assert.True(times[18] < 1000, $"GET {path} p95 was {times[18]} ms.");
+            }
         }
     }
 
@@ -637,8 +648,14 @@ public class MovementsTests(MovementsTests.HistoryFactory history) : IClassFixtu
                 Status = ReturnStatus.Received, CreatedAt = at, CreatedById = ManagerUser.Id,
                 ReceivedAt = At(3, 11, 0, 0), ReceivedById = WarehouseUser.Id,
             };
-            db.AddRange(orderA, orderB, complementary, leftoverReturn);
-            await db.SaveChangesAsync(Cancel);
+
+            // The linked records go in through a write transaction of their own, as a service's writes would (T-020
+            // tidy; a Received return linked to an order, with fixed times, is a state no single endpoint call gives).
+            await db.InWriteTransactionAsync(async () =>
+            {
+                db.AddRange(orderA, orderB, complementary, leftoverReturn);
+                await db.SaveChangesAsync(Cancel);
+            }, Cancel);
             OrderA = orderA.Number;
             OrderB = orderB.Number;
             ComplementaryC = complementary.Number;

@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
+using static InventoryTracker.Api.Tests.Infrastructure.OrderFlow;
 
 namespace InventoryTracker.Api.Tests.Integration;
 
@@ -28,7 +29,9 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// </para>
 /// <para>
 /// The ledger tests call it the way a service does: resolved from dependency injection in a scope of the running app
-/// (one scope stands for one request), inside <c>InWriteTransactionAsync</c> on that scope's DbContext. No endpoint takes stock away yet (adjustments arrive in T-015), so "refused" is
+/// (one scope stands for one request), inside <c>InWriteTransactionAsync</c> on that scope's DbContext, through the
+/// shared <see cref="OrderFlow.InTransactionAsync"/> and <see cref="OrderFlow.LedgerAsync"/> (this class had its own
+/// copies until T-020). No endpoint takes stock away yet (adjustments arrive in T-015), so "refused" is
 /// checked on the <see cref="ConflictException"/> itself; the exception handler that turns it into the <c>409</c> body
 /// is tested in T-001.
 /// </para>
@@ -165,24 +168,25 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             Change(MovementType.Received, salt.Id, warehouse: 40m),
             Change(MovementType.SentToProduction, salt.Id, warehouse: -40m, production: 40m));
 
-        int runningOrder;
-        await using (var scope = app.Services.CreateAsyncScope())
+        var runningOrder = 0;
+        await InTransactionAsync(app, async (db, _, _) =>
         {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var running = NewOrder(product.Id, user.Id, OrderStatus.InProduction);
             running.Lines.Add(SentLine(1, cheese.Id, leftoverApplied: 5m, warehouseSend: 995m, complementarySends: 20m));
             running.Lines.Add(SentLine(2, starch.Id, leftoverApplied: 0m, warehouseSend: 15m, complementarySends: 0m));
             var waiting = NewOrder(product.Id, user.Id, OrderStatus.Created);
             waiting.Lines.Add(new ProductionOrderLine { LineNo = 1, RawMaterialId = cheese.Id, AmountPerUnit = 1m, PlannedAmount = 1000m });
             db.ProductionOrders.AddRange(running, waiting);
-            db.Returns.AddRange(
-                NewReturn(cheese.Id, 10m, ReturnStatus.Pending, user.Id),
-                NewReturn(cheese.Id, 5m, ReturnStatus.Pending, user.Id),
-                NewReturn(cheese.Id, 7m, ReturnStatus.Received, user.Id),
-                NewReturn(cheese.Id, 3m, ReturnStatus.Cancelled, user.Id));
             await db.SaveChangesAsync(Cancel);
             runningOrder = running.Number;
-        }
+        });
+
+        // Returns in each status, each in its own write transaction (OrderFlow). Received and Cancelled ones are written
+        // directly too: receiving one through the endpoint would move stock this test's figures do not include.
+        await InsertPendingReturnAsync(app, cheese.Id, 10m, user.Id);
+        await InsertPendingReturnAsync(app, cheese.Id, 5m, user.Id);
+        await InsertReturnAsync(app, cheese.Id, 7m, user.Id, ReturnStatus.Received);
+        await InsertReturnAsync(app, cheese.Id, 3m, user.Id, ReturnStatus.Cancelled);
 
         var reader = await app.CreateClientAsAsync(Roles.Warehouse);
         var cheeseStock = await ApiJson.ReadAsync(await reader.GetAsync($"{StockPath}/{cheese.Id}", Cancel));
@@ -288,36 +292,46 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     }
 
     /// <summary>
-    /// PRD section 5 performance target, architecture 5.1: with 100,000 movements over 500 items and 1,000 orders in
-    /// the database, a full page of <c>GET /stock</c> (100 items) and a single <c>GET /stock/{itemId}</c> each answer
-    /// well within 1 second for 95% of requests (asserted on the 19th of 20 timings). The figures are still exact.
+    /// The performance test of this class, in a class of its own so it can join <see cref="PerformanceCollection"/>,
+    /// which runs with nothing else beside it (T-020). xUnit sets collections per class, not per test. Nested inside
+    /// <see cref="StockTests"/>, it can still use that class's private helpers (<c>SeedVolumeAsync</c>,
+    /// <c>TimeAsync</c>), because a nested class may see the private members of the class around it.
     /// </summary>
-    [Fact]
-    public async Task Stock_reads_meet_the_performance_target_with_100000_movements()
+    [Collection(nameof(PerformanceCollection))]
+    public class Performance
     {
-        await using var app = new TestApiFactory();
-        var manager = await app.CreateClientAsAsync(Roles.Manager);
-        var unit = await Seed.CreateUnitAsync(manager);
-        var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct, unit);
-        var user = await app.CreateUserAsync(Seed.UniqueEmail("perf"), Roles.Manager);
-        await SeedVolumeAsync(app, unit.Id, product.Id, user.Id);
-        var reader = await app.CreateClientAsAsync(Roles.Warehouse);
+        /// <summary>
+        /// PRD section 5 performance target, architecture 5.1: with 100,000 movements over 500 items and 1,000 orders in
+        /// the database, a full page of <c>GET /stock</c> (100 items) and a single <c>GET /stock/{itemId}</c> each answer
+        /// well within 1 second for 95% of requests (asserted on the 19th of 20 timings). The figures are still exact.
+        /// </summary>
+        [Fact]
+        public async Task Stock_reads_meet_the_performance_target_with_100000_movements()
+        {
+            await using var app = new TestApiFactory();
+            var manager = await app.CreateClientAsAsync(Roles.Manager);
+            var unit = await Seed.CreateUnitAsync(manager);
+            var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct, unit);
+            var user = await app.CreateUserAsync(Seed.UniqueEmail("perf"), Roles.Manager);
+            await SeedVolumeAsync(app, unit.Id, product.Id, user.Id);
+            var reader = await app.CreateClientAsAsync(Roles.Warehouse);
 
-        var page = await ApiJson.ReadAsync(await reader.GetAsync($"{StockPath}?pageSize=100&itemType=RawMaterial", Cancel));
-        var firstId = page.GetProperty("items")[0].GetProperty("itemId").GetInt32();
-        Assert.Equal(500, page.GetProperty("totalCount").GetInt32());
+            var page = await ApiJson.ReadAsync(await reader.GetAsync($"{StockPath}?pageSize=100&itemType=RawMaterial", Cancel));
+            var firstId = page.GetProperty("items")[0].GetProperty("itemId").GetInt32();
+            Assert.Equal(500, page.GetProperty("totalCount").GetInt32());
 
-        // 100,000 receipts of 1.5 spread evenly over 500 items: 200 each, so 300 per item.
-        Assert.All(page.GetProperty("items").EnumerateArray(), row => Assert.Equal(300m, row.GetProperty("warehouse").GetDecimal()));
+            // 100,000 receipts of 1.5 spread evenly over 500 items: 200 each, so 300 per item.
+            Assert.All(page.GetProperty("items").EnumerateArray(), row => Assert.Equal(300m, row.GetProperty("warehouse").GetDecimal()));
 
-        var pageTimes = await TimeAsync(reader, $"{StockPath}?pageSize=100");
-        var itemTimes = await TimeAsync(reader, $"{StockPath}/{firstId}");
+            var pageTimes = await TimeAsync(reader, $"{StockPath}?pageSize=100");
+            var itemTimes = await TimeAsync(reader, $"{StockPath}/{firstId}");
 
-        // Written to the test's output (visible in a TRX report), so a slow machine can be spotted before it fails.
-        TestContext.Current.TestOutputHelper?.WriteLine(
-            $"GET /stock page of 100: p95 {pageTimes[18]} ms; GET /stock/{{id}}: p95 {itemTimes[18]} ms.");
-        Assert.True(pageTimes[18] < 1000, $"GET /stock p95 was {pageTimes[18]} ms.");
-        Assert.True(itemTimes[18] < 1000, $"GET /stock/{{id}} p95 was {itemTimes[18]} ms.");
+            // Written to the test's output (visible in a TRX report), so a slow machine can be spotted before it fails.
+            TestContext.Current.TestOutputHelper?.WriteLine(
+                $"GET /stock page of 100: p95 {pageTimes[18]} ms; GET /stock/{{id}}: p95 {itemTimes[18]} ms.");
+            Assert.True(pageTimes[18] < 1000, $"GET /stock p95 was {pageTimes[18]} ms.");
+            Assert.True(itemTimes[18] < 1000, $"GET /stock/{{id}} p95 was {itemTimes[18]} ms.");
+        }
     }
 
     // ---- StockLedger: never below zero --------------------------------------------------------------------------
@@ -335,7 +349,7 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         await LedgerAsync(factory, Change(MovementType.Received, item.Id, warehouse: 12m, userId: user));
         var sideEffect = Seed.UniqueName("rolled-back");
 
-        var refused = await Assert.ThrowsAsync<ConflictException>(() => InWriteTransactionAsync(factory, async (db, ledger) =>
+        var refused = await Assert.ThrowsAsync<ConflictException>(() => InTransactionAsync(factory, async (db, ledger, _) =>
         {
             // Saved inside the transaction, as a service's earlier change would be; the refusal must undo it.
             db.Units.Add(new UnitOfMeasure { Name = sideEffect, NameNormalized = NameNormalizer.Normalize(sideEffect) });
@@ -429,7 +443,7 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var secondHasBegun = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         // Task.Run gives each transaction its own thread: SQLite waits for its lock by blocking the thread.
-        var first = Task.Run(() => InWriteTransactionAsync(factory, async (_, ledger) =>
+        var first = Task.Run(() => InTransactionAsync(factory, async (_, ledger, _) =>
         {
             await ledger.AddAsync(Change(MovementType.Adjustment, item.Id, warehouse: -8m, userId: user), Cancel);
             firstHasAdded.SetResult();
@@ -442,7 +456,7 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             var second = Task.Run(() =>
             {
                 secondIsCalling.SetResult();
-                return InWriteTransactionAsync(factory, async (_, ledger) =>
+                return InTransactionAsync(factory, async (_, ledger, _) =>
                 {
                     secondHasBegun.SetResult();
                     await ledger.AddAsync(Change(MovementType.Adjustment, item.Id, warehouse: -8m, userId: user), Cancel);
@@ -718,7 +732,7 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var item = await CreateItemAsync(ItemType.RawMaterial);
         var user = await CreateUserAsync();
 
-        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => InWriteTransactionAsync(factory, async (db, ledger) =>
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => InTransactionAsync(factory, async (db, ledger, _) =>
         {
             db.Movements.Add(Change(MovementType.Adjustment, item.Id, warehouse: -100m, userId: user));
             await ledger.AddAsync(Change(MovementType.Received, item.Id, warehouse: 1m, userId: user), Cancel);
@@ -1027,33 +1041,36 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
     /// <summary>
     /// Creates a Created production order (for a new finished product), a PendingApproval complementary order under it,
-    /// and a Pending return of <paramref name="itemId"/>, straight in the database. Created, not InProduction, because
-    /// the shared database allows only one InProduction order; the ledger does not look at statuses.
+    /// and a Pending return of <paramref name="itemId"/>, straight in the database, each inside a write transaction as a
+    /// service's writes would be (the return through <see cref="OrderFlow.InsertPendingReturnAsync"/>). Created, not
+    /// InProduction, because the shared database allows only one InProduction order; the ledger does not look at statuses.
     /// </summary>
     private static async Task<Links> CreateLinksAsync(TestApiFactory app, int itemId, string userId)
     {
-        await using var scope = app.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var unitName = Seed.UniqueName("unit");
-        var productName = Seed.UniqueName("product");
-        var product = new Item
+        var (orderNumber, complementaryNumber) = (0, 0);
+        await InTransactionAsync(app, async (db, _, _) =>
         {
-            Name = productName, NameNormalized = NameNormalizer.Normalize(productName), Type = ItemType.FinishedProduct,
-            Unit = new UnitOfMeasure { Name = unitName, NameNormalized = NameNormalizer.Normalize(unitName) },
-            CreatedAt = WholeSecondsNow(),
-        };
-        var order = NewOrder(0, userId, OrderStatus.Created);
-        order.FinishedProduct = product;
-        var complementary = new ComplementaryOrder
-        {
-            ParentOrder = order, Status = ComplementaryOrderStatus.PendingApproval, Reason = "Hopper spill",
-            RequestedAt = WholeSecondsNow(), RequestedById = userId,
-        };
-        var leftoverReturn = NewReturn(itemId, 1m, ReturnStatus.Pending, userId);
-        db.ComplementaryOrders.Add(complementary);
-        db.Returns.Add(leftoverReturn);
-        await db.SaveChangesAsync(Cancel);
-        return new Links(order.Number, complementary.Number, leftoverReturn.Number);
+            var unitName = Seed.UniqueName("unit");
+            var productName = Seed.UniqueName("product");
+            var product = new Item
+            {
+                Name = productName, NameNormalized = NameNormalizer.Normalize(productName), Type = ItemType.FinishedProduct,
+                Unit = new UnitOfMeasure { Name = unitName, NameNormalized = NameNormalizer.Normalize(unitName) },
+                CreatedAt = WholeSecondsNow(),
+            };
+            var order = NewOrder(0, userId, OrderStatus.Created);
+            order.FinishedProduct = product;
+            var complementary = new ComplementaryOrder
+            {
+                ParentOrder = order, Status = ComplementaryOrderStatus.PendingApproval, Reason = "Hopper spill",
+                RequestedAt = WholeSecondsNow(), RequestedById = userId,
+            };
+            db.ComplementaryOrders.Add(complementary);
+            await db.SaveChangesAsync(Cancel);
+            (orderNumber, complementaryNumber) = (order.Number, complementary.Number);
+        });
+        var returnNumber = await InsertPendingReturnAsync(app, itemId, 1m, userId);
+        return new Links(orderNumber, complementaryNumber, returnNumber);
     }
 
     /// <summary>Adds movements straight to the database, bypassing the ledger, to set up a stock history.</summary>
@@ -1072,25 +1089,12 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         await db.SaveChangesAsync(Cancel);
     }
 
-    /// <summary>Runs <paramref name="work"/> the way a service does: in a fresh scope, inside one write transaction.</summary>
-    private static async Task InWriteTransactionAsync(TestApiFactory app, Func<AppDbContext, StockLedger, Task> work)
-    {
-        await using var scope = app.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var ledger = scope.ServiceProvider.GetRequiredService<StockLedger>();
-        await db.InWriteTransactionAsync(() => work(db, ledger), Cancel);
-    }
-
-    /// <summary>Adds the movements through the ledger, in order, in one write transaction.</summary>
-    private static Task LedgerAsync(TestApiFactory app, params Movement[] movements) =>
-        InWriteTransactionAsync(app, async (_, ledger) =>
-        {
-            foreach (var movement in movements)
-            {
-                await ledger.AddAsync(movement, Cancel);
-            }
-        });
-
+    /// <summary>
+    /// An item's stock in one location as the sum of its stored movements, read straight from the database. Not
+    /// <see cref="OrderFlow.StockAsync"/>, which reads <c>GET /stock/{itemId}</c>: the ledger tests check what the ledger
+    /// stored, without going through the stock endpoint they are not about. (The two helpers share a name; this class's
+    /// own one wins inside it.)
+    /// </summary>
     private static async Task<decimal> StockAsync(TestApiFactory app, int itemId, Location location)
     {
         await using var scope = app.Services.CreateAsyncScope();
@@ -1130,12 +1134,6 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     {
         LineNo = lineNo, RawMaterialId = materialId, AmountPerUnit = 1m, PlannedAmount = 1000m,
         LeftoverApplied = leftoverApplied, WarehouseSend = warehouseSend, CarriedLeftover = 0m, ComplementarySends = complementarySends,
-    };
-
-    private static LeftoverReturn NewReturn(int itemId, decimal quantity, ReturnStatus status, string userId) => new()
-    {
-        ItemId = itemId, Quantity = quantity, Reason = "Not needed", Status = status,
-        CreatedAt = WholeSecondsNow(), CreatedById = userId,
     };
 
     /// <summary>

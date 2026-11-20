@@ -364,11 +364,18 @@ public static class OrderFlow
     }
 
     /// <summary>
-    /// Adds one movement through <see cref="StockLedger"/> in its own write transaction, as a service would, so the
-    /// ledger's checks (no negative stock, the link rules) apply to it.
+    /// Adds the movements through <see cref="StockLedger"/>, in the order given, in one write transaction of their own,
+    /// as a service would, so the ledger's checks (no negative stock, the link rules) apply to each. If the ledger refuses
+    /// one, the transaction rolls back and none of them is saved. (Shared with StockTests since T-020.)
     /// </summary>
-    public static Task LedgerAsync(TestApiFactory app, Movement movement) =>
-        InTransactionAsync(app, (_, ledger, _) => ledger.AddAsync(movement, Cancel));
+    public static Task LedgerAsync(TestApiFactory app, params Movement[] movements) =>
+        InTransactionAsync(app, async (_, ledger, _) =>
+        {
+            foreach (var movement in movements)
+            {
+                await ledger.AddAsync(movement, Cancel);
+            }
+        });
 
     /// <summary>
     /// Puts free leftover into production storage with a ledger Adjustment at the clock's current time: the same movement
@@ -480,16 +487,37 @@ public static class OrderFlow
     /// reads Pending returns (the send's AC-15.11) skip putting leftover into production storage first. Otherwise use
     /// <see cref="InstructedReturnAsync"/>.
     /// </summary>
-    public static async Task<int> InsertPendingReturnAsync(TestApiFactory app, int itemId, decimal quantity, string userId)
+    public static Task<int> InsertPendingReturnAsync(TestApiFactory app, int itemId, decimal quantity, string userId) =>
+        InsertReturnAsync(app, itemId, quantity, userId, ReturnStatus.Pending);
+
+    /// <summary>
+    /// Inserts a return of <paramref name="quantity"/> of <paramref name="itemId"/> straight in
+    /// <paramref name="status"/>, instructed now by <paramref name="userId"/>, in its own write transaction, and returns
+    /// its number. A Received or Cancelled one gets the who-and-when pair of that step too (AC-05.3), but no movement:
+    /// it is for tests of figures that must ignore returns no longer Pending (AC-10.3), where receiving one through the
+    /// endpoint would move stock the test does not want moved. For a Pending one, see <see cref="InsertPendingReturnAsync"/>.
+    /// </summary>
+    public static async Task<int> InsertReturnAsync(
+        TestApiFactory app, int itemId, decimal quantity, string userId, ReturnStatus status)
     {
         var number = 0;
         await InTransactionAsync(app, async (db, _, now) =>
         {
             var leftoverReturn = new LeftoverReturn
             {
-                ItemId = itemId, Quantity = quantity, Reason = ReturnReason, Status = ReturnStatus.Pending,
+                ItemId = itemId, Quantity = quantity, Reason = ReturnReason, Status = status,
                 CreatedAt = now, CreatedById = userId,
             };
+            switch (status)
+            {
+                case ReturnStatus.Received:
+                    (leftoverReturn.ReceivedAt, leftoverReturn.ReceivedById) = (now, userId);
+                    break;
+                case ReturnStatus.Cancelled:
+                    (leftoverReturn.CancelledAt, leftoverReturn.CancelledById) = (now, userId);
+                    break;
+            }
+
             db.Returns.Add(leftoverReturn);
             await db.SaveChangesAsync(Cancel);
             number = leftoverReturn.Number;

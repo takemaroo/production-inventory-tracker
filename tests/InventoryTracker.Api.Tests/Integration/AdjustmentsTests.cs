@@ -326,25 +326,17 @@ public class AdjustmentsTests(TestApiFactory factory) : IClassFixture<TestApiFac
     }
 
     /// <summary>
-    /// Decision #18: adjustments are not blocked by a Pending return of the same material (inserted through the
-    /// DbContext; returns are T-019), so AC-12.3 is unchanged: a write-off of all the Production storage stock succeeds
-    /// even though part of it is waiting to go back to the Warehouse.
+    /// Decision #18: adjustments are not blocked by a Pending return of the same material (instructed through
+    /// <c>POST /returns</c>, 15 of the 20 kg free), so AC-12.3 is unchanged: a write-off of all the Production storage
+    /// stock succeeds even though part of it is waiting to go back to the Warehouse.
     /// </summary>
     [Fact]
     public async Task Pending_return_does_not_block_an_adjustment()
     {
-        var (manager, managerUser) = await SignedInAsync(factory, Roles.Manager);
+        var (manager, _) = await SignedInAsync(factory, Roles.Manager);
         var item = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
         Assert.Equal(HttpStatusCode.Created, (await PostAsync(manager, item.Id, "ProductionStorage", 20m, "Count")).StatusCode);
-        await InTransactionAsync(factory, async (db, _, now) =>
-        {
-            db.Returns.Add(new LeftoverReturn
-            {
-                ItemId = item.Id, Quantity = 15m, Reason = "Not needed", Status = ReturnStatus.Pending,
-                CreatedAt = now, CreatedById = managerUser.Id,
-            });
-            await db.SaveChangesAsync(Cancel);
-        });
+        await InstructedReturnAsync(manager, item.Id, 15m);
 
         var response = await PostAsync(manager, item.Id, "ProductionStorage", -20m, "Spoiled");
 

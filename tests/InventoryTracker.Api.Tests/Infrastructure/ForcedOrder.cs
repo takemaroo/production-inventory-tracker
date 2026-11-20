@@ -15,7 +15,8 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 /// SQLite takes the database's single write lock (<c>BEGIN IMMEDIATE</c>, architecture 5.2), and then reads the record
 /// named in its URL. The interceptor fires on the first read inside a transaction that mentions the table given to the
 /// constructor (<c>ProductionOrders</c> for send, complete, cancel and the complementary request;
-/// <c>ComplementaryOrders</c> for approve and reject), so at that moment the first request holds the lock. It then starts
+/// <c>ComplementaryOrders</c> for approve and reject; <c>Movements</c> when both requests sum stock, such as a send or a
+/// receive against a write-off), so at that moment the first request holds the lock. It then starts
 /// the second request and waits 1.5 seconds. The second request cannot begin its own write transaction until the first
 /// commits, so it is still unfinished when the wait ends; that is checked, which proves it really queued behind the lock
 /// rather than running first or alongside. When the first request commits, the second continues with the committed data.

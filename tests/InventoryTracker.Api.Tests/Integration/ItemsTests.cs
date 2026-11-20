@@ -683,11 +683,9 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             }
 
             case "return":
-                db.Returns.Add(new LeftoverReturn
-                {
-                    ItemId = itemId, Quantity = 20m, Reason = "Not needed", Status = ReturnStatus.Pending,
-                    CreatedAt = now, CreatedById = user.Id,
-                });
+                // In a write transaction of its own, as the return endpoints would write it (T-020 tidy). Through the
+                // shared helper rather than POST /returns, which would first need free leftover of the item (AC-22.2).
+                await OrderFlow.InsertPendingReturnAsync(factory, itemId, 20m, user.Id);
                 break;
 
             default:
