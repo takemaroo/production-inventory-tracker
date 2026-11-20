@@ -182,6 +182,28 @@ public static class OrderFlow
     public static Task<HttpResponseMessage> RejectAsync(HttpClient client, int complementaryNumber, string? note) =>
         client.PostAsJsonAsync($"{ComplementaryPath}/{complementaryNumber}/reject", new { note }, Cancel);
 
+    /// <summary>
+    /// <see cref="RequestedComplementaryAsync"/> followed by <see cref="ApproveAsync"/> (checked for <c>200</c>): a
+    /// complementary order ready to be sent (T-018), through the real endpoints. Returns its number.
+    /// </summary>
+    public static async Task<int> ApprovedComplementaryAsync(
+        HttpClient requester, HttpClient manager, int number, string reason, params (int ItemId, decimal Amount)[] lines)
+    {
+        var complementary = await RequestedComplementaryAsync(requester, number, reason, lines);
+        Assert.Equal(HttpStatusCode.OK, (await ApproveAsync(manager, complementary)).StatusCode);
+        return complementary;
+    }
+
+    /// <summary>
+    /// Sends a complementary order (<c>POST /complementary-orders/{number}/send</c>, T-018) with one
+    /// <c>{ itemId, quantity }</c> per pair, in the order given. Returns the response unchecked, because the send is often
+    /// the request under test.
+    /// </summary>
+    public static Task<HttpResponseMessage> SendComplementaryAsync(
+        HttpClient client, int complementaryNumber, params (int ItemId, decimal Quantity)[] lines) =>
+        client.PostAsJsonAsync($"{ComplementaryPath}/{complementaryNumber}/send",
+            new { lines = lines.Select(line => new { itemId = line.ItemId, quantity = line.Quantity }) }, Cancel);
+
     /// <summary>Reads one complementary order through <c>GET /complementary-orders/{number}</c> and checks it got <c>200</c>.</summary>
     public static async Task<JsonElement> ReadComplementaryAsync(HttpClient client, int complementaryNumber)
     {
@@ -369,10 +391,10 @@ public static class OrderFlow
     /// <summary>
     /// Inserts a complementary order of one line (20 of <paramref name="itemId"/>) for order <paramref name="parent"/>,
     /// in <paramref name="status"/>, with the who-and-when pairs that status needs, and returns its number. Written
-    /// directly so a test can have any status in one step, including Sent, whose endpoint is T-018; the request, approve
-    /// and reject endpoints (T-017) are <see cref="RequestComplementaryAsync"/>, <see cref="ApproveAsync"/> and
-    /// <see cref="RejectAsync"/>. A Sent one gets no movement and does not change the parent line: tests of the automatic
-    /// cancellation (AC-19.6, AC-21.4) and of AC-17.3 only need its status.
+    /// directly so a test can have any status in one step; the endpoints are <see cref="RequestComplementaryAsync"/>,
+    /// <see cref="ApproveAsync"/> and <see cref="RejectAsync"/> (T-017) and <see cref="SendComplementaryAsync"/> (T-018).
+    /// A Sent one gets no movement and does not change the parent line: tests of the automatic cancellation (AC-19.6,
+    /// AC-21.4), of AC-17.3 and of AC-18.3 only need its status.
     /// </summary>
     public static async Task<int> InsertComplementaryOrderAsync(
         TestApiFactory app, int parent, ComplementaryOrderStatus status, int itemId, string userId)

@@ -121,8 +121,9 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
     };
 
     /// <summary>
-    /// Adds <paramref name="movement"/> to the ledger: checks its shape (D-2), checks that neither location it takes
-    /// from would go below zero, inserts it and saves it inside the open write transaction. Afterwards
+    /// Adds <paramref name="movement"/> to the ledger: checks its shape (D-2) and link fields, checks against the
+    /// database that a complementary order it names belongs to its production order, checks that neither location it
+    /// takes from would go below zero, inserts it and saves it inside the open write transaction. Afterwards
     /// <c>movement.Id</c> holds its database id.
     /// </summary>
     /// <param name="movement">
@@ -166,6 +167,7 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
 
         CheckShape(movement);
         CheckLinks(movement);
+        await CheckComplementaryParentAsync(movement, cancellationToken);
 
         // Only a decrease can take a location below zero, so an increase needs no sum at all (a receipt is one insert).
         await RefuseIfBelowZeroAsync(movement, Location.Warehouse, movement.WarehouseChange, cancellationToken);
@@ -276,7 +278,8 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
     /// made by completing an order, AC-19.2). Optional on ReturnedToWarehouse, because a return may be linked to an order
     /// (AC-22.1). Not allowed on Received or Adjustment, which no order causes.</description></item>
     /// <item><term>ComplementaryOrderNumber</term><description>SentToProduction only, optional, and always together
-    /// with its parent's ProductionOrderNumber (design 5.6).</description></item>
+    /// with its parent's ProductionOrderNumber (design 5.6). That the order named really is the parent is checked
+    /// against the database by <see cref="CheckComplementaryParentAsync"/>.</description></item>
     /// </list>
     /// Note and Reason must also be stored as the services clean them (trimmed, not blank, design 2.6) and fit their
     /// 500-character columns, which SQLite would not enforce.
@@ -306,6 +309,43 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
             {
                 throw Invalid(movement, $"{field} must be trimmed, not blank, and at most {ColumnRules.TextLength} characters");
             }
+        }
+    }
+
+    /// <summary>
+    /// Design 5.6, decision #87: a complementary send names both its complementary order and that order's parent, and the
+    /// two must belong together. Throws <see cref="ArgumentException"/> when <c>ComplementaryOrderNumber</c> is set and the
+    /// complementary order does not exist or has a different parent than <c>ProductionOrderNumber</c>.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="CheckLinks"/> can only see the movement itself; this needs one small read (by primary key), so it runs
+    /// only for movements that carry a complementary order. Why it matters: <c>GET /movements?orderNumber=12</c> and the
+    /// order's history rely on <c>ProductionOrderNumber</c>, and a movement can never be corrected (AC-11.3), so a
+    /// mismatched pair would misreport the order's material for ever. Only a programming mistake can produce one (the
+    /// complementary send copies the parent from the complementary order it loaded), hence a <c>500</c>.
+    /// </remarks>
+    private async Task CheckComplementaryParentAsync(Movement movement, CancellationToken cancellationToken)
+    {
+        if (movement.ComplementaryOrderNumber is not { } complementaryNumber)
+        {
+            return;
+        }
+
+        var parent = await db.ComplementaryOrders
+            .AsNoTracking()
+            .Where(complementary => complementary.Number == complementaryNumber)
+            .Select(complementary => (int?)complementary.ParentOrderNumber)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (parent is null)
+        {
+            throw Invalid(movement, $"complementary order #{complementaryNumber} does not exist");
+        }
+
+        if (parent != movement.ProductionOrderNumber)
+        {
+            throw Invalid(movement,
+                $"complementary order #{complementaryNumber} belongs to order #{parent}, not to order #{movement.ProductionOrderNumber}");
         }
     }
 

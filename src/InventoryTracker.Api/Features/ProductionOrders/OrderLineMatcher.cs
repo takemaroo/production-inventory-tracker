@@ -7,9 +7,10 @@ namespace InventoryTracker.Api.Features.ProductionOrders;
 /// <summary>
 /// The one check of a request body's <c>lines</c> against the lines of a production order (decision #100): each line
 /// names one of the order's materials, at most once, with one quantity. Used by the send (T-010, "quantity") and the
-/// completion (T-011, "leftover"), where every order line must appear and zero is allowed, and by the complementary
+/// completion (T-011, "leftover"), where every order line must appear and zero is allowed, by the complementary
 /// order request (T-017, "requestedAmount"), which names only some of the materials, each above zero
-/// (<see cref="OrderLineRules"/>).
+/// (<see cref="OrderLineRules"/>), and by the complementary send (T-018, "quantity"), which must name every line of the
+/// complementary order (the overload that takes a set of lines).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -27,9 +28,9 @@ namespace InventoryTracker.Api.Features.ProductionOrders;
 /// 999,999,999.999 (decision #80).</item>
 /// </list>
 /// <para>
-/// Then, for the send and the completion, the order lines that no submitted line named are reported together under
-/// <c>lines</c>, in recipe line order: "Every order line needs a quantity. Missing: Cheese, Potato starch." (design 7.2,
-/// "Missing line (send or complete)"; decision #96). A line that was present with a bad quantity is not missing; its own
+/// Then, when every line is required (the send, the completion and the complementary send), the lines that no submitted
+/// line named are reported together under <c>lines</c>, in recipe line order: "Every order line needs a quantity.
+/// Missing: Cheese, Potato starch." (design 7.2, "Missing line (send or complete)"; decision #96). A line that was present with a bad quantity is not missing; its own
 /// message says what is wrong. A complementary request skips this step, because it asks only for the materials that ran
 /// short (US-16).
 /// </para>
@@ -67,7 +68,55 @@ public static class OrderLineMatcher
         OrderLineRules? rules = null)
     {
         rules ??= OrderLineRules.EveryLineZeroOrMore;
-        var orderLines = order.Lines.ToDictionary(line => line.RawMaterialId);
+
+        // The send's and the completion's wording for an item that is not one of the order's materials (decision #96).
+        // A "with" expression copies a record, changing only the properties it names.
+        var withMessage = rules.NotOnOrderMessage is null
+            ? rules with { NotOnOrderMessage = itemId => $"Item {itemId} is not on order #{order.Number}." }
+            : rules;
+        return Match(order.Lines, submitted, quantityField, quantityLabel, errors, withMessage);
+    }
+
+    /// <summary>
+    /// The same check against a chosen set of a production order's lines rather than all of them. The complementary send
+    /// (T-018, AC-18.1) uses it: its body must name every line of the <em>complementary</em> order, which is a subset of
+    /// the parent's materials, and each matched line is the parent's own line, whose complementary sends the send
+    /// increases (D-3).
+    /// </summary>
+    /// <param name="orderLines">The lines the body must match, with each line's <c>RawMaterial</c> loaded (for the names).</param>
+    /// <param name="submitted">The body's lines, in the order the client sent them; a <c>null</c> element is a line sent as <c>null</c>.</param>
+    /// <param name="quantityField">The JSON name of the quantity, for the error path.</param>
+    /// <param name="quantityLabel">The quantity's name in messages.</param>
+    /// <param name="errors">The caller's collector.</param>
+    /// <param name="rules">
+    /// Which variant of the rules applies. <see cref="OrderLineRules.NotOnOrderMessage"/> must be set, because only the
+    /// caller knows which record ("order #12", "complementary order #3") the lines belong to.
+    /// </param>
+    /// <returns>The valid lines, in body order, each with its position in the request (for later error paths).</returns>
+    public static List<MatchedOrderLine> Match(
+        IReadOnlyCollection<ProductionOrderLine> orderLines,
+        IReadOnlyList<SubmittedOrderLine?> submitted,
+        string quantityField,
+        string quantityLabel,
+        ValidationErrors errors,
+        OrderLineRules rules)
+    {
+        var notOnOrderMessage = rules.NotOnOrderMessage
+            ?? throw new ArgumentException("Rules for a set of lines must say how an item not among them is reported.", nameof(rules));
+        return MatchLines(orderLines, submitted, quantityField, quantityLabel, errors, rules, notOnOrderMessage);
+    }
+
+    /// <summary>The checks themselves, shared by both <c>Match</c> overloads.</summary>
+    private static List<MatchedOrderLine> MatchLines(
+        IReadOnlyCollection<ProductionOrderLine> lines,
+        IReadOnlyList<SubmittedOrderLine?> submitted,
+        string quantityField,
+        string quantityLabel,
+        ValidationErrors errors,
+        OrderLineRules rules,
+        Func<int, string> notOnOrderMessage)
+    {
+        var orderLines = lines.ToDictionary(line => line.RawMaterialId);
         var matched = new List<MatchedOrderLine>(submitted.Count);
         var materialsSeen = new HashSet<int>();
 
@@ -85,8 +134,7 @@ public static class OrderLineMatcher
             }
             else if (!orderLines.TryGetValue(itemId, out orderLine))
             {
-                errors.Add(itemPath,
-                    rules.NotOnOrderMessage?.Invoke(itemId) ?? $"Item {itemId} is not on order #{order.Number}.");
+                errors.Add(itemPath, notOnOrderMessage(itemId));
             }
             else if (!materialsSeen.Add(itemId))
             {
@@ -136,7 +184,7 @@ public static class OrderLineMatcher
             return matched;
         }
 
-        var missing = order.Lines
+        var missing = lines
             .Where(line => !materialsSeen.Contains(line.RawMaterialId))
             .OrderBy(line => line.LineNo)
             .Select(line => line.RawMaterial.Name)
@@ -180,7 +228,8 @@ public sealed record OrderLineRules
     /// <summary>
     /// The message for an item id that is not one of the order's materials, or <c>null</c> for the send's "Item {id} is
     /// not on order #{n}." (decision #96). The complementary request names the item where it exists (design 7.2,
-    /// "{item} is not on order #{number}.").
+    /// "{item} is not on order #{number}."); the complementary send says "Item {id} is not on complementary order #{c}.".
+    /// Required by the overload that takes a set of lines.
     /// </summary>
     public Func<int, string>? NotOnOrderMessage { get; init; }
 }
@@ -193,8 +242,11 @@ public sealed record OrderLineRules
 /// <param name="Quantity">The line's figure.</param>
 public sealed record SubmittedOrderLine(int? ItemId, decimal? Quantity);
 
-/// <summary>A submitted line that passed <see cref="OrderLineMatcher.Match"/>.</summary>
+/// <summary>A submitted line that passed <see cref="OrderLineMatcher"/>'s checks.</summary>
 /// <param name="Index">Its position in the request body, for the JSON path of later errors (<c>lines[i]…</c>).</param>
-/// <param name="Line">The order line it names.</param>
-/// <param name="Quantity">Its valid quantity (a send), leftover (a completion) or requested amount (a complementary request).</param>
+/// <param name="Line">The order line it names (for a complementary send, the parent order's line).</param>
+/// <param name="Quantity">
+/// Its valid quantity (a send or a complementary send), leftover (a completion) or requested amount (a complementary
+/// request).
+/// </param>
 public sealed record MatchedOrderLine(int Index, ProductionOrderLine Line, decimal Quantity);

@@ -8,15 +8,16 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 namespace InventoryTracker.Api.Features.ComplementaryOrders;
 
 /// <summary>
-/// The complementary order endpoints (US-16, US-17, design 3.7, 4 and 5.8): request one for a running order, list and
-/// view them, and approve or reject them. Any signed-in user may list and view them (PRD 4.2); a Production user or a
-/// Manager requests one (AC-16.1, AC-16.6); only a Manager approves or rejects (AC-17.1, AC-17.2, AC-17.4).
+/// The complementary order endpoints (US-16, US-17, US-18, design 3.7, 4 and 5.8): request one for a running order, list
+/// and view them, approve or reject them, and send an approved one. Any signed-in user may list and view them (PRD 4.2);
+/// a Production user or a Manager requests one (AC-16.1, AC-16.6); only a Manager approves or rejects (AC-17.1, AC-17.2,
+/// AC-17.4); a Warehouse user or a Manager sends (AC-18.1, AC-18.5).
 /// </summary>
 /// <remarks>
 /// <para>
 /// Built the same way as <c>UnitsController</c>, which explains the request flow, model binding, <c>[Authorize]</c> and
-/// <c>CreatedAtAction</c>. All rules are in <see cref="RequestComplementaryOrderService"/> and
-/// <see cref="ComplementaryOrderService"/>.
+/// <c>CreatedAtAction</c>. All rules are in <see cref="RequestComplementaryOrderService"/>,
+/// <see cref="ComplementaryOrderService"/> and <see cref="ComplementarySendService"/>.
 /// </para>
 /// <para>
 /// <b>Two URL shapes</b> (design 2.1). A complementary order cannot exist without its parent, so it is created under it:
@@ -26,13 +27,15 @@ namespace InventoryTracker.Api.Features.ComplementaryOrders;
 /// </para>
 /// <para>
 /// There is no <c>PUT</c>, <c>DELETE</c> or manual cancel: complementary orders are never edited or deleted (PRD section
-/// 5), and they are cancelled only automatically, when their parent ends (design 3.1). The send is T-018.
+/// 5), and they are cancelled only automatically, when their parent ends (design 3.1).
 /// </para>
 /// </remarks>
 [ApiController]
 [Route("api/v1/complementary-orders")]
 public sealed class ComplementaryOrdersController(
-    RequestComplementaryOrderService requests, ComplementaryOrderService complementaryOrders) : ControllerBase
+    RequestComplementaryOrderService requests,
+    ComplementaryOrderService complementaryOrders,
+    ComplementarySendService sends) : ControllerBase
 {
     /// <summary>
     /// <c>POST /api/v1/production-orders/{number}/complementary-orders</c>: requests extra material for InProduction order
@@ -120,5 +123,27 @@ public sealed class ComplementaryOrdersController(
         // AC-17.2, AC-05.3: the rejection records who rejected, taken from the checked token.
         var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
         return complementaryOrders.RejectAsync(number, request, userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// <c>POST /api/v1/complementary-orders/{number}/send</c>: sends the material of an Approved complementary order, one
+    /// quantity per line (AC-18.1, design 5.8): <c>{ "lines": [ { "itemId": 3, "quantity": 20 } ] }</c>. <c>200</c> with
+    /// it, now Sent; the parent order line's <c>complementarySends</c> has grown. <c>404</c> for an unknown number;
+    /// <c>400</c> <c>validation</c> for a bad body; <c>409</c> <c>not-approved</c> for any other status (AC-18.3);
+    /// <c>400</c> <c>send-out-of-range</c> (AC-18.2); <c>409</c> <c>insufficient-stock</c> (AC-18.4).
+    /// </summary>
+    /// <remarks>
+    /// PRD 4.2, "Send materials for an order or an approved complementary order": Warehouse or Manager. A Production-only
+    /// user gets <c>403</c> (AC-18.5) before the complementary order or the body is looked at (design 2.2). All rules are
+    /// in <see cref="ComplementarySendService"/>.
+    /// </remarks>
+    [HttpPost("{number:int}/send")]
+    [Authorize(Roles = Roles.WarehouseOrManager)]
+    public Task<ComplementaryOrderResponse> Send(
+        int number, SendComplementaryOrderRequest request, CancellationToken cancellationToken)
+    {
+        // AC-18.1, AC-05.3: the send records who sent it, taken from the checked token, never from the body.
+        var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
+        return sends.SendAsync(number, request, userId, cancellationToken);
     }
 }

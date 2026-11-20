@@ -243,6 +243,9 @@ public sealed class ComplementaryOrderService(
         return note;
     }
 
-    /// <summary>Design 7.2: <c>404</c> "Complementary order #{number} not found.".</summary>
-    private static NotFoundException NotFound(int number) => new($"Complementary order #{number} not found.");
+    /// <summary>
+    /// Design 7.2: <c>404</c> "Complementary order #{number} not found.". Shared with the send
+    /// (<see cref="ComplementarySendService"/>), so every complementary order endpoint words it the same way.
+    /// </summary>
+    internal static NotFoundException NotFound(int number) => new($"Complementary order #{number} not found.");
 }

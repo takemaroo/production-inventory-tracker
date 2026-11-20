@@ -39,6 +39,29 @@ public sealed record ComplementaryOrderLineRequest(int? ItemId, decimal? Request
 public sealed record RejectComplementaryOrderRequest(string? Note);
 
 /// <summary>
+/// Body of <c>POST /api/v1/complementary-orders/{number}/send</c> (design 5.8, AC-18.1): how much of each requested
+/// material the Warehouse sends, for example <c>{ "lines": [ { "itemId": 3, "quantity": 20 } ] }</c>.
+/// </summary>
+/// <param name="Lines">
+/// One quantity for every line of the complementary order, each exactly once, in any order (AC-18.1: "a quantity for every
+/// line"). A missing list counts as an empty one, so every line is reported missing.
+/// </param>
+/// <remarks>
+/// The same shape as the production order's send (<c>SendOrderRequest</c>), but its own record, so the API description
+/// names the two bodies separately. Every field is nullable so that a missing value reaches
+/// <see cref="ComplementarySendService"/>, which answers with the design's messages (architecture 6, Validation).
+/// </remarks>
+public sealed record SendComplementaryOrderRequest(IReadOnlyList<SendComplementaryOrderLineRequest?>? Lines);
+
+/// <summary>One line of a complementary send: which material, and how much the Warehouse sends (design 5.8).</summary>
+/// <param name="ItemId">The raw material; it must be one of the complementary order's lines.</param>
+/// <param name="Quantity">
+/// The quantity taken from the Warehouse: not negative, at most 3 decimal places, at most 999,999,999.999 (decision #80),
+/// and within the requested amount ± t (AC-18.1; 19.6 to 20.4 kg for 20 kg at 2%, AC-18.2). No leftover is netted.
+/// </param>
+public sealed record SendComplementaryOrderLineRequest(int? ItemId, decimal? Quantity);
+
+/// <summary>
 /// A complementary order as the API returns it (design 5.8): from the request (<c>201</c>), from <c>GET</c> (one or a
 /// list), and from approve and reject (<c>200</c>).
 /// </summary>
