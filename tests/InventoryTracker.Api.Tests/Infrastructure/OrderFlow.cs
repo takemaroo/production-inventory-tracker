@@ -26,11 +26,11 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 /// </para>
 /// <para>
 /// Most helpers go through the real API and check its status code, so a broken set-up fails at the line that caused it
-/// (like <see cref="Seed"/>). A few write straight to the database: for states that endpoints of later tasks will
-/// produce (a Sent complementary order is T-018), and for set-up that is quicker or more exact without a request
-/// (leftover put into production storage, an order's status changed in one step). Those still run inside
-/// <c>InWriteTransactionAsync</c> and write movements through <see cref="StockLedger"/>, as a real service must
-/// (architecture 5.1, 5.2), so the stored data is the same as an endpoint's.
+/// (like <see cref="Seed"/>). A few write straight to the database: for states no endpoint produces in one step (a
+/// complementary order in any status, a Pending return larger than the free leftover), and for set-up that is quicker or
+/// more exact without a request (leftover put into production storage, an order's status changed in one step). Those
+/// still run inside <c>InWriteTransactionAsync</c> and write movements through <see cref="StockLedger"/>, as a real
+/// service must (architecture 5.1, 5.2), so the stored data is the same as an endpoint's.
 /// </para>
 /// </remarks>
 public static class OrderFlow
@@ -208,6 +208,50 @@ public static class OrderFlow
     public static async Task<JsonElement> ReadComplementaryAsync(HttpClient client, int complementaryNumber)
     {
         var response = await client.GetAsync($"{ComplementaryPath}/{complementaryNumber}", Cancel);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ApiJson.ReadAsync(response);
+    }
+
+    // ---- Leftover returns through the API --------------------------------------------------------------------------
+
+    /// <summary>The base path of the leftover return endpoints (design 4, 5.9).</summary>
+    public const string ReturnsPath = "/api/v1/returns";
+
+    /// <summary>The reason the return helpers give when a test does not care which.</summary>
+    public const string ReturnReason = "Not needed for the next run";
+
+    /// <summary>
+    /// Instructs a return (<c>POST /returns</c>, T-019) with <c>{ itemId, quantity, reason, orderNumber }</c>. Returns
+    /// the response unchecked, because the instruction is often the request under test.
+    /// </summary>
+    public static Task<HttpResponseMessage> InstructReturnAsync(
+        HttpClient client, int itemId, decimal quantity, string? reason = ReturnReason, int? orderNumber = null) =>
+        client.PostAsJsonAsync(ReturnsPath, new { itemId, quantity, reason, orderNumber }, Cancel);
+
+    /// <summary>
+    /// <see cref="InstructReturnAsync"/> for set-up: checks the <c>201</c> and returns the new return's number. The
+    /// material needs that much free leftover (AC-22.2); for a Pending return larger than that, see
+    /// <see cref="InsertPendingReturnAsync"/>.
+    /// </summary>
+    public static async Task<int> InstructedReturnAsync(HttpClient manager, int itemId, decimal quantity, int? orderNumber = null)
+    {
+        var response = await InstructReturnAsync(manager, itemId, quantity, ReturnReason, orderNumber);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await ApiJson.ReadAsync(response)).GetProperty("number").GetInt32();
+    }
+
+    /// <summary>Records receiving a return (<c>POST /returns/{number}/receive</c>, T-019), unchecked.</summary>
+    public static Task<HttpResponseMessage> ReceiveReturnAsync(HttpClient client, int number) =>
+        client.PostAsync($"{ReturnsPath}/{number}/receive", content: null, Cancel);
+
+    /// <summary>Cancels a return (<c>POST /returns/{number}/cancel</c>, T-019), unchecked.</summary>
+    public static Task<HttpResponseMessage> CancelReturnAsync(HttpClient client, int number) =>
+        client.PostAsync($"{ReturnsPath}/{number}/cancel", content: null, Cancel);
+
+    /// <summary>Reads one return through <c>GET /returns/{number}</c> and checks it got <c>200</c>.</summary>
+    public static async Task<JsonElement> ReadReturnAsync(HttpClient client, int number)
+    {
+        var response = await client.GetAsync($"{ReturnsPath}/{number}", Cancel);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return await ApiJson.ReadAsync(response);
     }
@@ -426,6 +470,49 @@ public static class OrderFlow
             number = complementary.Number;
         });
         return number;
+    }
+
+    /// <summary>
+    /// Inserts a Pending return of <paramref name="quantity"/> of <paramref name="itemId"/>, instructed now by
+    /// <paramref name="userId"/>, in its own write transaction, and returns its number. For a Pending return the
+    /// instruction endpoint would refuse because it is larger than the free leftover (AC-22.2): the state decision #18
+    /// describes (production storage written off after the return was instructed), which lets a test of a check that
+    /// reads Pending returns (the send's AC-15.11) skip putting leftover into production storage first. Otherwise use
+    /// <see cref="InstructedReturnAsync"/>.
+    /// </summary>
+    public static async Task<int> InsertPendingReturnAsync(TestApiFactory app, int itemId, decimal quantity, string userId)
+    {
+        var number = 0;
+        await InTransactionAsync(app, async (db, _, now) =>
+        {
+            var leftoverReturn = new LeftoverReturn
+            {
+                ItemId = itemId, Quantity = quantity, Reason = ReturnReason, Status = ReturnStatus.Pending,
+                CreatedAt = now, CreatedById = userId,
+            };
+            db.Returns.Add(leftoverReturn);
+            await db.SaveChangesAsync(Cancel);
+            number = leftoverReturn.Number;
+        });
+        return number;
+    }
+
+    /// <summary>A return as stored, read in a new scope.</summary>
+    public static async Task<LeftoverReturn> StoredReturnAsync(TestApiFactory app, int number)
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Returns.AsNoTracking()
+            .SingleAsync(leftoverReturn => leftoverReturn.Number == number, Cancel);
+    }
+
+    /// <summary>Every movement linked to return <paramref name="number"/>, oldest first, read in a new scope.</summary>
+    public static async Task<List<Movement>> MovementsOfReturnAsync(TestApiFactory app, int number)
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Movements.AsNoTracking()
+            .Where(movement => movement.ReturnNumber == number)
+            .OrderBy(movement => movement.Id)
+            .ToListAsync(Cancel);
     }
 
     /// <summary>Every movement linked to order <paramref name="number"/>, oldest first, read in a new scope.</summary>

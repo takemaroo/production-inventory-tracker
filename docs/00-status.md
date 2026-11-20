@@ -15,7 +15,7 @@ Kept current by the delivery manager. Last updated: 2026-11-11
 | 1 | Discovery | done | `docs/01-prd.md` | Approved by owner 2026-11-11. |
 | 2 | Design | done | `docs/02-design.md` | API spec: 48 endpoints, ProblemDetails errors, flows. Owner settled 2 questions (decisions #17, #18). |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` | Skeleton builds (0 warnings), 4 of 4 tests pass (re-run by delivery manager). 21 tasks. |
-| 4 | Build | in progress | code | tasks done: 19 of 22 (T-001 to T-018, T-008a) |
+| 4 | Build | in progress | code | tasks done: 20 of 22 (T-001 to T-019, T-008a) |
 | 5 | QA | not started | `docs/05-test-plan.md` | round 0 |
 | 6 | Security | not started | `docs/06-security-review.md` | |
 | 7 | Release | not started | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
@@ -63,6 +63,7 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - 2026-11-19 T-016 approved by `code-reviewer` after two rounds (four forced race orderings; shared UnsentComplementaryOrders), committed and pushed. Started T-017.
 - 2026-11-19 T-017 approved by `code-reviewer` after two rounds (state machine and races forced; OrderLineMatcher rules option), committed and pushed. Started T-018.
 - 2026-11-20 T-018 approved by `code-reviewer` (ledger complementary-parent check #106e; examples A and B through real endpoints), committed and pushed. Started T-019.
+- 2026-11-20 T-019 approved by `code-reviewer` after two rounds (all races forced; shared MaterialInUse code), committed and pushed. All PRD features built. Next: T-020.
 
 ## Follow-ups to route
 
@@ -79,7 +80,6 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - Common/ owner (low priority): a JSON number too large for decimal (e.g. 1e30) is reported by the T-001 framework handler as "{path} has the wrong type.", which is slightly misleading; could say it is too large (T-010 review).
 - ux-designer (next design update): design 7.2 "missing line (send or complete)" says "Every order line needs a quantity."; for completion the field is the leftover. Consider "Every order line needs a leftover." for completion (T-011 used the design text as written).
 - Whoever next works in StockTests.cs: fold its own LedgerAsync/StockAsync helpers into OrderFlow where they match (order-flow chore note).
-- T-019: SendOrderTests.InsertReturnAsync and SetReturnStatusAsync write without a transaction; move return helpers into OrderFlow (with transactions) when T-019 lands.
 - T-021: the OpenAPI document advertises a "Skip" query parameter on every list endpoint (public PageQuery.Skip getter) and describes integers as "integer or string" although strings are refused. Fix in T-021 (OpenAPI completeness).
 - ux-designer (next design update): design 2.1 says actions such as /read answer 200 with the updated resource, while 2.2, 4 and 7.2 say 204 for notification reads. Built as 204 (T-012); align 2.1.
 - tech-lead (next doc update): architecture 3.1 lists the Quantity message helpers; add `Quantity.BelowMinMessage` (T-015, #103).
@@ -90,3 +90,7 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - T-020 (must, before QA): the 100,000-movement performance tests (StockTests, MovementsTests) can fail under full-suite parallel load (seen once: GET /stock p95 2.7 s vs the 1 s target; passed alone and on rerun). Run performance tests in a non-parallel collection (or a separate category) so they measure the app, not test contention.
 - ux-designer (next design update): design 7.2 'Missing line (send or complete)' text ('Every order line needs a quantity.') is reused for complementary sends, where 'order line' means the complementary order's lines; confirm the wording (T-018). (T-018 ran examples A and B through the real endpoints; T-020's own AC, A and B from an empty database via HTTP only, still stands.)
 - tech-lead (next doc update): architecture 5.1 'contract as built' for StockLedger: add the database-backed complementary-parent check (#106e) alongside #86/#87.
+- T-020 (test tidy): StockTests (~lines 178, 1052), MovementsTests (~634) and ItemsTests (~686) insert returns directly into the DbContext without a write transaction; switch them to OrderFlow.InsertPendingReturnAsync / the real return endpoints. AdjustmentsTests could use OrderFlow.InsertPendingReturnAsync too.
+- tech-lead (next doc update): architecture 4.2 says the stock leftover fields are "added in T-019", but T-008 shipped them; reword.
+- T-021 (optional): non-numeric id filters (?itemId=abc on returns, movements, complementary orders) get the framework's "The value 'abc' is not valid."; design-style wording everywhere would need a shared fix (see the earlier PascalCase binding note).
+- product-manager (wording only): AC-22.6 says "403 for all return actions" while PRD 4.2 lets every role view returns; built per 4.2 and design 4 (list/view open to all, instruct/receive/cancel restricted). Clarify AC-22.6.

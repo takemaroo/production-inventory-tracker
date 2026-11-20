@@ -33,6 +33,13 @@ public static class ErrorCodes
     /// </summary>
     public const string OrderCancelled = "order-cancelled";
 
+    /// <summary>
+    /// Design 7.2, AC-12.5, AC-22.3, decision #11: a material on the order that is currently InProduction cannot be touched
+    /// in production storage. Raised by a production-storage adjustment and by a return instruction, each with its own
+    /// sentence (decision #100: one spelling for a code several features raise).
+    /// </summary>
+    public const string MaterialInUse = "material-in-use";
+
     /// <summary>Architecture 4.1 item 8: an exception nobody expected. Details go only to the log.</summary>
     public const string InternalError = "internal-error";
 }

@@ -36,9 +36,6 @@ namespace InventoryTracker.Api.Features.Stock;
 /// </remarks>
 public sealed class AdjustmentService(AppDbContext db, StockLedger ledger, Clock clock)
 {
-    /// <summary>Design 7.2: the code for a production-storage adjustment of a material the running order uses (AC-12.5).</summary>
-    public const string MaterialInUseCode = "material-in-use";
-
     /// <summary>Design 7.2: the code for an adjustment of a finished product in Production storage (AC-12.6).</summary>
     public const string FinishedProductInProductionStorageCode = "finished-product-in-production-storage";
 
@@ -137,7 +134,8 @@ public sealed class AdjustmentService(AppDbContext db, StockLedger ledger, Clock
 
         if (runningOrder is { } number)
         {
-            throw new ConflictException(MaterialInUseCode,
+            // The shared code (ErrorCodes.MaterialInUse): a return of the same material is refused with it too (AC-22.3).
+            throw new ConflictException(ErrorCodes.MaterialInUse,
                 $"{item.Name} in production storage is in use by order #{number}. Adjust it after the order is completed or cancelled.");
         }
     }

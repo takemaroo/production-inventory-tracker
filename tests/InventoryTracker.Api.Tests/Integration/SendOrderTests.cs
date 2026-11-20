@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using InventoryTracker.Api.Auth;
-using InventoryTracker.Api.Common.Time;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Domain;
 using InventoryTracker.Api.Features.ProductionOrders;
@@ -26,8 +25,9 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// <para>
 /// Orders are created through the API. Stock reaches the Warehouse through receipts; free leftover reaches production
 /// storage through a ledger Adjustment (<see cref="PutLeftoverAsync"/>: the movement <c>POST /adjustments</c> writes,
-/// without a request), so it is free leftover (D-4). States that later
-/// tasks will produce (Completed, Cancelled, Pending and Cancelled returns) are written directly through the DbContext.
+/// without a request), so it is free leftover (D-4). Completed and Cancelled
+/// orders, and Pending returns larger than the free leftover (<see cref="OrderFlow.InsertPendingReturnAsync"/>), are
+/// written directly, inside a write transaction; a return is cancelled through its endpoint (T-019).
 /// </para>
 /// <para>
 /// The database allows only one InProduction order (AC-15.10), so every test whose send succeeds creates its own factory.
@@ -845,10 +845,11 @@ public class SendOrderTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     // ---- AC-15.11, decision #11: Pending returns block the send ---------------------------------------------------
 
     /// <summary>
-    /// AC-15.11, decision #11: a Pending return of one of the order's materials (inserted directly; returns are T-019)
-    /// blocks the send with <c>409</c> <c>pending-return</c> "Return #R of {item} is waiting to be received by the
+    /// AC-15.11, decision #11: a Pending return of one of the order's materials (inserted directly, so no leftover is
+    /// needed for it) blocks the send with <c>409</c> <c>pending-return</c> "Return #R of {item} is waiting to be received by the
     /// warehouse. Record it first." A Pending return of a material that is not on the order does not block. Once the
-    /// blocking return is no longer Pending (here: Cancelled), the same send succeeds.
+    /// blocking return is no longer Pending (here: cancelled through <c>POST /returns/{number}/cancel</c>, T-019), the
+    /// same send succeeds.
     /// </summary>
     [Fact]
     public async Task Pending_return_of_a_material_blocks_the_send()
@@ -861,8 +862,8 @@ public class SendOrderTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         var product = await ProductWithRecipeAsync(manager, (cheese.Id, 1m));
         await ReceiveAsync(manager, cheese.Id, 1000m);
         await PutLeftoverAsync(app, cheese.Id, 10m, managerUser.Id);
-        await InsertReturnAsync(app, unrelated.Id, 5m, ReturnStatus.Pending, managerUser.Id);
-        var returnNumber = await InsertReturnAsync(app, cheese.Id, 10m, ReturnStatus.Pending, managerUser.Id);
+        await InsertPendingReturnAsync(app, unrelated.Id, 5m, managerUser.Id);
+        var returnNumber = await InsertPendingReturnAsync(app, cheese.Id, 10m, managerUser.Id);
         var number = await CreateOrderAsync(manager, product.Id, 1000m);
 
         var blocked = await SendAsync(manager, number, (cheese.Id, 1000m));
@@ -871,7 +872,7 @@ public class SendOrderTests(TestApiFactory factory) : IClassFixture<TestApiFacto
             $"Return #{returnNumber} of Cheese is waiting to be received by the warehouse. Record it first.");
         await AssertNothingSentAsync(app, number);
 
-        await SetReturnStatusAsync(app, returnNumber, ReturnStatus.Cancelled, managerUser.Id);
+        Assert.Equal(HttpStatusCode.OK, (await CancelReturnAsync(manager, returnNumber)).StatusCode);
         var accepted = await SendAsync(manager, number, (cheese.Id, 990m));
 
         Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
@@ -887,8 +888,8 @@ public class SendOrderTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     {
         var (manager, managerUser) = await SignedInAsync(factory, Roles.Manager);
         var (number, cheese, starch) = await TwoLineOrderAsync(manager);
-        var starchReturn = await InsertReturnAsync(factory, starch.Id, 1m, ReturnStatus.Pending, managerUser.Id);
-        var cheeseReturn = await InsertReturnAsync(factory, cheese.Id, 2m, ReturnStatus.Pending, managerUser.Id);
+        var starchReturn = await InsertPendingReturnAsync(factory, starch.Id, 1m, managerUser.Id);
+        var cheeseReturn = await InsertPendingReturnAsync(factory, cheese.Id, 2m, managerUser.Id);
 
         var response = await SendAsync(manager, number, (cheese.Id, 1000m), (starch.Id, 15m));
 
@@ -947,7 +948,7 @@ public class SendOrderTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         await AssertOutOfRangeAsync(await SendAsync(manager, number, (cheese.Id, 900m), (starch.Id, 15m)), ("lines[0].quantity",
             $"{cheese.Name}: send must be between 980 and 1,020 {unit} (planned 1,000 {unit}, leftover applied 0 {unit})."));
 
-        var returnNumber = await InsertReturnAsync(factory, starch.Id, 1m, ReturnStatus.Pending, managerUser.Id);
+        var returnNumber = await InsertPendingReturnAsync(factory, starch.Id, 1m, managerUser.Id);
         await ApiAssert.ProblemAsync(await SendAsync(manager, number, (cheese.Id, 900m), (starch.Id, 15m)),
             HttpStatusCode.Conflict, "pending-return",
             $"Return #{returnNumber} of {starch.Name} is waiting to be received by the warehouse. Record it first.");
@@ -1079,35 +1080,6 @@ public class SendOrderTests(TestApiFactory factory) : IClassFixture<TestApiFacto
             }, Cancel);
             await ApplyStatusAsync(db, number, OrderStatus.Completed, userId, now);
         });
-
-    /// <summary>Inserts a leftover return directly (returns are T-019) and returns its number.</summary>
-    private static async Task<int> InsertReturnAsync(TestApiFactory app, int itemId, decimal quantity, ReturnStatus status, string userId)
-    {
-        await using var scope = app.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var now = scope.ServiceProvider.GetRequiredService<Clock>().UtcNow;
-        var leftoverReturn = new LeftoverReturn
-        {
-            ItemId = itemId, Quantity = quantity, Reason = "Not needed for the next run", Status = status,
-            CreatedAt = now, CreatedById = userId,
-        };
-        db.Returns.Add(leftoverReturn);
-        await db.SaveChangesAsync(Cancel);
-        return leftoverReturn.Number;
-    }
-
-    /// <summary>Changes a return's status directly, as receiving or cancelling it will (T-019).</summary>
-    private static async Task SetReturnStatusAsync(TestApiFactory app, int number, ReturnStatus status, string userId)
-    {
-        await using var scope = app.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var now = scope.ServiceProvider.GetRequiredService<Clock>().UtcNow;
-        var leftoverReturn = await db.Returns.SingleAsync(candidate => candidate.Number == number, Cancel);
-        leftoverReturn.Status = status;
-        leftoverReturn.CancelledAt = now;
-        leftoverReturn.CancelledById = userId;
-        await db.SaveChangesAsync(Cancel);
-    }
 
     /// <summary>
     /// PRD 4.1 "rejected": the order is still Created with no sender, none of its lines has a send figure, and no
