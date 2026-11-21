@@ -31,11 +31,24 @@ These rules apply to every endpoint. Section 5 lists each endpoint against them.
 | `401` | Missing, invalid or expired token; failed sign-in; token of a deactivated user. |
 | `403` | Signed in, but none of the user's roles allows the action. |
 | `404` | The record named in the URL does not exist. |
+| `408` | The request body arrived too slowly and the web server stopped waiting for it (decision #124). |
 | `409` | The request conflicts with current state: status, stock, another order in production, a pending return, a duplicate name. |
+| `413` | The request body is over 1 MB (decisions #122, #124). |
+
+Every operation that takes a request body, sign-in included, can answer `408` or `413`. Section 4 and section 5 do not repeat this per endpoint.
 
 `422` is not used. The PRD assigns every rejection to `400` or `409`, and ASP.NET Core uses `400` for validation by default.
 
 **Order of checks.** When a request breaks several rules, the first failing check decides the response: (1) `401` token, (2) `403` role, (3) `404` record in the URL, (4) `400` input shape and format (missing fields, decimal places, negative numbers, unknown ids in the body), (5) `409` state (status, another order in production, pending return, item in use), (6) `400` range rules (send ranges, leftover larger than stock), (7) `409` stock. Checking roles before existence means a user without the role cannot learn which numbers exist. QA can rely on this order, with two consequences of how the framework works (decision #23, built): a body that is not valid JSON, or has a value of the wrong JSON type, is `400` before the `404` check, because the body is read before the action runs; and without a token every path, including one that does not exist, answers `401`, because the token check comes first.
+
+A body the web server will not deliver sits in the same place, after `401` and `403` and before the `404` check (decision #124): over 1 MB is `413` `request-too-large`, too slow is `408` `request-timeout`, and any other broken body (for example a malformed chunked body, or a connection that ends early) is `400` `validation` with no `errors` field (decision #41).
+
+Two caps are checked first in the action, before the write transaction, so they also come before the `404` for the record in the URL, where there is one (security review SEC-01):
+
+- More than 500 lines on a recipe (`PUT /items/{id}/recipe`), a send, a completion, a complementary request or a complementary send is `400` `too-many-lines` (decision #123).
+- More than 10 roles on `POST /users` or `PUT /users/{id}/roles` is `400` `validation` (decision #125). On the role change it comes before the `404` for the user in the URL.
+
+Each cap is answered on its own: the response holds only that one message, even when other fields are also wrong. The other body checks keep the order above.
 
 ### 2.3 JSON fields and values
 
@@ -851,9 +864,10 @@ Validation (`400`) adds `errors`, keyed by the JSON path of the field in camelCa
 Rules:
 
 - `detail` always holds the complete readable message. When several messages apply, they are joined with a space. A client can show `detail` alone.
-- `errors` is present when a field is at fault. Whole-body errors (the body is missing, is not valid JSON, or is the wrong kind of JSON value) have no `errors` field (decision #41). Each field gets at most one message, from the first rule it fails, in the order required, sign, decimal places, maximum (decisions #75, #81).
-- `code` is a stable kebab-case identifier for programs and tests. `400` input errors that are plain field checks share the code `validation`.
-- `title` is fixed per status: `400` "Invalid request", `401` "Not signed in", `403` "Not allowed", `404` "Not found", `409` "Conflict with current state".
+- `errors` is present when a field is at fault. Whole-body errors (the body is missing, is not valid JSON, is the wrong kind of JSON value, or could not be read) have no `errors` field (decision #41), and neither do `408` and `413`. Each field gets at most one message, from the first rule it fails, in the order required, sign, decimal places, maximum (decisions #75, #81).
+- A `400` from the field checks lists at most 100 messages (decision #122). When more apply, only the first 100 are kept, in `detail` and in `errors` alike, and `detail` ends with one more sentence saying how many were left out: "{n} more problems are not shown." (for one: "1 more problem is not shown."). `{n}` is formatted as in 6.1, for example `1,900`. The sentence is not in `errors`, because it belongs to no single field.
+- `code` is a stable kebab-case identifier for programs and tests. `400` input errors that are plain field checks share the code `validation`. The line cap has a `400` code of its own, `too-many-lines` (decision #123), so a client can tell "split the request" from a field mistake. A body the web server refuses is `413` `request-too-large` or `408` `request-timeout` (decision #124).
+- `title` is fixed per status: `400` "Invalid request", `401` "Not signed in", `403` "Not allowed", `404` "Not found", `408` "Request timeout", `409` "Conflict with current state", `413` "Request too large".
 - `type` is left at the framework default. Clients should use `status` and `code`.
 - Exact messages given in the PRD are reproduced word for word. QA checks those exactly; other messages may be refined but must keep the facts they state (names, numbers, units, status).
 - Messages never contain stack traces, SQL or internal ids other than record numbers.
@@ -889,7 +903,7 @@ ASP.NET Core's JWT handler returns an empty `401` by default. It must be configu
 
 ### 7.2 Business-rule rejections
 
-Placeholders are in braces. Messages marked PRD are exact. The rows marked "any quantity" under Receipts and adjustments apply to every quantity in every section below. `{Field}` is the field's label, the name its other messages use: Quantity, Ordered quantity, Produced quantity, Leftover, Requested amount, Reason, Note, Description. A field message goes under the field's JSON path as its `errors` key (section 6): `quantity`, `orderedQuantity`, `producedQuantity`, `finishedProductId`, `itemId`, `reason`, `lines`, `lines[0].itemId`, `lines[0].quantity`, `lines[0].leftover`, `lines[0].requestedAmount`, `lines[0].amountPerUnit`, `roles[0]`.
+Placeholders are in braces. Messages marked PRD are exact. The rows marked "any quantity" under Receipts and adjustments apply to every quantity in every section below. `{Field}` is the field's label, the name its other messages use: Quantity, Ordered quantity, Produced quantity, Leftover, Requested amount, Reason, Note, Description. A field message goes under the field's JSON path as its `errors` key (section 6): `quantity`, `orderedQuantity`, `producedQuantity`, `finishedProductId`, `itemId`, `reason`, `lines`, `lines[0].itemId`, `lines[0].quantity`, `lines[0].leftover`, `lines[0].requestedAmount`, `lines[0].amountPerUnit`, `roles`, `roles[0]`.
 
 **Order line bodies.** Four bodies list one figure per order material and share one set of rules and messages (decision #100): the send (`quantity`), the completion (`leftover`), the complementary request (`requestedAmount`) and the complementary send (`quantity`). A line sent as `null` gets both "Item is required." and the figure's "required" message. Where every line must appear (send, completion, complementary send), the missing ones are named together in one message under `lines`, in recipe line order. "Order line" in that message means the lines of the record being sent or completed: the production order's lines, or for a complementary send the complementary order's lines. The sentence is the same for all three, kept as built: the figure on every line is a quantity of the material, whether sent or left over, and the message names the missing materials, which is what the client needs to fix the request. A per-body wording ("needs a leftover") would read worse and add nothing.
 
@@ -903,6 +917,7 @@ Placeholders are in braces. Messages marked PRD are exact. The rows marked "any 
 | 400 | `validation` | Bad email (AC-03.3) | Email is not a valid email address. |
 | 400 | `validation` | Missing password on `POST /users` | Password is required. |
 | 400 | `validation` | Missing or empty role list | At least one role is required. |
+| 400 | `validation` | More than 10 roles on `POST /users` or `PUT /users/{id}/roles`, under `roles`. Answered on its own, before every other check; on the role change also before the `404` for the user (decision #125) | At most 10 roles are allowed. |
 | 400 | `validation` | Unknown role, under `roles[i]` | Unknown role '{value}'. Roles are Warehouse, Production and Manager. |
 | 409 | `last-manager` | AC-03.8 | At least one active Manager is required. (PRD) |
 | 404 | `not-found` | Unknown user id | User not found. |
@@ -1069,13 +1084,18 @@ Marking an already-read notification read again succeeds (`204`). A missing or e
 | 400 | `validation` | Body missing where the endpoint needs one | A request body is required. |
 | 400 | `validation` | Body is valid JSON but the wrong kind of value, for example an array instead of an object | The request body has the wrong type. |
 | 400 | `validation` | A field has the wrong JSON type, for example a quantity sent as a string (design 2.4), under the field's path | {path} has the wrong type. |
+| 400 | `validation` | The web server could not read the body, for example a malformed chunked body or a connection that ended early; no `errors` field (decision #124) | The request body could not be read. |
+| 400 | `too-many-lines` | More than 500 lines on a recipe, send, completion, complementary request or complementary send, under `lines`. Answered on its own, before the `404` for the record in the URL (decision #123) | At most 500 lines are allowed. |
+| 400 | the response's own code | More than 100 messages apply to one `400`; the last sentence of `detail`, not in `errors`. `{n}` is formatted as in 6.1 (decision #122) | {n} more problems are not shown. *(one left out: "1 more problem is not shown.")* |
 | 404 | `not-found` | No endpoint matches the path | No endpoint matches this path. |
 | 405 | `method-not-allowed` | The path exists but not for this method (section 4) | This method is not allowed on this path. |
 | 415 | `unsupported-media-type` | A body sent with a `Content-Type` other than JSON (decision #40) | The request body must be JSON, sent with Content-Type: application/json. |
+| 408 | `request-timeout` | The body arrived too slowly and the web server stopped waiting (decision #124) | The request body arrived too slowly. Send it again. |
+| 413 | `request-too-large` | The body is over 1 MB, on any endpoint that takes a body, sign-in included (decisions #122, #124) | The request body is too large. The limit is 1 MB. |
 | 409 | `concurrent-change` | A concurrent request changed the data first and no more specific message applies (PRD section 5) | The data changed while your request was being processed. Read it again and retry. |
 | 500 | `internal-error` | Any unexpected failure; details are logged, never returned (architecture 4.1 item 8) | An unexpected error occurred. |
 
-`405`, `415` and `500` keep the framework's default `title`; the fixed titles in section 6 cover `400` to `409`.
+`405`, `415` and `500` keep the framework's default `title`; the fixed titles in section 6 cover `400`, `401`, `403`, `404`, `408`, `409` and `413`.
 
 When two conflicting requests race, the losing one gets the specific message where one applies (for example `insufficient-stock` or `already-sent`), and `concurrent-change` only as a fallback.
 
