@@ -16,19 +16,20 @@ Kept current by the delivery manager. Last updated: 2026-11-21
 | 2 | Design | done | `docs/02-design.md` | API spec: 48 endpoints, ProblemDetails errors, flows. Owner settled 2 questions (decisions #17, #18). |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` | Skeleton builds (0 warnings), 4 of 4 tests pass (re-run by delivery manager). 21 tasks. |
 | 4 | Build | done | code | tasks done: 22 of 22 (T-001 to T-021, T-008a) |
-| 5 | QA | done | `docs/05-test-plan.md` | round 0 |
-| 6 | Security | in progress | `docs/06-security-review.md` | |
-| 7 | Release | not started | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
+| 5 | QA | done | `docs/05-test-plan.md` | Verdict PASS. |
+| 6 | Security | done | `docs/06-security-review.md` | Clear to release, with 9 conditions for phase 7 (report 7.2). |
+| 7 | Release | in progress | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
 
 Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Waiting on the owner
 
-- nothing
+- SEC-06: install the .NET 10.0.15 runtime (or later) on this machine; it runs 10.0.12. Owner's call.
+- Cloud tutorial provider: Azure App Service unless the owner prefers another.
 
 ## Next step
 
-Bring design and architecture in line with #122-#126, then `security-reviewer` re-checks SEC-01/SEC-02 and closes phase 6. Then phase 7 (Release), one agent at a time.
+Phase 7: `devops-engineer` (run scripts, CI, `docs/07-release.md` with the 9 security conditions and the cloud guide), then `technical-writer` (README, user guide, release notes). Owner approves before anything leaves this machine.
 
 ## Log
 
@@ -71,6 +72,7 @@ Bring design and architecture in line with #122-#126, then `security-reviewer` r
 - 2026-11-21 `security-reviewer`: go with conditions (SEC-01..SEC-17). Owner settled Q47-Q49 (#119-#121: localhost-only v1, no rate limit, deactivate-to-remove runbook).
 - 2026-11-21 SEC-01 and SEC-02 fixed (1 MB body cap, 500-line and 10-role caps before the write lock, 100-message cap, unreadable bodies 413/408/400 at Information; #122-#126). Approved by `code-reviewer` after two rounds; 1,721 tests pass. Committed and pushed.
 - 2026-11-21 Design, architecture and PRD updated for the request limits (#127); comment tidy approved by `code-reviewer`, committed and pushed. Next: security re-check of SEC-01/SEC-02.
+- 2026-11-21 `security-reviewer` re-check: SEC-01 and SEC-02 fixed and verified live; verdict clear to release with 9 phase 7 conditions; SEC-18 (info) added to Later. Phase 6 done. Started phase 7 with `devops-engineer`.
 
 ## Follow-ups to route
 
