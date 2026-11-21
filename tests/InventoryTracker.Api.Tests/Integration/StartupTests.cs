@@ -140,6 +140,7 @@ public class StartupTests
     /// </summary>
     [Theory]
     [InlineData("Short1A")]        // 7 characters
+    [InlineData("Aa1\U0001F9C0\U0001F9C0\U0001F9C0")] // decision #118: 6 characters (9 UTF-16 code units)
     [InlineData("nouppercase1")]
     [InlineData("NOLOWERCASE1")]
     [InlineData("NoDigitsHere")]
@@ -159,6 +160,18 @@ public class StartupTests
     {
         await using var app = new TestApiFactory();
         app.Settings[StartupChecks.AdminPasswordVariable] = "Abcdefg1";
+
+        app.CreateClient();
+
+        Assert.Equal(1, await CountUsersAsync(app.DatabasePath));
+    }
+
+    /// <summary>PRD section 5, decision #118: 8 characters, five of them emoji, also meets the minimum at start-up.</summary>
+    [Fact]
+    public async Task Admin_password_of_8_characters_with_emoji_is_accepted()
+    {
+        await using var app = new TestApiFactory();
+        app.Settings[StartupChecks.AdminPasswordVariable] = "Aa1\U0001F9C0\U0001F9C0\U0001F9C0\U0001F9C0\U0001F9C0";
 
         app.CreateClient();
 

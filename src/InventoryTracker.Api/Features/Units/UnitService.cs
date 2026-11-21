@@ -136,7 +136,8 @@ public sealed class UnitService(AppDbContext db)
         {
             errors.Add("name", "Name is required.");
         }
-        else if (name.Length > ColumnRules.UnitNameLength)
+        // Decision #116: counted in Unicode code points, so an emoji is one character (Text.Length).
+        else if (Text.Length(name) > ColumnRules.UnitNameLength)
         {
             errors.Add("name", $"Name must be {ColumnRules.UnitNameLength} characters or fewer.");
         }

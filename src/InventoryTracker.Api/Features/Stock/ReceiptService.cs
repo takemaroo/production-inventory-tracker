@@ -138,7 +138,8 @@ public sealed class ReceiptService(AppDbContext db, StockLedger ledger, Clock cl
 
         // Design 2.6: trimmed; a note of only spaces is no note.
         var note = Text.Clean(request.Note);
-        if (note is { Length: > ColumnRules.TextLength })
+        // Decision #116: counted in Unicode code points, so an emoji is one character (Text.Length).
+        if (Text.Length(note) > ColumnRules.TextLength)
         {
             errors.Add("note", $"Note must be {ColumnRules.TextLength} characters or fewer.");
         }

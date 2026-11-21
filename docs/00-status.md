@@ -16,8 +16,8 @@ Kept current by the delivery manager. Last updated: 2026-11-11
 | 2 | Design | done | `docs/02-design.md` | API spec: 48 endpoints, ProblemDetails errors, flows. Owner settled 2 questions (decisions #17, #18). |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` | Skeleton builds (0 warnings), 4 of 4 tests pass (re-run by delivery manager). 21 tasks. |
 | 4 | Build | done | code | tasks done: 22 of 22 (T-001 to T-021, T-008a) |
-| 5 | QA | in progress | `docs/05-test-plan.md` | round 0 |
-| 6 | Security | not started | `docs/06-security-review.md` | |
+| 5 | QA | done | `docs/05-test-plan.md` | round 0 |
+| 6 | Security | in progress | `docs/06-security-review.md` | |
 | 7 | Release | not started | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
 
 Status values: `not started`, `in progress`, `waiting on owner`, `done`.
@@ -66,17 +66,19 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - 2026-11-20 T-019 approved by `code-reviewer` after two rounds (all races forced; shared MaterialInUse code), committed and pushed. All PRD features built. Next: T-020.
 - 2026-11-20 T-020 approved by `code-reviewer` after two rounds (examples A-D HTTP-only from empty DB; 48-endpoint role matrix; performance tests isolated), committed and pushed. No product bugs found. Started T-021.
 - 2026-11-21 T-021 approved by `code-reviewer` after two rounds (48 endpoints documented, accurate required fields, .http walk-through with $dotenv), committed and pushed. Build phase complete.
+- 2026-11-21 Docs cleaned up before QA (architecture, design, PRD wording; decisions #112-#115).
+- 2026-11-21 Phase 5 QA (focused, #111): 130 ACs traced, 33 acceptance cases added, BUG-001 (minor, emoji length counting) fixed (#116), password length fixed (#118), re-tested and closed. Verdict PASS. Started phase 6.
 
 ## Follow-ups to route
 
 - security-reviewer (phase 6): from T-003, 5 wrong passwords can lock any account (a denial of service inherent in AC-01.4; owner may want to revisit). The timing signal and the lost failure counts were fixed in T-003 (decisions #61, #62); re-verify them.
-- qa-engineer (phase 5): displayed percentages follow round(round(x, 6), 2) (decision #58), which can differ from a single rounding in rare cases (e.g. 1.0049996 shows 1.01). Test against the two-step formula. Threshold checks use the unrounded value.
 - security-reviewer (phase 6): sign-in has no rate limit; each request costs about 45 ms of CPU. Belongs with the lock-out denial-of-service note.
-- qa-engineer (phase 5): a location with movements but no change shows 0.0 in stock, while an item with no movements shows 0; both valid per design 2.4 (T-008 review).
 - Common/ owner (low priority): a JSON number too large for decimal (e.g. 1e30) is reported by the T-001 framework handler as "{path} has the wrong type.", which is slightly misleading; could say it is too large (T-010 review).
 - Optional comment (next owner of AdjustmentService.cs): explain why AC-12.6's 400 before AC-12.5's 409 never conflicts with design 2.2 (a finished product can never be an order line).
 - T-021 (optional): non-numeric id filters (?itemId=abc on returns, movements, complementary orders) get the framework's "The value 'abc' is not valid."; design-style wording everywhere would need a shared fix (see the earlier PascalCase binding note).
 - Optional test chore (later): the suite takes ~1.5-2 min on this machine; ~175 per-test factories each migrate a fresh database (~450 ms). Starting from a pre-migrated database copy in TestApiFactory (~230 ms) would cut that, with an opt-out for start-up/migration tests (T-020 measurement).
-- qa-engineer (phase 5): without a token, any unknown path answers 401 rather than 404 (the fallback auth policy runs first); consistent with design 2.2's check order (T-021 note).
 - devops-engineer / technical-writer (phase 7): .env.example's header says to copy it to .env only as a private note or for Docker; add that the sample requests (InventoryTracker.Api.http) read src/InventoryTracker.Api/.env via $dotenv, not a root .env (T-021 review).
 - backend-developer (later tidy, not v1): UserService and PasswordService log inside the write transaction just before commit (other services log after commit); a failed commit could leave a log line for an unsaved change. Recorded in architecture 6 (tech-lead clean-up).
+- security-reviewer (phase 6): from QA, item names accept a tab and a NUL character; HTML-like text is returned unescaped in JSON (application/json). PRD forbids neither; judge the risk. Also: writes under many parallel clients at full volume were not load-tested (SQLite serialises writers, architecture risk 3).
+- Cosmetic (later): GET /production-orders/99999999999 (beyond int range) returns 404 "No endpoint matches this path." instead of "Order #... not found." (QA note).
+- Test tidy (later, not v1): third copy of the 100,000-movement volume seed in Acceptance/PerformanceAcceptanceTests; private AdjustAsync in StockZeroForms/NotificationEvents acceptance tests duplicates ScenarioApi.AdjustAsync; fold into OrderFlow/Seed (BUG-001 review).

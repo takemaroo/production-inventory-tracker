@@ -63,7 +63,8 @@ public static class AuthSetup
         services.AddIdentityCore<AppUser>(options =>
             {
                 // PRD section 5 password policy: at least 8 characters with an upper-case letter, a lower-case letter
-                // and a digit. Symbols are allowed but not required.
+                // and a digit. Symbols are allowed but not required. Identity's own rule counts this length in
+                // UTF-16 code units; PasswordLengthValidator (registered below) also counts it in code points (#118).
                 options.Password.RequiredLength = 8;
                 options.Password.RequireDigit = true;
                 options.Password.RequireLowercase = true;
@@ -86,6 +87,9 @@ public static class AuthSetup
                 options.User.AllowedUserNameCharacters = "";
             })
             // Roles live in AspNetRoles / AspNetUserRoles; a user can hold several (decision #8).
+            // Decision #118: a second password check, run alongside Identity's own, that counts the 8 characters as
+            // code points so an emoji is one character (see PasswordLengthValidator).
+            .AddPasswordValidator<PasswordLengthValidator>()
             .AddRoles<IdentityRole>()
             // Identity's EF Core stores: users and roles are read and written through AppDbContext.
             .AddEntityFrameworkStores<AppDbContext>()

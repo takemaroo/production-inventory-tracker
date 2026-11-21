@@ -305,7 +305,8 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
 
         foreach (var (field, text) in new[] { ("Note", movement.Note), ("Reason", movement.Reason) })
         {
-            if (text is not null && (Text.Clean(text) != text || text.Length > ColumnRules.TextLength))
+            // Decision #116: the same code-point count as the services use, so this guard never refuses text they accepted.
+            if (text is not null && (Text.Clean(text) != text || Text.Length(text) > ColumnRules.TextLength))
             {
                 throw Invalid(movement, $"{field} must be trimmed, not blank, and at most {ColumnRules.TextLength} characters");
             }

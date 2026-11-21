@@ -191,13 +191,14 @@ public sealed class ItemService(AppDbContext db, Clock clock)
         {
             errors.Add("name", "Name is required.");
         }
-        else if (name.Length > ColumnRules.ItemNameLength)
+        // Decision #116: both limits are counted in Unicode code points, so an emoji is one character (Text.Length).
+        else if (Text.Length(name) > ColumnRules.ItemNameLength)
         {
             errors.Add("name", $"Name must be {ColumnRules.ItemNameLength} characters or fewer.");
         }
 
         var description = Text.Clean(request.Description);
-        if (description is { Length: > ColumnRules.TextLength })
+        if (Text.Length(description) > ColumnRules.TextLength)
         {
             errors.Add("description", $"Description must be {ColumnRules.TextLength} characters or fewer.");
         }

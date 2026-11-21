@@ -280,7 +280,8 @@ public sealed class UserService(
         {
             errors.Add("email", "Email is required.");
         }
-        else if (email.Length > MaxEmailLength)
+        // Decision #116: counted in Unicode code points, so an emoji is one character (Text.Length).
+        else if (Text.Length(email) > MaxEmailLength)
         {
             errors.Add("email", $"Email must be {MaxEmailLength} characters or fewer.");
         }

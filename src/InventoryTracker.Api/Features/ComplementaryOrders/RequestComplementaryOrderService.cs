@@ -152,7 +152,8 @@ public sealed class RequestComplementaryOrderService(
         {
             errors.Add("reason", "Reason is required.");
         }
-        else if (reason.Length > ColumnRules.TextLength)
+        // Decision #116: counted in Unicode code points, so an emoji is one character (Text.Length).
+        else if (Text.Length(reason) > ColumnRules.TextLength)
         {
             errors.Add("reason", $"Reason must be {ColumnRules.TextLength} characters or fewer.");
         }

@@ -209,7 +209,8 @@ public sealed class CompleteOrderService(
 
         // Design 2.6: trimmed first; blank counts as not given. AC-19.1: at most 500 characters.
         var reason = Text.Clean(request.Reason);
-        if (reason is { Length: > ColumnRules.TextLength })
+        // Decision #116: counted in Unicode code points, so an emoji is one character (Text.Length).
+        if (Text.Length(reason) > ColumnRules.TextLength)
         {
             errors.Add("reason", $"Reason must be {ColumnRules.TextLength} characters or fewer.");
         }

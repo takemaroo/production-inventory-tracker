@@ -315,6 +315,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     /// </summary>
     [Theory]
     [InlineData("Short1a")]
+    [InlineData("Aa1\U0001F9C0\U0001F9C0\U0001F9C0")] // decision #118: 6 characters (9 UTF-16 code units)
     [InlineData("NoDigitsHere")]
     [InlineData("lower-case-only-1")]
     [InlineData("UPPER-CASE-ONLY-1")]
@@ -328,6 +329,23 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "weak-password", WeakPasswordMessage);
         Assert.True(body.GetProperty("errors").TryGetProperty("password", out _));
         Assert.False(await UserExistsAsync(factory, email));
+    }
+
+    /// <summary>
+    /// AC-03.3, PRD section 5, decision #118: an initial password of exactly 8 characters, five of them emoji, meets the
+    /// minimum. The user is created and can sign in with it.
+    /// </summary>
+    [Fact]
+    public async Task Initial_password_of_8_characters_with_emoji_is_accepted()
+    {
+        using var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var email = Seed.UniqueEmail("users");
+        const string password = "Aa1\U0001F9C0\U0001F9C0\U0001F9C0\U0001F9C0\U0001F9C0";
+
+        var response = await manager.PostAsJsonAsync(UsersPath, new { email, password, roles = new[] { "Warehouse" } }, Cancel);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SignInRawAsync(email, password)).Status);
     }
 
     /// <summary>Design 2.2 order: input problems (400) are reported before a duplicate email (409).</summary>
@@ -653,6 +671,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     /// <summary>AC-03.7: the policy applies; a weak or missing new password is 400 and the old password still works.</summary>
     [Theory]
     [InlineData("""{ "newPassword": "weakpass" }""", "weak-password", WeakPasswordMessage)]
+    [InlineData("""{ "newPassword": "Aa1\uD83E\uDDC0\uD83E\uDDC0\uD83E\uDDC0" }""", "weak-password", WeakPasswordMessage)] // decision #118: 6 characters (JSON escapes for the emoji)
     [InlineData("""{ }""", "validation", "New password is required.")]
     public async Task Manager_setting_an_invalid_password_gives_400(string json, string code, string message)
     {
@@ -891,6 +910,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     /// </summary>
     [Theory]
     [InlineData($$"""{ "currentPassword": "{{TestApiFactory.UserPassword}}", "newPassword": "alllowercase1" }""", "weak-password", WeakPasswordMessage)]
+    [InlineData($$"""{ "currentPassword": "{{TestApiFactory.UserPassword}}", "newPassword": "Aa1\uD83E\uDDC0\uD83E\uDDC0\uD83E\uDDC0" }""", "weak-password", WeakPasswordMessage)] // decision #118: 6 characters (JSON escapes for the emoji)
     [InlineData($$"""{ "newPassword": "{{NewPassword}}" }""", "validation", "Current password is required.")]
     [InlineData($$"""{ "currentPassword": "{{TestApiFactory.UserPassword}}" }""", "validation", "New password is required.")]
     [InlineData("""{ }""", "validation", "Current password is required. New password is required.")]
