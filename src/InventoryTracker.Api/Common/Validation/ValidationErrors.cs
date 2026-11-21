@@ -51,8 +51,8 @@ public sealed class ValidationErrors
 
     /// <summary>
     /// The sentence that ends <c>detail</c> when <paramref name="count"/> messages were left out: "1 more problem is not
-    /// shown." or "1,900 more problems are not shown." (number formatted as design 6.1). New wording, routed to the
-    /// ux-designer.
+    /// shown." or "1,900 more problems are not shown." (design 7.2, decision #122; the number is formatted as in
+    /// design 6.1).
     /// </summary>
     public static string NotShownMessage(int count) => count == 1
         ? "1 more problem is not shown."

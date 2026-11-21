@@ -36,10 +36,15 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
     public const string ConcurrentChangeMessage =
         "The data changed while your request was being processed. Read it again and retry.";
 
-    /// <summary>SEC-02: a body that arrived too slowly (new wording, routed to the ux-designer).</summary>
+    /// <summary>
+    /// SEC-02, design 7.2: the <c>408</c> <c>request-timeout</c> message for a body that arrived too slowly.
+    /// </summary>
     public const string RequestTimeoutMessage = "The request body arrived too slowly. Send it again.";
 
-    /// <summary>SEC-02: a body the web server could not read, such as a malformed chunked body (new wording).</summary>
+    /// <summary>
+    /// SEC-02, design 7.2: the <c>400</c> <c>validation</c> message for a body the web server could not read, such as a
+    /// malformed chunked body.
+    /// </summary>
     public const string UnreadableBodyMessage = "The request body could not be read.";
 
     /// <summary>Architecture 4.1 item 8: the only text a client ever sees for an unexpected error.</summary>

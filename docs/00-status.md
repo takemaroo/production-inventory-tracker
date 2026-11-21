@@ -70,6 +70,7 @@ Bring design and architecture in line with #122-#126, then `security-reviewer` r
 - 2026-11-21 Phase 5 QA (focused, #111): 130 ACs traced, 33 acceptance cases added, BUG-001 (minor, emoji length counting) fixed (#116), password length fixed (#118), re-tested and closed. Verdict PASS. Started phase 6.
 - 2026-11-21 `security-reviewer`: go with conditions (SEC-01..SEC-17). Owner settled Q47-Q49 (#119-#121: localhost-only v1, no rate limit, deactivate-to-remove runbook).
 - 2026-11-21 SEC-01 and SEC-02 fixed (1 MB body cap, 500-line and 10-role caps before the write lock, 100-message cap, unreadable bodies 413/408/400 at Information; #122-#126). Approved by `code-reviewer` after two rounds; 1,721 tests pass. Committed and pushed.
+- 2026-11-21 Design, architecture and PRD updated for the request limits (#127); comment tidy approved by `code-reviewer`, committed and pushed. Next: security re-check of SEC-01/SEC-02.
 
 ## Follow-ups to route
 
@@ -83,7 +84,6 @@ Bring design and architecture in line with #122-#126, then `security-reviewer` r
 - backend-developer (later tidy, not v1): UserService and PasswordService log inside the write transaction just before commit (other services log after commit); a failed commit could leave a log line for an unsaved change. Recorded in architecture 6 (tech-lead clean-up).
 - security-reviewer (phase 6): from QA, item names accept a tab and a NUL character; HTML-like text is returned unescaped in JSON (application/json). PRD forbids neither; judge the risk. Also: writes under many parallel clients at full volume were not load-tested (SQLite serialises writers, architecture risk 3).
 - Cosmetic (later): GET /production-orders/99999999999 (beyond int range) returns 404 "No endpoint matches this path." instead of "Order #... not found." (QA note).
-- ux-designer / tech-lead (now): design 2.2 (408/413 statuses; too-many-lines and the role cap before the 404), 6 (new titles, "not shown" sentence), 7.2 (new messages incl. roles cap); architecture 3 (#63 paragraph: recipes now capped at 500 lines), 5.1 check order, 6 validation/error handling/logging (refused bodies logged at Information).
 - devops-engineer (phase 7): #126 optional Warning level for ApiExceptionHandler; the body limit is also set for IIS hosting.
-- Optional nits (later, from the SEC fix review): log a test-output line when RequestBodyLimitTests retries after a reset; reorder the sentences in RequestLimits.CheckLineCount remarks so "The consequence is deliberate" follows the right sentence.
+- Optional comment nits (later, from the comment-tidy review): CheckLineCount remarks also cite #123; RequestTimeoutMessage and UnreadableBodyMessage cite #124; RequestBodyLimitTests comment says TestOutputHelper (not TestContext.Current) is null outside a test; TooManyRolesMessage points to design 7.2.
 - Test tidy (later, not v1): third copy of the 100,000-movement volume seed in Acceptance/PerformanceAcceptanceTests; private AdjustAsync in StockZeroForms/NotificationEvents acceptance tests duplicates ScenarioApi.AdjustAsync; fold into OrderFlow/Seed (BUG-001 review).

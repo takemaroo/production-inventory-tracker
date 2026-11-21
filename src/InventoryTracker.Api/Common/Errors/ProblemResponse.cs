@@ -29,7 +29,7 @@ public static class ProblemResponse
     public const string ErrorsField = "errors";
 
     // Design 6: "title is fixed per status". Statuses not listed keep the framework's default title.
-    // 408 and 413 are new with SEC-02 (bodies the web server refuses); their titles are routed to the ux-designer.
+    // 408 and 413 came with SEC-02 (bodies the web server refuses); design 6 lists their titles too (decision #124).
     private static readonly Dictionary<int, string> FixedTitles = new()
     {
         [StatusCodes.Status400BadRequest] = "Invalid request",

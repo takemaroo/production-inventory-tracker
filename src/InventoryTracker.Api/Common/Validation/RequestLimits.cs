@@ -65,11 +65,11 @@ public static class RequestLimits
     /// </remarks>
     public const int MaxRoles = 10;
 
-    /// <summary>The <c>413</c> message (design 7.2 has no row for it yet; routed to the ux-designer).</summary>
+    /// <summary>The <c>413</c> <c>request-too-large</c> message (design 7.2, decisions #122 and #124).</summary>
     public static readonly string BodyTooLargeMessage =
         $"The request body is too large. The limit is {MaxBodyMegabytes} MB.";
 
-    /// <summary>The <c>400</c> <c>too-many-lines</c> message, under <c>lines</c> (new; routed to the ux-designer).</summary>
+    /// <summary>The <c>400</c> <c>too-many-lines</c> message, under <c>lines</c> (design 7.2, decision #123).</summary>
     public static readonly string TooManyLinesMessage = $"At most {MaxLines} lines are allowed.";
 
     /// <summary>The <c>400</c> <c>validation</c> message, under <c>roles</c> (decision #125).</summary>
@@ -83,11 +83,11 @@ public static class RequestLimits
     /// <remarks>
     /// Services call this <em>before</em> <c>InWriteTransactionAsync</c>, so an oversized list is refused without ever
     /// taking the database's write lock and cannot make anyone else wait (SEC-01). It needs nothing from the database.
+    /// The consequence is deliberate: this check comes before the <c>404</c> for the record in the URL, in the same way
+    /// as a body that is not valid JSON does (design 2.2, decision #23).
     /// The rest of a body's checks stay inside the transaction, in the design 2.2 order (the <c>404</c> for the record
     /// in the URL comes first, and most of them need the record); with at most <see cref="MaxLines"/> lines they take
     /// well under a millisecond.
-    /// The consequence is deliberate: this check comes before the <c>404</c> for the record in the URL, in the same way
-    /// as a body that is not valid JSON does (design 2.2, decision #23).
     /// </remarks>
     /// <typeparam name="T">The type of one line; any list counts.</typeparam>
     /// <param name="lines">The request body's <c>lines</c>.</param>
