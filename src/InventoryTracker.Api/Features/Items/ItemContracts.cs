@@ -4,18 +4,25 @@ namespace InventoryTracker.Api.Features.Items;
 
 /// <summary>
 /// Body of <c>POST /api/v1/items</c> and <c>PUT /api/v1/items/{id}</c> (design 5.4). <c>PUT</c> is a full
-/// replacement: all four fields are sent every time.
+/// replacement: name, type and unit are sent every time, and a description left out clears the stored one.
 /// </summary>
 /// <param name="Name">Required, trimmed, 1 to 100 characters, unique ignoring letter case (AC-07.1, design 2.6).</param>
-/// <param name="Description">Optional, trimmed, up to 500 characters. Empty or blank is stored as no description.</param>
 /// <param name="Type"><c>RawMaterial</c> or <c>FinishedProduct</c>, any letter case (design 2.3).</param>
 /// <param name="UnitId">The id of an existing unit (AC-07.1).</param>
+/// <param name="Description">Optional, trimmed, up to 500 characters. Empty or blank is stored as no description.</param>
 /// <remarks>
 /// Every field is nullable, and <c>Type</c> is text rather than <see cref="ItemType"/>, so that a missing or unknown
 /// value reaches <see cref="ItemService"/>, which answers with the design's own messages (architecture 4.1 item 3,
 /// architecture 6, Validation).
+/// <para>
+/// <c>Description</c> is the one optional field, so it comes last with a default, <c>= null</c>. A positional record's
+/// constructor parameters become its properties; the JSON reader matches them by name, so their order does not matter
+/// to clients. The default changes nothing when JSON is read (a missing field is null either way), but the OpenAPI
+/// generator lists only parameters without a default as "required", so the API description shows that a description
+/// may be left out (decision #110).
+/// </para>
 /// </remarks>
-public sealed record ItemRequest(string? Name, string? Description, string? Type, int? UnitId);
+public sealed record ItemRequest(string? Name, string? Type, int? UnitId, string? Description = null);
 
 /// <summary>An item as the API returns it (design 5.4). AC-07.5: every item shows its type and unit.</summary>
 /// <param name="Id">The item's id.</param>

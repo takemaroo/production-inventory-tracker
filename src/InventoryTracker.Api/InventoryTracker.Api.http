@@ -1,10 +1,419 @@
-# Sample requests for the VS Code REST Client extension or Visual Studio's .http editor.
-# Start the API first: dotnet run --project src/InventoryTracker.Api
-@host = http://localhost:5133
+# Sample requests for every endpoint of the API (design section 4), as one walk-through of the main flow:
+# sign in -> master data -> receive -> order -> send -> complementary -> complete -> notifications -> returns
+# -> adjustments -> users.
+#
+# Tools: the VS Code "REST Client" extension, or the .http editor of Visual Studio 2022 17.12 or later. Both send
+# the request under the cursor ("Send Request") and both support the variables used here:
+#   - file variables (@host = ...), used as {{host}};
+#   - request variables: "# @name signIn" names a request, and {{signIn.response.body.$.accessToken}} reads a field
+#     of its last response. So run the requests in order, top to bottom: each one uses ids from the ones above.
+#
+# Start the API first (architecture section 8): dotnet run --project src/InventoryTracker.Api
+# The walk-through creates units, items and users with fixed names, so it runs once against a fresh database.
+# To start again: stop the app and delete src/InventoryTracker.Api/inventory.db*.
+#
+# Signing in needs the first Manager's email and password: the ADMIN_EMAIL and ADMIN_PASSWORD you stored with
+# dotnet user-secrets (architecture section 8). Never type a real password into this file: it is tracked by git.
+# The sign-in request reads them with {{$dotenv ...}} from a file named .env in this folder
+# (src/InventoryTracker.Api/.env), which .gitignore already excludes. Create it with two lines, the same names as
+# the repository's .env.example, for example with architecture section 8's sample values:
+#   ADMIN_EMAIL=owner@example.com
+#   ADMIN_PASSWORD=Choose-A-Strong1
+# The app itself never reads .env; the file is only for these sample requests. Both editors support $dotenv.
+# Every other email and password below is a placeholder for users the walk-through creates.
 
-### Health check: answers "Healthy" when the app and its database are up.
+@host = http://localhost:5133
+@api = {{host}}/api/v1
+
+### Health check (anonymous): answers "Healthy" when the app and its database are up.
 GET {{host}}/health
 
-### OpenAPI description (Development only).
+### OpenAPI description (anonymous, Development only): every endpoint, its shapes, status codes and the Bearer scheme.
 GET {{host}}/openapi/v1.json
 Accept: application/json
+
+###
+# ---- 1. Sign in (US-01) -----------------------------------------------------------------------------------------
+
+### Sign in as the first Manager. Every later request sends the returned token (valid for 8 hours).
+# @name signIn
+POST {{api}}/auth/sign-in
+Content-Type: application/json
+
+{ "email": "{{$dotenv ADMIN_EMAIL}}", "password": "{{$dotenv ADMIN_PASSWORD}}" }
+
+###
+@token = {{signIn.response.body.$.accessToken}}
+
+###
+# ---- 2. Master data: units, items, recipes (US-06, US-07, US-08) -------------------------------------------------
+
+### Create the unit "kg" (Manager).
+# @name createKg
+POST {{api}}/units
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "kg" }
+
+###
+@kgId = {{createKg.response.body.$.id}}
+
+### Create the unit "bag" (renamed below).
+# @name createBag
+POST {{api}}/units
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "bag" }
+
+###
+@bagId = {{createBag.response.body.$.id}}
+
+### List units, newest first (any role). Every list takes page (default 1) and pageSize (1 to 100, default 50).
+GET {{api}}/units?page=1&pageSize=50
+Authorization: Bearer {{token}}
+
+### One unit.
+GET {{api}}/units/{{kgId}}
+Authorization: Bearer {{token}}
+
+### Rename a unit (Manager): "bag" becomes "Bag". A unit's own current name never counts as taken.
+PUT {{api}}/units/{{bagId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Bag" }
+
+### Create a unit to delete next.
+# @name createBox
+POST {{api}}/units
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Box" }
+
+### Delete a unit that no item uses (Manager): 204.
+DELETE {{api}}/units/{{createBox.response.body.$.id}}
+Authorization: Bearer {{token}}
+
+### Create the raw material Cheese, measured in kg.
+# @name createCheese
+POST {{api}}/items
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Cheese", "description": "Mozzarella, 20 kg blocks", "type": "RawMaterial", "unitId": {{kgId}} }
+
+###
+@cheeseId = {{createCheese.response.body.$.id}}
+
+### Create the finished product, counted in bags.
+# @name createProduct
+POST {{api}}/items
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Shredded cheese 1 kg bag", "description": "Mozzarella blend, retail pack", "type": "FinishedProduct", "unitId": {{bagId}} }
+
+###
+@productId = {{createProduct.response.body.$.id}}
+
+### List raw materials only (filter: type).
+GET {{api}}/items?type=RawMaterial
+Authorization: Bearer {{token}}
+
+### One item.
+GET {{api}}/items/{{cheeseId}}
+Authorization: Bearer {{token}}
+
+### Replace an item (all four fields). Type and unit can change only while the item is not in use.
+PUT {{api}}/items/{{cheeseId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Cheese", "description": "Mozzarella, 20 kg blocks, chilled", "type": "RawMaterial", "unitId": {{kgId}} }
+
+### Create an item to delete next.
+# @name createSpare
+POST {{api}}/items
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Spare label roll", "type": "RawMaterial", "unitId": {{kgId}} }
+
+### Delete an item that has no movements, recipe lines or order lines (Manager): 204.
+DELETE {{api}}/items/{{createSpare.response.body.$.id}}
+Authorization: Bearer {{token}}
+
+### Set the product's recipe: 1 kg of Cheese per bag (Manager). Replaces the whole list.
+PUT {{api}}/items/{{productId}}/recipe
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "lines": [ { "itemId": {{cheeseId}}, "amountPerUnit": 1 } ] }
+
+### Read the recipe.
+GET {{api}}/items/{{productId}}/recipe
+Authorization: Bearer {{token}}
+
+###
+# ---- 3. Receive stock; read stock and movements (US-09, US-10, US-11) --------------------------------------------
+
+### Record a receipt of 1,200 kg of Cheese into the Warehouse (Warehouse or Manager). 201 with the movement.
+# @name receipt
+POST {{api}}/receipts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "itemId": {{cheeseId}}, "quantity": 1200, "receiptDate": "2026-11-01", "note": "Delivery note 4471" }
+
+### Current stock of every item (filter: itemType).
+GET {{api}}/stock?itemType=RawMaterial
+Authorization: Bearer {{token}}
+
+### Stock of one item, with committed amount, pending returns and free leftover.
+GET {{api}}/stock/{{cheeseId}}
+Authorization: Bearer {{token}}
+
+### Movement history (filters: itemId, location, type, orderNumber, complementaryOrderNumber, from, to).
+GET {{api}}/movements?itemId={{cheeseId}}&type=Received
+Authorization: Bearer {{token}}
+
+### One movement: the receipt above (its Location header points here).
+GET {{api}}/movements/{{receipt.response.body.$.id}}
+Authorization: Bearer {{token}}
+
+###
+# ---- 4. Production order: create, view (US-13, US-14) ------------------------------------------------------------
+
+### Create an order for 1,000 bags (Manager). The detail shows each line's estimate and send range.
+# @name createOrder
+POST {{api}}/production-orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "finishedProductId": {{productId}}, "orderedQuantity": 1000 }
+
+###
+@orderNumber = {{createOrder.response.body.$.number}}
+
+### List orders (filter: status).
+GET {{api}}/production-orders?status=Created
+Authorization: Bearer {{token}}
+
+### One order, by number.
+GET {{api}}/production-orders/{{orderNumber}}
+Authorization: Bearer {{token}}
+
+###
+# ---- 5. Send materials (US-15) -----------------------------------------------------------------------------------
+
+### Send 1,000 kg of Cheese (Warehouse or Manager). Every line once; within the range shown on the order (980 to 1,020).
+POST {{api}}/production-orders/{{orderNumber}}/send
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "lines": [ { "itemId": {{cheeseId}}, "quantity": 1000 } ] }
+
+###
+# ---- 6. Complementary orders (US-16, US-17, US-18) ---------------------------------------------------------------
+
+### Request 20 kg more for the running order (Production or Manager). Raises a notification for Managers.
+# @name requestComplementary
+POST {{api}}/production-orders/{{orderNumber}}/complementary-orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Hopper spill at start of run", "lines": [ { "itemId": {{cheeseId}}, "requestedAmount": 20 } ] }
+
+###
+@complementaryNumber = {{requestComplementary.response.body.$.number}}
+
+### List complementary orders (filters: status, orderNumber).
+GET {{api}}/complementary-orders?orderNumber={{orderNumber}}
+Authorization: Bearer {{token}}
+
+### One complementary order.
+GET {{api}}/complementary-orders/{{complementaryNumber}}
+Authorization: Bearer {{token}}
+
+### Approve it (Manager). No body.
+POST {{api}}/complementary-orders/{{complementaryNumber}}/approve
+Authorization: Bearer {{token}}
+
+### Send it (Warehouse or Manager), within its range (19.6 to 20.4).
+POST {{api}}/complementary-orders/{{complementaryNumber}}/send
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "lines": [ { "itemId": {{cheeseId}}, "quantity": 20 } ] }
+
+### Request a second one, to reject next.
+# @name requestSecond
+POST {{api}}/production-orders/{{orderNumber}}/complementary-orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Second spill", "lines": [ { "itemId": {{cheeseId}}, "requestedAmount": 5 } ] }
+
+### Reject it (Manager). The note is optional; the body may be left out.
+POST {{api}}/complementary-orders/{{requestSecond.response.body.$.number}}/reject
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "note": "Use the spare from the last order" }
+
+###
+# ---- 7. Complete the order; cancel another (US-19, US-20, US-21) -------------------------------------------------
+
+### Complete the order (Production or Manager): 1,001 bags made, 4 kg of Cheese left. The response shows the variances.
+POST {{api}}/production-orders/{{orderNumber}}/complete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "producedQuantity": 1001, "lines": [ { "itemId": {{cheeseId}}, "leftover": 4 } ], "reason": "Last bag line jammed" }
+
+### Create a second order, to cancel next.
+# @name createSecondOrder
+POST {{api}}/production-orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "finishedProductId": {{productId}}, "orderedQuantity": 50 }
+
+### Cancel it (Manager), with a reason.
+POST {{api}}/production-orders/{{createSecondOrder.response.body.$.number}}/cancel
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Customer order withdrawn" }
+
+###
+# ---- 8. Notifications (US-23, Manager only) ----------------------------------------------------------------------
+
+### Unread notifications, newest first (filter: unreadOnly).
+# @name notifications
+GET {{api}}/notifications?unreadOnly=true
+Authorization: Bearer {{token}}
+
+###
+@notificationId = {{notifications.response.body.$.items[0].id}}
+
+### One notification.
+GET {{api}}/notifications/{{notificationId}}
+Authorization: Bearer {{token}}
+
+### Mark it read: 204.
+POST {{api}}/notifications/{{notificationId}}/read
+Authorization: Bearer {{token}}
+
+### Mark every notification read: 204.
+POST {{api}}/notifications/read-all
+Authorization: Bearer {{token}}
+
+###
+# ---- 9. Leftover returns (US-22) ---------------------------------------------------------------------------------
+
+### Instruct a return of 3 kg of the leftover Cheese to the Warehouse (Manager). orderNumber is optional.
+# @name instructReturn
+POST {{api}}/returns
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "itemId": {{cheeseId}}, "quantity": 3, "reason": "Not needed this week", "orderNumber": {{orderNumber}} }
+
+###
+@returnNumber = {{instructReturn.response.body.$.number}}
+
+### List returns (filters: status, itemId).
+GET {{api}}/returns?status=Pending
+Authorization: Bearer {{token}}
+
+### One return.
+GET {{api}}/returns/{{returnNumber}}
+Authorization: Bearer {{token}}
+
+### Record receiving it in the Warehouse (Warehouse or Manager). No body.
+POST {{api}}/returns/{{returnNumber}}/receive
+Authorization: Bearer {{token}}
+
+### Instruct a second return, to cancel next.
+# @name secondReturn
+POST {{api}}/returns
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "itemId": {{cheeseId}}, "quantity": 1, "reason": "Instructed by mistake" }
+
+### Cancel it (Manager). No body.
+POST {{api}}/returns/{{secondReturn.response.body.$.number}}/cancel
+Authorization: Bearer {{token}}
+
+###
+# ---- 10. Adjustments (US-12, Manager only) -----------------------------------------------------------------------
+
+### Write off 2 kg of spoiled Cheese in the Warehouse. 201 with the Adjustment movement.
+POST {{api}}/adjustments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "itemId": {{cheeseId}}, "location": "Warehouse", "quantity": -2, "reason": "Spoiled" }
+
+###
+# ---- 11. Users and passwords (US-03, US-04, Manager only except change-password) ---------------------------------
+
+### Create a Warehouse user.
+# @name createUser
+POST {{api}}/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "email": "warehouse.user@example.com", "password": "Initial2026", "roles": ["Warehouse"] }
+
+###
+@userId = {{createUser.response.body.$.id}}
+
+### List users.
+GET {{api}}/users
+Authorization: Bearer {{token}}
+
+### One user.
+GET {{api}}/users/{{userId}}
+Authorization: Bearer {{token}}
+
+### Replace the user's roles. New roles apply from their next sign-in.
+PUT {{api}}/users/{{userId}}/roles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "roles": ["Warehouse", "Production"] }
+
+### Deactivate the user: their tokens stop working at once.
+POST {{api}}/users/{{userId}}/deactivate
+Authorization: Bearer {{token}}
+
+### Reactivate the user. They sign in again.
+POST {{api}}/users/{{userId}}/reactivate
+Authorization: Bearer {{token}}
+
+### Reset the user's password: 204.
+PUT {{api}}/users/{{userId}}/password
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "newPassword": "Reset-2026a" }
+
+### Sign in as that user with the new password.
+# @name signInUser
+POST {{api}}/auth/sign-in
+Content-Type: application/json
+
+{ "email": "warehouse.user@example.com", "password": "Reset-2026a" }
+
+### Change your own password (any role): 204. Done as the new user, so the Manager's token above keeps working.
+POST {{api}}/auth/change-password
+Authorization: Bearer {{signInUser.response.body.$.accessToken}}
+Content-Type: application/json
+
+{ "currentPassword": "Reset-2026a", "newPassword": "Gouda-Wheel-77" }

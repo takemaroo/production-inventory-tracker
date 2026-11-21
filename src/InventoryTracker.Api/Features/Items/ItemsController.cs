@@ -28,12 +28,14 @@ public sealed class ItemsController(ItemService items) : ControllerBase
     /// <param name="type">Optional type filter, any letter case. Received as text so the error uses the design's wording.</param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<ItemResponse>> List(
         [FromQuery] PageQuery paging, [FromQuery(Name = "type")] string? type, CancellationToken cancellationToken) =>
         items.ListAsync(paging, type, cancellationToken);
 
     /// <summary><c>GET /api/v1/items/{id}</c>: one item with its type and unit (AC-07.5), or <c>404</c> "Item {id} not found.".</summary>
     [HttpGet("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<ItemResponse> Get(int id, CancellationToken cancellationToken) =>
         items.GetAsync(id, cancellationToken);
 
@@ -44,6 +46,8 @@ public sealed class ItemsController(ItemService items) : ControllerBase
     /// </summary>
     [HttpPost]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`item-name-taken`: an item with this name already exists (AC-07.2).")]
     public async Task<ActionResult<ItemResponse>> Create(ItemRequest request, CancellationToken cancellationToken)
     {
         var item = await items.CreateAsync(request, cancellationToken);
@@ -56,6 +60,8 @@ public sealed class ItemsController(ItemService items) : ControllerBase
     /// </summary>
     [HttpPut("{id:int}")]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`item-name-taken`, or `item-in-use`: the type or unit cannot change once the item is in use (AC-07.3).")]
     public Task<ItemResponse> Update(int id, ItemRequest request, CancellationToken cancellationToken) =>
         items.UpdateAsync(id, request, cancellationToken);
 
@@ -65,6 +71,8 @@ public sealed class ItemsController(ItemService items) : ControllerBase
     /// </summary>
     [HttpDelete("{id:int}")]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`item-in-use`: the item has movements, a recipe or orders (AC-07.4).")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         await items.DeleteAsync(id, cancellationToken);

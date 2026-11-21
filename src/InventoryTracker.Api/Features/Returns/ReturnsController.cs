@@ -34,6 +34,8 @@ public sealed class ReturnsController(
     /// </remarks>
     [HttpPost]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`material-in-use`: the material is committed to the order in production (AC-22.3); `insufficient-free-leftover` (AC-22.2).")]
     public async Task<ActionResult<ReturnResponse>> Create(ReturnRequest request, CancellationToken cancellationToken)
     {
         // AC-22.1, AC-05.3: the return records who instructed it, taken from the checked token, never from the body.
@@ -53,6 +55,7 @@ public sealed class ReturnsController(
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     /// <remarks>PRD 4.2, "View ... returns": every role, so only the fallback "signed in" policy applies.</remarks>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<ReturnResponse>> List(
         [FromQuery] PageQuery paging,
         [FromQuery(Name = "status")] string? status,
@@ -65,6 +68,7 @@ public sealed class ReturnsController(
     /// </summary>
     /// <remarks>PRD 4.2: every role.</remarks>
     [HttpGet("{number:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<ReturnResponse> Get(int number, CancellationToken cancellationToken) =>
         returns.GetAsync(number, cancellationToken);
 
@@ -80,6 +84,8 @@ public sealed class ReturnsController(
     /// </remarks>
     [HttpPost("{number:int}/receive")]
     [Authorize(Roles = Roles.WarehouseOrManager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`not-pending`: only a Pending return can be received (AC-22.5); `insufficient-stock`: Production storage holds less than the return (decision #18).")]
     public Task<ReturnResponse> Receive(int number, CancellationToken cancellationToken)
     {
         // AC-22.4, AC-05.3: the receipt records who received it, taken from the checked token.
@@ -98,6 +104,8 @@ public sealed class ReturnsController(
     /// </remarks>
     [HttpPost("{number:int}/cancel")]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`not-pending`: only a Pending return can be cancelled (AC-22.5).")]
     public Task<ReturnResponse> Cancel(int number, CancellationToken cancellationToken)
     {
         // AC-22.5, AC-05.3: the cancellation records who cancelled it, taken from the checked token.

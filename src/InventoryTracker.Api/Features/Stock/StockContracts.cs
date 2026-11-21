@@ -40,8 +40,10 @@ public sealed record StockResponse(
 /// Every field is nullable, and the date is text, so a missing or malformed value reaches <see cref="ReceiptService"/>,
 /// which answers with the design's own messages rather than a framework one (architecture 6, Validation). A value of the
 /// wrong JSON type (a quantity sent as a string) is still refused by the framework first (architecture 4.1 item 2).
+/// <c>= null</c> on an optional field changes nothing when JSON is read (a missing field is null either way); it
+/// tells the OpenAPI description that the field may be left out (decision #110).
 /// </remarks>
-public sealed record ReceiptRequest(int? ItemId, decimal? Quantity, string? ReceiptDate, string? Note);
+public sealed record ReceiptRequest(int? ItemId, decimal? Quantity, string? ReceiptDate, string? Note = null);
 
 /// <summary>Body of <c>POST /api/v1/adjustments</c> (design 5.6, AC-12.1).</summary>
 /// <param name="ItemId">The item whose stock is corrected. Required; must exist. Raw material or finished product.</param>

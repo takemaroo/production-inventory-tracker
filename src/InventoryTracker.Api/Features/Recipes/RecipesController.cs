@@ -25,6 +25,7 @@ public sealed class RecipesController(RecipeService recipes) : ControllerBase
     /// </summary>
     /// <remarks>No <c>[Authorize]</c>: the fallback "signed in" policy is exactly "All" in design 4.</remarks>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<RecipeResponse> Get(int id, CancellationToken cancellationToken) =>
         recipes.GetAsync(id, cancellationToken);
 
@@ -35,6 +36,7 @@ public sealed class RecipesController(RecipeService recipes) : ControllerBase
     /// </summary>
     [HttpPut]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<RecipeResponse> Replace(int id, RecipeRequest request, CancellationToken cancellationToken)
     {
         // AC-05.3: the recipe records who saved it. The id comes from the token's "sub" claim, never from the body.

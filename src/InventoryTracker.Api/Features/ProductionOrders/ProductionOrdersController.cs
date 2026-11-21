@@ -37,6 +37,7 @@ public sealed class ProductionOrdersController(
     /// <param name="status">Optional status filter, any letter case. Received as text so the error uses the design's wording.</param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<ProductionOrderSummaryResponse>> List(
         [FromQuery] PageQuery paging, [FromQuery(Name = "status")] string? status, CancellationToken cancellationToken) =>
         orders.ListAsync(paging, status, cancellationToken);
@@ -46,6 +47,7 @@ public sealed class ProductionOrdersController(
     /// while it is Created (AC-13.2). <c>404</c> "Order #{number} not found." (AC-14.3).
     /// </summary>
     [HttpGet("{number:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<ProductionOrderResponse> Get(int number, CancellationToken cancellationToken) =>
         orders.GetAsync(number, cancellationToken);
 
@@ -57,6 +59,7 @@ public sealed class ProductionOrdersController(
     /// <remarks>PRD 4.2, "Create or cancel an order": Manager only (AC-13.7).</remarks>
     [HttpPost]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
     public async Task<ActionResult<ProductionOrderResponse>> Create(
         ProductionOrderRequest request, CancellationToken cancellationToken)
     {
@@ -80,6 +83,8 @@ public sealed class ProductionOrdersController(
     /// </remarks>
     [HttpPost("{number:int}/send")]
     [Authorize(Roles = Roles.WarehouseOrManager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`already-sent`, `order-cancelled`, `another-order-in-production`, `pending-return` or `insufficient-stock` (AC-15.7, AC-15.9 to AC-15.11).")]
     public Task<ProductionOrderResponse> Send(int number, SendOrderRequest request, CancellationToken cancellationToken)
     {
         // AC-05.3, AC-15.1: the send records who sent it, taken from the checked token, never from the body.
@@ -100,6 +105,8 @@ public sealed class ProductionOrdersController(
     /// </remarks>
     [HttpPost("{number:int}/complete")]
     [Authorize(Roles = Roles.ProductionOrManager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`order-not-sent`, `already-completed` or `order-cancelled`: only an InProduction order can be completed (AC-19.5).")]
     public Task<ProductionOrderResponse> Complete(
         int number, CompleteOrderRequest request, CancellationToken cancellationToken)
     {
@@ -120,6 +127,8 @@ public sealed class ProductionOrdersController(
     /// </remarks>
     [HttpPost("{number:int}/cancel")]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`order-completed` or `order-cancelled`: a Completed or Cancelled order cannot be cancelled (AC-21.5).")]
     public Task<ProductionOrderResponse> Cancel(int number, CancelOrderRequest request, CancellationToken cancellationToken)
     {
         // AC-05.3, AC-21.1: the cancellation records who cancelled it, taken from the checked token, never from the body.

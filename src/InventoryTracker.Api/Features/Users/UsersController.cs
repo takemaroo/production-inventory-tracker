@@ -26,11 +26,13 @@ public sealed class UsersController(UserService users, PasswordService passwords
     /// whole object and look for <c>page.page</c>, so the page number would be ignored.
     /// </remarks>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<UserResponse>> List([FromQuery] PageQuery paging, CancellationToken cancellationToken) =>
         users.ListAsync(paging, cancellationToken);
 
     /// <summary>Returns one user, or <c>404</c> "User not found.".</summary>
     [HttpGet("{id}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<UserResponse> Get(string id, CancellationToken cancellationToken) =>
         users.GetAsync(id, cancellationToken);
 
@@ -39,6 +41,8 @@ public sealed class UsersController(UserService users, PasswordService passwords
     /// a <c>Location</c> header; <c>400</c> for bad input (AC-03.3); <c>409</c> <c>email-taken</c> (AC-03.2).
     /// </summary>
     [HttpPost]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`email-taken`: a user with this email already exists (AC-03.2).")]
     public async Task<ActionResult<UserResponse>> Create(CreateUserRequest request, CancellationToken cancellationToken)
     {
         var user = await users.CreateAsync(request, cancellationToken);
@@ -50,6 +54,8 @@ public sealed class UsersController(UserService users, PasswordService passwords
     /// <c>last-manager</c> when it would remove Manager from the last active Manager (AC-03.8).
     /// </summary>
     [HttpPut("{id}/roles")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`last-manager`: the change would leave no active Manager (AC-03.8).")]
     public Task<UserResponse> SetRoles(string id, SetRolesRequest request, CancellationToken cancellationToken) =>
         users.SetRolesAsync(id, request, cancellationToken);
 
@@ -58,11 +64,14 @@ public sealed class UsersController(UserService users, PasswordService passwords
     /// <c>last-manager</c> for the last active Manager (AC-03.8). Repeating it changes nothing.
     /// </summary>
     [HttpPost("{id}/deactivate")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`last-manager`: the user is the last active Manager (AC-03.8).")]
     public Task<UserResponse> Deactivate(string id, CancellationToken cancellationToken) =>
         users.DeactivateAsync(id, cancellationToken);
 
     /// <summary>Reactivates the user so they can sign in again (AC-03.6). Repeating it changes nothing.</summary>
     [HttpPost("{id}/reactivate")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<UserResponse> Reactivate(string id, CancellationToken cancellationToken) =>
         users.ReactivateAsync(id, cancellationToken);
 
@@ -71,6 +80,7 @@ public sealed class UsersController(UserService users, PasswordService passwords
     /// working, and any lock-out ends so they can sign in at once (decision #72).
     /// </summary>
     [HttpPut("{id}/password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> SetPassword(string id, SetPasswordRequest request, CancellationToken cancellationToken)
     {
         await passwords.SetPasswordAsync(id, request, cancellationToken);

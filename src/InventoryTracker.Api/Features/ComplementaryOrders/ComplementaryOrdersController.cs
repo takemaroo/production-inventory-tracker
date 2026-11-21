@@ -50,6 +50,8 @@ public sealed class ComplementaryOrdersController(
     /// </remarks>
     [HttpPost("/api/v1/production-orders/{number:int}/complementary-orders")]
     [Authorize(Roles = Roles.ProductionOrManager)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`parent-not-in-production`: complementary orders are only for an order in production (AC-16.2).")]
     public async Task<ActionResult<ComplementaryOrderResponse>> Create(
         int number, ComplementaryOrderRequest request, CancellationToken cancellationToken)
     {
@@ -69,6 +71,7 @@ public sealed class ComplementaryOrdersController(
     /// <param name="orderNumber">Optional parent order filter; a number that matches nothing gives an empty page (design 2.5).</param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<ComplementaryOrderResponse>> List(
         [FromQuery] PageQuery paging,
         [FromQuery(Name = "status")] string? status,
@@ -81,6 +84,7 @@ public sealed class ComplementaryOrdersController(
     /// "Complementary order #{number} not found.".
     /// </summary>
     [HttpGet("{number:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<ComplementaryOrderResponse> Get(int number, CancellationToken cancellationToken) =>
         complementaryOrders.GetAsync(number, cancellationToken);
 
@@ -95,6 +99,8 @@ public sealed class ComplementaryOrdersController(
     /// </remarks>
     [HttpPost("{number:int}/approve")]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`not-pending-approval`: only a PendingApproval complementary order can be approved (AC-17.3).")]
     public Task<ComplementaryOrderResponse> Approve(int number, CancellationToken cancellationToken)
     {
         // AC-17.1, AC-05.3: the approval records who approved, taken from the checked token.
@@ -115,6 +121,8 @@ public sealed class ComplementaryOrdersController(
     /// </remarks>
     [HttpPost("{number:int}/reject")]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`not-pending-approval`: only a PendingApproval complementary order can be rejected (AC-17.3).")]
     public Task<ComplementaryOrderResponse> Reject(
         int number,
         [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] RejectComplementaryOrderRequest? request,
@@ -139,6 +147,8 @@ public sealed class ComplementaryOrdersController(
     /// </remarks>
     [HttpPost("{number:int}/send")]
     [Authorize(Roles = Roles.WarehouseOrManager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`not-approved`: only an Approved complementary order can be sent (AC-18.3); `insufficient-stock` (AC-18.4).")]
     public Task<ComplementaryOrderResponse> Send(
         int number, SendComplementaryOrderRequest request, CancellationToken cancellationToken)
     {

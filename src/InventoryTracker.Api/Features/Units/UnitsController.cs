@@ -33,6 +33,15 @@ namespace InventoryTracker.Api.Features.Units;
 /// class name, <c>UnitsController(UnitService units)</c>, is a C# <em>primary constructor</em>: a short way of writing a
 /// constructor whose parameter (<c>units</c>) can be used anywhere in the class.
 /// </para>
+/// <para>
+/// <b>Response attributes.</b> <c>[ProducesResponseType]</c> on an action changes nothing at run time: it tells the
+/// OpenAPI description (PRD section 5, <c>/openapi/v1.json</c>) which statuses the action answers with. Each action
+/// declares its success status and, when a business rule can refuse it, its <c>409</c> with the codes. The body of a
+/// <c>200</c> or <c>201</c> is taken from the action's return type. The <c>400</c>, <c>401</c>, <c>403</c> and
+/// <c>404</c> responses follow from the action's parameters and <c>[Authorize]</c>, so
+/// <c>Common/OpenApi/ApiResponsesTransformer</c> adds them for every action. Once an action has one of these
+/// attributes, the generator no longer assumes <c>200</c> by itself, which is why the success status is always listed.
+/// </para>
 /// </remarks>
 [ApiController]
 [Route("api/v1/units")]
@@ -53,6 +62,7 @@ public sealed class UnitsController(UnitService units) : ControllerBase
     /// </para>
     /// </remarks>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<UnitResponse>> List([FromQuery] PageQuery paging, CancellationToken cancellationToken) =>
         units.ListAsync(paging, cancellationToken);
 
@@ -62,6 +72,7 @@ public sealed class UnitsController(UnitService units) : ControllerBase
     /// and the response is the general <c>404</c> "No endpoint matches this path.".
     /// </remarks>
     [HttpGet("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<UnitResponse> Get(int id, CancellationToken cancellationToken) =>
         units.GetAsync(id, cancellationToken);
 
@@ -85,6 +96,8 @@ public sealed class UnitsController(UnitService units) : ControllerBase
     /// </remarks>
     [HttpPost]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`unit-name-taken`: a unit with this name already exists (AC-06.2).")]
     public async Task<ActionResult<UnitResponse>> Create(UnitRequest request, CancellationToken cancellationToken)
     {
         var unit = await units.CreateAsync(request, cancellationToken);
@@ -97,6 +110,8 @@ public sealed class UnitsController(UnitService units) : ControllerBase
     /// </summary>
     [HttpPut("{id:int}")]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`unit-name-taken`: a unit with this name already exists (AC-06.2).")]
     public Task<UnitResponse> Update(int id, UnitRequest request, CancellationToken cancellationToken) =>
         units.UpdateAsync(id, request, cancellationToken);
 
@@ -106,6 +121,8 @@ public sealed class UnitsController(UnitService units) : ControllerBase
     /// </summary>
     [HttpDelete("{id:int}")]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`unit-in-use`: one or more items use the unit (AC-06.4).")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         await units.DeleteAsync(id, cancellationToken);

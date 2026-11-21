@@ -40,6 +40,7 @@ public sealed class NotificationsController(NotificationService notifications) :
     /// <param name="unreadOnly">Optional, <c>true</c> or <c>false</c> (default). Received as text so the error uses the API's own wording.</param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<NotificationResponse>> List(
         [FromQuery] PageQuery paging, [FromQuery(Name = "unreadOnly")] string? unreadOnly, CancellationToken cancellationToken) =>
         notifications.ListAsync(paging, unreadOnly, CallerId, cancellationToken);
@@ -49,6 +50,7 @@ public sealed class NotificationsController(NotificationService notifications) :
     /// <c>404</c> "Notification {id} not found." (AC-23.5).
     /// </summary>
     [HttpGet("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<NotificationResponse> Get(int id, CancellationToken cancellationToken) =>
         notifications.GetAsync(id, CallerId, cancellationToken);
 
@@ -57,6 +59,7 @@ public sealed class NotificationsController(NotificationService notifications) :
     /// <c>204</c> with no body, also when it was already read (design 7.2); <c>404</c> for an unknown id.
     /// </summary>
     [HttpPost("{id:int}/read")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> MarkRead(int id, CancellationToken cancellationToken)
     {
         await notifications.MarkReadAsync(id, CallerId, cancellationToken);
@@ -70,6 +73,7 @@ public sealed class NotificationsController(NotificationService notifications) :
     /// <c>204</c> with no body, also when there was nothing unread.
     /// </summary>
     [HttpPost("read-all")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> MarkAllRead(CancellationToken cancellationToken)
     {
         await notifications.MarkAllReadAsync(CallerId, cancellationToken);

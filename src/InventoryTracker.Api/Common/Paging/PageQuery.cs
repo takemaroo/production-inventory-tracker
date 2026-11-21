@@ -1,5 +1,6 @@
 using InventoryTracker.Api.Common.Validation;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace InventoryTracker.Api.Common.Paging;
 
@@ -33,6 +34,12 @@ public sealed class PageQuery
     /// How many records come before this page. Computed in 64 bits and capped, so an absurd page number gives
     /// an empty page (design 2.5: a page past the end is <c>200</c> with no items) instead of an overflow.
     /// </summary>
+    /// <remarks>
+    /// <c>[BindNever]</c> tells model binding, and with it the OpenAPI description, that this is not a query parameter.
+    /// Without it the OpenAPI document advertised a <c>Skip</c> parameter on every list, although a computed property
+    /// can never be set from the request.
+    /// </remarks>
+    [BindNever]
     public int Skip => (int)Math.Min((long)(Page - 1) * PageSize, int.MaxValue);
 
     /// <summary>

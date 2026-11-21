@@ -27,5 +27,7 @@ public sealed class AuthController(SignInService signIn) : ControllerBase
     /// </remarks>
     [HttpPost("sign-in")]
     [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized, Description = "Sign-in refused: `invalid-credentials` (wrong email or password, or a deactivated user) or `account-locked` (5 failures in a row, for 15 minutes; AC-01.3, AC-01.4).")]
     public Task<SignInResponse> SignIn(SignInRequest request) => signIn.SignInAsync(request);
 }

@@ -25,6 +25,8 @@ public sealed class AccountController(PasswordService passwords) : ControllerBas
     /// <c>account-locked</c>, as for sign-in (decision #71, AC-01.4).
     /// </summary>
     [HttpPost("change-password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized, Description = "Not signed in (`not-authenticated`), or the account is locked after 5 wrong passwords in a row (`account-locked`, AC-01.4, decision #71).")]
     public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken cancellationToken)
     {
         // The user id comes from the token's "sub" claim, never from the body, so a user can only change their own

@@ -38,6 +38,7 @@ public sealed class MovementsController(MovementService movements) : ControllerB
     /// </param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<MovementResponse>> List(
         [FromQuery] PageQuery paging, [FromQuery] MovementFilter filter, CancellationToken cancellationToken) =>
         movements.ListAsync(paging, filter, cancellationToken);
@@ -47,6 +48,7 @@ public sealed class MovementsController(MovementService movements) : ControllerB
     /// A receipt's or adjustment's <c>Location</c> header points here.
     /// </summary>
     [HttpGet("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<MovementResponse> Get(int id, CancellationToken cancellationToken) =>
         movements.GetAsync(id, cancellationToken);
 }

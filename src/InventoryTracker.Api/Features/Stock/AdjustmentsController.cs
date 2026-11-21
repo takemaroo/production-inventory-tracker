@@ -28,6 +28,8 @@ public sealed class AdjustmentsController(AdjustmentService adjustments) : Contr
     /// </remarks>
     [HttpPost]
     [Authorize(Roles = Roles.Manager)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`material-in-use`: the material is committed to the order in production (AC-12.5); `insufficient-stock`: the stock would fall below zero (AC-12.3).")]
     public async Task<ActionResult<MovementResponse>> Create(AdjustmentRequest request, CancellationToken cancellationToken)
     {
         // AC-05.3: the movement records the signed-in user, taken from the checked token, never from the body.

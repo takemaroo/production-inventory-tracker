@@ -26,14 +26,17 @@ public sealed class ReceiptsController(ReceiptService receipts) : ControllerBase
     /// </remarks>
     [HttpPost]
     [Authorize(Roles = Roles.WarehouseOrManager)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
     public async Task<ActionResult<MovementResponse>> Create(ReceiptRequest request, CancellationToken cancellationToken)
     {
         // AC-05.3: the movement records the signed-in user, taken from the checked token, never from the body.
         var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
         var movement = await receipts.CreateAsync(userId, request, cancellationToken);
 
-        // Design 4: the Location is the movement's URL. The movements endpoints arrive in T-013, so the path is
-        // written out rather than generated with CreatedAtAction (which needs the target action to exist).
+        // Design 4: the Location is the movement's URL, served by GET /api/v1/movements/{id} (MovementsController.Get).
+        // It is written out as a relative path rather than generated with CreatedAtAction, because the movement
+        // belongs to another controller; the adjustments endpoint writes it the same way, so both commands give the
+        // same form of header.
         return Created($"/api/v1/movements/{movement.Id}", movement);
     }
 }

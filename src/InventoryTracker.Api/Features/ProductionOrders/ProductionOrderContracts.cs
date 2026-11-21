@@ -61,9 +61,11 @@ public sealed record SendOrderLineRequest(int? ItemId, decimal? Quantity);
 /// <remarks>
 /// Every field is nullable so that a missing value reaches <see cref="CompleteOrderService"/>, which answers with the
 /// design's own messages under each field's JSON path (architecture 6, Validation).
+/// <c>Reason</c> is required only when some leftover is above zero, so the schema cannot require it; its default,
+/// <c>= null</c>, marks it optional in the OpenAPI description and changes nothing when JSON is read (decision #110).
 /// </remarks>
 public sealed record CompleteOrderRequest(
-    decimal? ProducedQuantity, IReadOnlyList<CompleteOrderLineRequest?>? Lines, string? Reason);
+    decimal? ProducedQuantity, IReadOnlyList<CompleteOrderLineRequest?>? Lines, string? Reason = null);
 
 /// <summary>One line of a completion: which raw material, and how much of it is physically left (design 5.7).</summary>
 /// <param name="ItemId">The raw material; it must be on the order (AC-19.4).</param>

@@ -23,6 +23,7 @@ public sealed class StockController(StockService stock) : ControllerBase
     /// <param name="itemType">Optional type filter, any letter case.</param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<StockResponse>> List(
         [FromQuery] PageQuery paging, [FromQuery(Name = "itemType")] string? itemType, CancellationToken cancellationToken) =>
         stock.ListAsync(paging, itemType, cancellationToken);
@@ -33,6 +34,7 @@ public sealed class StockController(StockService stock) : ControllerBase
     /// found." for an unknown item (AC-10.4).
     /// </summary>
     [HttpGet("{itemId:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<StockResponse> Get(int itemId, CancellationToken cancellationToken) =>
         stock.GetAsync(itemId, cancellationToken);
 }

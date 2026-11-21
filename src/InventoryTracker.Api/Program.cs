@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Common.Configuration;
 using InventoryTracker.Api.Common.Errors;
+using InventoryTracker.Api.Common.OpenApi;
 using InventoryTracker.Api.Common.Time;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Features;
@@ -53,8 +54,9 @@ builder.Services.AddSingleton<Clock>();
 // GET /health answers "Healthy" when the app is running and can reach its database.
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>();
 
-// PRD section 5: publish an OpenAPI description of every endpoint (served at /openapi/v1.json in Development).
-builder.Services.AddOpenApi();
+// PRD section 5: publish an OpenAPI description of every endpoint (served at /openapi/v1.json in Development),
+// with the bearer token scheme and the error responses (see Common/OpenApi/OpenApiSetup).
+builder.Services.AddApiOpenApi();
 
 // Every Features/**/*Service class, registered by convention (see FeatureRegistration).
 builder.Services.AddFeatureServices();

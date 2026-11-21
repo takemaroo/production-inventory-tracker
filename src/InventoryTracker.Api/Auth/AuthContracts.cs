@@ -10,7 +10,7 @@ namespace InventoryTracker.Api.Auth;
 public sealed record SignInRequest(string? Email, string? Password);
 
 /// <summary>Successful sign-in (design 5.1, AC-01.1).</summary>
-/// <param name="AccessToken">The bearer token to send as <c>Authorization: Bearer &lt;token&gt;</c>.</param>
+/// <param name="AccessToken">The bearer token: send it in the <c>Authorization</c> header, as the word Bearer followed by a space and the token.</param>
 /// <param name="TokenType">Always <c>Bearer</c>.</param>
 /// <param name="ExpiresAt">When the token stops working: sign-in time plus 8 hours, UTC (AC-01.2).</param>
 /// <param name="Email">The user's email as stored.</param>

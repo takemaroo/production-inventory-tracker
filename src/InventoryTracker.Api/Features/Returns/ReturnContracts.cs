@@ -21,8 +21,10 @@ namespace InventoryTracker.Api.Features.Returns;
 /// <remarks>
 /// Every field is nullable so that a missing value reaches <see cref="InstructReturnService"/>, which answers with the
 /// design's own messages under each field's JSON path rather than a framework error (architecture 6, Validation).
+/// <c>= null</c> on an optional field changes nothing when JSON is read (a missing field is null either way); it
+/// tells the OpenAPI description that the field may be left out (decision #110).
 /// </remarks>
-public sealed record ReturnRequest(int? ItemId, decimal? Quantity, string? Reason, int? OrderNumber);
+public sealed record ReturnRequest(int? ItemId, decimal? Quantity, string? Reason, int? OrderNumber = null);
 
 /// <summary>
 /// A leftover return as the API returns it (design 5.9): from the instruction (<c>201</c>), from <c>GET</c> (one, or each

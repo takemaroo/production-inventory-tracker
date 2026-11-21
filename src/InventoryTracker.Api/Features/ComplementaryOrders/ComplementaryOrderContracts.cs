@@ -36,7 +36,11 @@ public sealed record ComplementaryOrderLineRequest(int? ItemId, decimal? Request
 /// Why the request was turned down: optional, up to 500 characters after trimming (design 2.6). Blank counts as no note.
 /// Stored as the complementary order's <c>decisionNote</c>.
 /// </param>
-public sealed record RejectComplementaryOrderRequest(string? Note);
+/// <remarks>
+/// <c>= null</c> on an optional field changes nothing when JSON is read (a missing field is null either way); it
+/// tells the OpenAPI description that the field may be left out (decision #110).
+/// </remarks>
+public sealed record RejectComplementaryOrderRequest(string? Note = null);
 
 /// <summary>
 /// Body of <c>POST /api/v1/complementary-orders/{number}/send</c> (design 5.8, AC-18.1): how much of each requested
