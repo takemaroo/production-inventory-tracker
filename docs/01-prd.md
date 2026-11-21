@@ -52,12 +52,15 @@ Later:
 - Email or chat alerts.
 - PostgreSQL database.
 - A web front end.
+- A rate limit on sign-in. Version 1 keeps only the 15-minute lock-out of AC-01.4 (decision #120).
+- Access from other machines. HTTPS (with HSTS) is required before the API is reachable from anywhere but the owner's machine; version 1 runs on localhost only (decision #119, row 22 in section 6).
 
 ## 4. User stories and acceptance criteria
 
 ### 4.1 Conventions used in every criterion
 
 - **Rejected** means: the API returns an error status, nothing is saved, no stock changes, and the response body contains a readable message stating the reason. Status codes: `400` invalid input, `401` missing, invalid or expired token, `403` the user's roles do not allow the action, `404` the record does not exist, `409` the request conflicts with the current state (order status, available stock, another order in production).
+- **Unreadable bodies:** `408` and `413` come from the web server when a request body does not arrive in time or is too large (decision #124). See `docs/02-design.md` section 2.2.
 - **Quantities** are decimals. Entered quantities have at most 3 decimal places; recipe amounts per unit have at most 6. Input with more decimal places is rejected with `400`. Computed quantities (planned amount, range limits, required amount) are rounded to 3 decimal places, half away from zero. Percentages are shown rounded to 2 decimal places, but threshold comparisons use the unrounded value.
 - **Times** are stored and returned in UTC, in ISO 8601 format.
 - **Lists** are returned newest first, in pages: default 50 records, maximum 100, with the total count.
@@ -264,7 +267,7 @@ As a warehouse user, I want to send the materials for an order in one go, net of
   - Estimates: #7 leftover 30, nominal send 0, range 0 to 0.6. #8 leftover 20, nominal send 980, range 960 to 1,000. #9 leftover 0, nominal send 500, range 490 to 510.
   - If #8 is sent before #7, its leftover applied is 20 kg (not 50), because 30 kg is allocated to the older #7. The 30 kg remains free leftover and stays allocated to #7.
   - If #7 is cancelled while Created, its allocation is released: #8 then shows leftover 50, nominal send 950, range 930 to 970.
-- **AC-15.6** If any line is outside its range, the whole send is rejected with `400`, and the message names each failing line with its range, for example "Cheese: send must be between 975 and 1,015 kg (planned 1,000 kg, leftover applied 5 kg)." No movement is created and the status stays Created.
+- **AC-15.6** If any line is outside its range, the whole send is rejected with `400`, and the message names each failing line, up to the 100-problem limit (row 21), with its range, for example "Cheese: send must be between 975 and 1,015 kg (planned 1,000 kg, leftover applied 5 kg)." No movement is created and the status stays Created.
 - **AC-15.7** If Warehouse stock is less than the quantity for any line, the whole send is rejected with `409` naming the item and the available stock.
 - **AC-15.8** Rejected with `400`: a missing line, an item that is not on the order, a negative quantity, more than 3 decimal places.
 - **AC-15.9** A send for an order that is not Created is rejected with `409`. For an InProduction or Completed order the message is "Materials have already been sent for this order. Raise a complementary order for more material."; for a Cancelled order, "This order is cancelled."
@@ -391,7 +394,7 @@ As a Manager, I want to see a list of events that need my attention, and track w
 
 ## 6. Assumptions and open questions
 
-Rows 1 to 4 were questions for the owner; the owner confirmed each default on 2026-11-11. The other rows are assumptions made on the owner's behalf; each can be overruled.
+Rows 1 to 4 were questions for the owner; the owner confirmed each default on 2026-11-11. Rows 5 to 18 are assumptions made on the owner's behalf; each can be overruled. Rows 19 to 22 record decisions made during the build and the security review.
 
 | # | Assumption or question | Decided by | Answer |
 |---|------------------------|------------|--------|
@@ -415,3 +418,5 @@ Rows 1 to 4 were questions for the owner; the owner confirmed each default on 20
 | 18 | The application refuses to start if there are no users and `ADMIN_EMAIL` or `ADMIN_PASSWORD` is missing. | PM | Assumed |
 | 19 | Owner decision during the build (2026-11-11): when RequiredForActualOutput rounds to 0, the completion succeeds; the usage variance percentage is empty (null) and the line is above tolerance whenever any of that material was used. The UsageVariance notification then shows the difference with "(percentage not applicable)" instead of a percentage. See decisions #49 and #57. | Owner | Decided 2026-11-11 |
 | 20 | Owner decision during the build (2026-11-13): every entered quantity is at most 999,999,999.999 in size (so a negative adjustment is at least -999,999,999.999), and a recipe amount per unit is at most 999,999.999999. Above the limit is refused with a validation error. See decision #80. | Owner | Decided 2026-11-13 |
+| 21 | Decision during the security review (2026-11-21): request limits. A request body is at most 1 MB. A recipe, and every body that carries lines (send, completion, complementary request, complementary send), has at most 500 lines. Creating a user or changing their roles takes at most 10 roles in the list. A request over any of these three limits is refused and nothing is saved. A `400` response lists at most 100 problems and then says how many more were not shown. Status codes, messages and the order of checks are in `docs/02-design.md` section 7.2. See decisions #122 to #125. | Delivery manager | Decided 2026-11-21 |
+| 22 | Owner decision during the security review (2026-11-21): version 1 runs on localhost only, on the owner's machine, so plain HTTP is acceptable. HTTPS (with HSTS) is required before the API is reachable from any other machine. There is no sign-in rate limit; the lock-out of AC-01.4 stays. Both are on the Later list. See decisions #119 and #120. | Owner | Decided 2026-11-21 |
