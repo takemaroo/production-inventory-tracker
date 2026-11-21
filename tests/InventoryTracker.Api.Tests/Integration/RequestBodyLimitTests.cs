@@ -252,7 +252,8 @@ public class RequestBodyLimitTests(RequestBodyLimitTests.KestrelApiFactory app) 
     /// <remarks>
     /// When the server refuses a body and closes the connection while the client is still sending, Windows may reset the
     /// connection and throw away the answer before the test reads it. That says nothing about the API, so the request is
-    /// sent once more. If it is reset again before any answer arrives, the test fails with a message saying so.
+    /// sent once more, and a line in the test's output says so. If it is reset again before any answer arrives, the test
+    /// fails with a message saying so.
     /// </remarks>
     private async Task<RawResponse> SendRawAsync(string head, byte[]? body)
     {
@@ -260,6 +261,13 @@ public class RequestBodyLimitTests(RequestBodyLimitTests.KestrelApiFactory app) 
         if (received is null)
         {
             Interlocked.Increment(ref _retries);
+
+            // TestOutputHelper is xUnit's per-test output: what is written here is kept with this test's result even
+            // when the test passes (Test Explorer and a results file show it), so a retry is visible instead of hidden.
+            // TestContext.Current gives it without a constructor parameter; it is null outside a running test.
+            var requestLine = head[..head.IndexOf('\r')];
+            TestContext.Current.TestOutputHelper?.WriteLine(
+                $"Connection reset before any answer was read; sending \"{requestLine}\" once more.");
             received = await TrySendRawAsync(head, body);
         }
 
