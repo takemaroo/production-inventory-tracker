@@ -148,7 +148,7 @@ As a Manager, I want to create staff accounts and set their roles so that each p
 - **AC-03.6** A Manager can deactivate a user. From then on that user cannot sign in, and any request carrying a token issued to them before deactivation is rejected with `401`. A Manager can reactivate the user. Users are never deleted, so their name stays on every movement and order they touched.
 - **AC-03.7** A Manager can set a new password for another user; the policy applies.
 - **AC-03.8** Removing the Manager role from, or deactivating, the last active Manager is rejected with `409` "At least one active Manager is required."
-- **AC-03.9** A user without the Manager role calling any user-management endpoint gets `403`.
+- **AC-03.9** A user without the Manager role calling any user-management endpoint (every action in US-03) gets `403`. Changing one's own password (US-04) is not user management: it is open to every signed-in role (section 4.2).
 
 ### US-04: Change own password
 
@@ -355,7 +355,7 @@ As a Manager, I want to send leftover back to the warehouse so that it is availa
 - **AC-22.3** A return of a material on the order that is currently InProduction is rejected with `409`.
 - **AC-22.4** A Warehouse or Manager user records receiving a Pending return. A ReturnedToWarehouse movement moves the quantity from Production storage to Warehouse, and the return becomes Received, recording who and when. Example: 20 kg of Cheese leftover; a return of 20 kg is received; Production storage holds 0 kg, Warehouse gains 20 kg, and the next order's leftover estimate for Cheese is 0.
 - **AC-22.5** A Manager can cancel a Pending return; it becomes Cancelled and the quantity is free leftover again. Receiving or cancelling a return that is not Pending is rejected with `409`.
-- **AC-22.6** A Production-only user gets `403` for all return actions; a Warehouse-only user gets `403` for instructing or cancelling.
+- **AC-22.6** Instructing a return (AC-22.1) and cancelling a return (AC-22.5) are Manager only; recording receipt of a return (AC-22.4) is Warehouse or Manager. A Production-only user gets `403` for instructing, receiving and cancelling; a Warehouse-only user gets `403` for instructing and cancelling. Listing and viewing returns are open to every signed-in role (section 4.2) and do not return `403` for any role.
 
 ### US-23: Notifications
 

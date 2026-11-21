@@ -16,7 +16,7 @@ Kept current by the delivery manager. Last updated: 2026-11-11
 | 2 | Design | done | `docs/02-design.md` | API spec: 48 endpoints, ProblemDetails errors, flows. Owner settled 2 questions (decisions #17, #18). |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` | Skeleton builds (0 warnings), 4 of 4 tests pass (re-run by delivery manager). 21 tasks. |
 | 4 | Build | done | code | tasks done: 22 of 22 (T-001 to T-021, T-008a) |
-| 5 | QA | in progress (doc clean-up first) | `docs/05-test-plan.md` | round 0 |
+| 5 | QA | in progress | `docs/05-test-plan.md` | round 0 |
 | 6 | Security | not started | `docs/06-security-review.md` | |
 | 7 | Release | not started | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
 
@@ -76,7 +76,6 @@ T-001 and T-002 in progress in parallel. Each is reviewed by `code-reviewer`, th
 - Common/ owner (low priority): a JSON number too large for decimal (e.g. 1e30) is reported by the T-001 framework handler as "{path} has the wrong type.", which is slightly misleading; could say it is too large (T-010 review).
 - Optional comment (next owner of AdjustmentService.cs): explain why AC-12.6's 400 before AC-12.5's 409 never conflicts with design 2.2 (a finished product can never be an order line).
 - T-021 (optional): non-numeric id filters (?itemId=abc on returns, movements, complementary orders) get the framework's "The value 'abc' is not valid."; design-style wording everywhere would need a shared fix (see the earlier PascalCase binding note).
-- product-manager (wording only): AC-22.6 says "403 for all return actions" while PRD 4.2 lets every role view returns; built per 4.2 and design 4 (list/view open to all, instruct/receive/cancel restricted). Clarify AC-22.6.
 - Optional test chore (later): the suite takes ~1.5-2 min on this machine; ~175 per-test factories each migrate a fresh database (~450 ms). Starting from a pre-migrated database copy in TestApiFactory (~230 ms) would cut that, with an opt-out for start-up/migration tests (T-020 measurement).
 - qa-engineer (phase 5): without a token, any unknown path answers 401 rather than 404 (the fallback auth policy runs first); consistent with design 2.2's check order (T-021 note).
 - devops-engineer / technical-writer (phase 7): .env.example's header says to copy it to .env only as a private note or for Docker; add that the sample requests (InventoryTracker.Api.http) read src/InventoryTracker.Api/.env via $dotenv, not a root .env (T-021 review).
