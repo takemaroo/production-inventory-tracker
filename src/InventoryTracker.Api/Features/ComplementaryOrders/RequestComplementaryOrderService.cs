@@ -66,11 +66,17 @@ public sealed class RequestComplementaryOrderService(
     /// <param name="userId">The signed-in Production or Manager user, from the token's <c>sub</c> claim (AC-05.3).</param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     /// <exception cref="NotFoundException"><c>404</c>: no order has this number.</exception>
-    /// <exception cref="ValidationException"><c>400</c> <c>validation</c>: a bad reason or bad lines (AC-16.3).</exception>
+    /// <exception cref="ValidationException">
+    /// <c>400</c> <c>validation</c>: a bad reason or bad lines (AC-16.3); or <c>too-many-lines</c> for more than
+    /// <see cref="RequestLimits.MaxLines"/> lines (SEC-01, checked before the <c>404</c>).
+    /// </exception>
     /// <exception cref="ConflictException"><c>409</c> <c>parent-not-in-production</c> (AC-16.2).</exception>
     public async Task<ComplementaryOrderResponse> RequestAsync(
         int orderNumber, ComplementaryOrderRequest request, string userId, CancellationToken cancellationToken)
     {
+        // SEC-01: refused before the write transaction; why, and what stays inside: RequestLimits.CheckLineCount.
+        RequestLimits.CheckLineCount(request.Lines);
+
         var response = await db.InWriteTransactionAsync(async () =>
         {
             // Design 2.2 step 3: the parent order named in the URL, with its lines' materials and units, for the

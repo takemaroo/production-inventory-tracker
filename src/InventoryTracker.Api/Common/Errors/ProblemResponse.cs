@@ -29,13 +29,16 @@ public static class ProblemResponse
     public const string ErrorsField = "errors";
 
     // Design 6: "title is fixed per status". Statuses not listed keep the framework's default title.
+    // 408 and 413 are new with SEC-02 (bodies the web server refuses); their titles are routed to the ux-designer.
     private static readonly Dictionary<int, string> FixedTitles = new()
     {
         [StatusCodes.Status400BadRequest] = "Invalid request",
         [StatusCodes.Status401Unauthorized] = "Not signed in",
         [StatusCodes.Status403Forbidden] = "Not allowed",
         [StatusCodes.Status404NotFound] = "Not found",
+        [StatusCodes.Status408RequestTimeout] = "Request timeout",
         [StatusCodes.Status409Conflict] = "Conflict with current state",
+        [StatusCodes.Status413PayloadTooLarge] = "Request too large",
     };
 
     // Responses the framework produces without our code (no endpoint, wrong method, a bare status result).

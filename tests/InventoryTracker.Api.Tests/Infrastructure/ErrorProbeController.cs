@@ -80,6 +80,15 @@ public sealed class ErrorProbeController : ControllerBase
         throw new DbUpdateException("An error occurred while saving the entity changes.", inner);
     }
 
+    /// <summary>
+    /// Throws what Kestrel throws when it refuses a request body (SEC-02), with <paramref name="status"/> as its status
+    /// code: 413 too large, 408 too slow, 400 broken. The in-memory test server has no body limit of its own, so this is
+    /// how the handler's mapping of every status is tested; <c>RequestBodyLimitTests</c> checks the real Kestrel 413 and 400.
+    /// </summary>
+    [HttpGet("refused-body/{status:int}")]
+    public IActionResult ThrowRefusedBody(int status) =>
+        throw new Microsoft.AspNetCore.Http.BadHttpRequestException($"Probe: Kestrel refused the body with {status}.", status);
+
     /// <summary>Binds an optional number from the query string, so tests can send one that is not a number.</summary>
     [HttpGet("filter")]
     public IActionResult Filter([FromQuery] ProbeFilter filter) => Ok(filter);

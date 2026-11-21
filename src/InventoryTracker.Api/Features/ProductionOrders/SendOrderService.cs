@@ -88,7 +88,9 @@ public sealed class SendOrderService(
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     /// <exception cref="NotFoundException"><c>404</c>: no order has this number.</exception>
     /// <exception cref="ValidationException">
-    /// <c>400</c> <c>validation</c> for a bad body (AC-15.8), or <c>send-out-of-range</c> (AC-15.6).
+    /// <c>400</c> <c>validation</c> for a bad body (AC-15.8), <c>send-out-of-range</c> (AC-15.6), or
+    /// <c>too-many-lines</c> for more than <see cref="RequestLimits.MaxLines"/> lines (SEC-01, checked before the
+    /// <c>404</c>).
     /// </exception>
     /// <exception cref="ConflictException">
     /// <c>409</c>: the order is not Created (AC-15.9), another order is InProduction (AC-15.10), a return of one of its
@@ -97,6 +99,9 @@ public sealed class SendOrderService(
     public async Task<ProductionOrderResponse> SendAsync(
         int number, SendOrderRequest request, string userId, CancellationToken cancellationToken)
     {
+        // SEC-01: refused before the write transaction; why, and what stays inside: RequestLimits.CheckLineCount.
+        RequestLimits.CheckLineCount(request.Lines);
+
         var detail = await db.InWriteTransactionAsync(async () =>
         {
             // Design 2.2 step 3: the record named in the URL. Its lines are loaded with their materials and units for

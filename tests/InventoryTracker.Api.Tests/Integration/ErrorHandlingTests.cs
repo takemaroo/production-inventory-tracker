@@ -107,6 +107,39 @@ public class ErrorHandlingTests(ProbeApiFactory factory) : IClassFixture<ProbeAp
     }
 
     /// <summary>
+    /// SEC-02: a body Kestrel refuses (<see cref="Microsoft.AspNetCore.Http.BadHttpRequestException"/>) is the client's
+    /// fault, not a 500. Too large gives 413 <c>request-too-large</c>, too slow 408 <c>request-timeout</c>, and anything
+    /// else (a broken chunked body, an early end) 400 <c>validation</c>, each a design 6 body without <c>errors</c>. It is
+    /// logged once at Information, without the exception, and nothing reaches the log at Warning or above.
+    /// </summary>
+    [Theory]
+    [InlineData(413, HttpStatusCode.RequestEntityTooLarge, "request-too-large", "The request body is too large. The limit is 1 MB.")]
+    [InlineData(408, HttpStatusCode.RequestTimeout, "request-timeout", "The request body arrived too slowly. Send it again.")]
+    [InlineData(400, HttpStatusCode.BadRequest, "validation", "The request body could not be read.")]
+    [InlineData(431, HttpStatusCode.BadRequest, "validation", "The request body could not be read.")]
+    public async Task Refused_body_gives_its_own_status_and_no_error_log(
+        int thrownStatus, HttpStatusCode status, string code, string detail)
+    {
+        var path = $"/test-probe/refused-body/{thrownStatus}";
+
+        var (response, body) = await GetAsync(path);
+
+        ApiAssert.Problem(response, body, status, code, detail);
+        Assert.False(body.TryGetProperty("errors", out _));
+        Assert.DoesNotContain("Probe", body.GetRawText());
+
+        var entries = factory.Logs.Entries.Where(entry => entry.Message.Contains(path, StringComparison.Ordinal)).ToList();
+        var entry = Assert.Single(entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Equal(typeof(ApiExceptionHandler).FullName, entry.Category);
+        Assert.Null(entry.Exception);
+        Assert.Contains($"refused with {(int)status}", entry.Message);
+
+        // No logger at all (ours, or the framework's exception middleware) recorded the exception itself.
+        Assert.DoesNotContain(factory.Logs.Entries, logged => logged.Exception is Microsoft.AspNetCore.Http.BadHttpRequestException);
+    }
+
+    /// <summary>
     /// Architecture 4.1 item 11, section 6 and design 7.2: a DbUpdateException from a unique index or primary key
     /// gives 409 concurrent-change with the design message, logged as a Warning, with no SQL in the body.
     /// </summary>

@@ -1,3 +1,4 @@
+using InventoryTracker.Api.Common.Validation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -9,7 +10,7 @@ namespace InventoryTracker.Api.Common.OpenApi;
 
 /// <summary>
 /// Completes each operation of the OpenAPI document with what the whole API does the same way: the bearer token
-/// requirement, and the <c>400</c>, <c>401</c>, <c>403</c> and <c>404</c> responses that follow from an endpoint's
+/// requirement, and the <c>400</c>, <c>401</c>, <c>403</c>, <c>404</c> and <c>413</c> responses that follow from an endpoint's
 /// authorization, parameters and body. Every error response is described with the design 6 error body.
 /// </summary>
 /// <remarks>
@@ -30,6 +31,7 @@ namespace InventoryTracker.Api.Common.OpenApi;
 /// <item><c>400</c> when the endpoint reads a body (a body that is not valid JSON is refused, architecture 4.1 item 2) or a
 /// query string (paging and filters are checked, design 2.5).</item>
 /// <item><c>404</c> when the path names a record (<c>{id}</c>, <c>{number}</c>, <c>{itemId}</c>; design 2.2 step 3).</item>
+/// <item><c>413</c> when the endpoint reads a body: the web server refuses a body over 1 MB (SEC-01, SEC-02).</item>
 /// </list>
 /// <para>
 /// What only an action knows, its success status and whether it can answer <c>409</c>, is declared on the action with
@@ -79,6 +81,13 @@ public sealed class ApiResponsesTransformer : IOpenApiOperationTransformer
             AddIfMissing(responses, StatusCodes.Status400BadRequest,
                 "Invalid request: the body is not valid JSON, a value has the wrong type, or a field or business rule " +
                 "check failed. `code` names the rule (`validation` for plain field checks); `errors` names the fields (design 6, 7.2).");
+        }
+
+        // SEC-01, SEC-02: Kestrel refuses a body over RequestLimits.MaxBodyBytes, answered by ApiExceptionHandler.
+        if (sources.Contains(BindingSource.Body))
+        {
+            AddIfMissing(responses, StatusCodes.Status413PayloadTooLarge,
+                $"Request too large (`request-too-large`): the body is over {RequestLimits.MaxBodyMegabytes} MB.");
         }
 
         if (sources.Contains(BindingSource.Path))

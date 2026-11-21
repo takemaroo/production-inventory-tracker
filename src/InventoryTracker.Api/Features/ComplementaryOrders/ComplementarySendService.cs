@@ -85,7 +85,9 @@ public sealed class ComplementarySendService(
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     /// <exception cref="NotFoundException"><c>404</c>: no complementary order has this number.</exception>
     /// <exception cref="ValidationException">
-    /// <c>400</c> <c>validation</c> for a bad body, or <c>send-out-of-range</c> (AC-18.1, AC-18.2).
+    /// <c>400</c> <c>validation</c> for a bad body, <c>send-out-of-range</c> (AC-18.1, AC-18.2), or
+    /// <c>too-many-lines</c> for more than <see cref="RequestLimits.MaxLines"/> lines (SEC-01, checked before the
+    /// <c>404</c>).
     /// </exception>
     /// <exception cref="ConflictException">
     /// <c>409</c> <c>not-approved</c> (AC-18.3), or <c>insufficient-stock</c> (AC-18.4).
@@ -93,6 +95,9 @@ public sealed class ComplementarySendService(
     public async Task<ComplementaryOrderResponse> SendAsync(
         int number, SendComplementaryOrderRequest request, string userId, CancellationToken cancellationToken)
     {
+        // SEC-01: refused before the write transaction; why, and what stays inside: RequestLimits.CheckLineCount.
+        RequestLimits.CheckLineCount(request.Lines);
+
         var (response, parentNumber) = await db.InWriteTransactionAsync(async () =>
         {
             // Design 2.2 step 3: the record named in the URL, and its parent's lines (materials and units for the

@@ -114,11 +114,17 @@ public sealed class UserService(
 
     /// <summary>
     /// <c>POST /users</c> (AC-03.1 to AC-03.3): creates an active user with an initial password and one or more roles.
+    /// More than <see cref="RequestLimits.MaxRoles"/> roles are refused first, with <c>400</c> <c>validation</c>
+    /// (decision #125).
     /// </summary>
     public async Task<UserResponse> CreateAsync(CreateUserRequest request, CancellationToken cancellationToken)
     {
-        // Design 2.2 step 4: the input shape. Every field problem is reported in one response. These checks look only
-        // at the request, not at the database, so they can run before the write transaction opens.
+        // Decision #125: more than RequestLimits.MaxRoles roles is refused first, in a response of its own (no other field
+        // is checked), so a huge list is never checked entry by entry.
+        RequestLimits.CheckRoleCount(request.Roles);
+
+        // Design 2.2 step 4: the input shape. Every other field problem is reported together in one response. These
+        // checks look only at the request, not at the database, so they can run before the write transaction opens.
         var errors = new ValidationErrors();
         var email = CleanEmail(request.Email, errors);
         if (string.IsNullOrEmpty(request.Password))
@@ -176,9 +182,18 @@ public sealed class UserService(
     /// <summary>
     /// <c>PUT /users/{id}/roles</c> (AC-03.5): replaces the user's roles with the given set (at least one). The change
     /// applies from the user's next sign-in; tokens they already hold keep their old roles until they expire.
+    /// More than <see cref="RequestLimits.MaxRoles"/> roles are refused first, with <c>400</c> <c>validation</c>
+    /// (decision #125).
     /// </summary>
-    public Task<UserResponse> SetRolesAsync(string id, SetRolesRequest request, CancellationToken cancellationToken) =>
-        db.InWriteTransactionAsync(async () =>
+    public Task<UserResponse> SetRolesAsync(string id, SetRolesRequest request, CancellationToken cancellationToken)
+    {
+        // Decision #125: the number of roles is checked first, outside the write transaction, so a huge list is refused
+        // without taking SQLite's single write lock and never makes another user's save wait. It therefore comes before
+        // the 404 for the user in the URL. The other role checks stay inside, in the design 2.2 order (404 first); with
+        // at most RequestLimits.MaxRoles roles they take microseconds.
+        RequestLimits.CheckRoleCount(request.Roles);
+
+        return db.InWriteTransactionAsync(async () =>
         {
             // Design 2.2 order: the record in the URL (404), then the input (400), then the state (409).
             var user = await FindOrThrowAsync(id);
@@ -216,6 +231,7 @@ public sealed class UserService(
 
             return new UserResponse(user.Id, user.Email!, roles, user.IsActive, user.CreatedAt);
         }, cancellationToken);
+    }
 
     /// <summary>
     /// <c>POST /users/{id}/deactivate</c> (AC-03.6): the user can no longer sign in, and every token issued to them so

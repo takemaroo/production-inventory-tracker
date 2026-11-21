@@ -115,7 +115,9 @@ public static class ApiAssert
         HttpStatusCode.Unauthorized => "Not signed in",
         HttpStatusCode.Forbidden => "Not allowed",
         HttpStatusCode.NotFound => "Not found",
+        HttpStatusCode.RequestTimeout => "Request timeout",
         HttpStatusCode.Conflict => "Conflict with current state",
+        HttpStatusCode.RequestEntityTooLarge => "Request too large",
         _ => null,
     };
 }

@@ -61,6 +61,83 @@ public class ValidationErrorsTests
             exception.Detail);
     }
 
+    /// <summary>
+    /// SEC-01: exactly <see cref="ValidationErrors.MaxMessages"/> messages are all listed, with no "not shown" sentence.
+    /// </summary>
+    [Fact]
+    public void Up_to_the_cap_every_message_is_listed()
+    {
+        var errors = new ValidationErrors();
+        for (var index = 0; index < ValidationErrors.MaxMessages; index++)
+        {
+            errors.Add($"lines[{index}].itemId", "Item is required.");
+        }
+
+        var exception = Assert.Throws<ValidationException>(() => errors.ThrowIfAny());
+
+        Assert.Equal(ValidationErrors.MaxMessages, exception.Errors!.Values.Sum(messages => messages.Length));
+        Assert.Equal(string.Join(" ", Enumerable.Repeat("Item is required.", ValidationErrors.MaxMessages)), exception.Detail);
+        Assert.DoesNotContain("not shown", exception.Detail);
+    }
+
+    /// <summary>
+    /// SEC-01: past the cap, only the first 100 messages are kept, in the order added, in both <c>errors</c> and
+    /// <c>detail</c>; <c>detail</c> ends with one sentence counting the rest (number formatted as design 6.1), and the
+    /// sentence is in no field's <c>errors</c>.
+    /// </summary>
+    [Fact]
+    public void Past_the_cap_messages_are_counted_not_listed()
+    {
+        var errors = new ValidationErrors();
+        for (var index = 0; index < 2_000; index++)
+        {
+            errors.Add($"lines[{index}].itemId", $"Line {index} is wrong.");
+        }
+
+        var exception = Assert.Throws<ValidationException>(() => errors.ThrowIfAny());
+
+        Assert.Equal(100, ValidationErrors.MaxMessages);
+        Assert.Equal(100, exception.Errors!.Count);
+        Assert.Equal(["Line 99 is wrong."], exception.Errors["lines[99].itemId"]);
+        Assert.False(exception.Errors.ContainsKey("lines[100].itemId"));
+        Assert.StartsWith("Line 0 is wrong. Line 1 is wrong.", exception.Detail);
+        Assert.EndsWith("Line 99 is wrong. 1,900 more problems are not shown.", exception.Detail);
+        Assert.DoesNotContain(exception.Errors.Values.SelectMany(messages => messages), message => message.Contains("not shown"));
+    }
+
+    /// <summary>SEC-01: one message over the cap is counted in the singular.</summary>
+    [Fact]
+    public void One_message_over_the_cap_is_singular()
+    {
+        var errors = new ValidationErrors();
+        for (var index = 0; index <= ValidationErrors.MaxMessages; index++)
+        {
+            errors.Add("roles", "Unknown role.");
+        }
+
+        var exception = Assert.Throws<ValidationException>(() => errors.ThrowIfAny());
+
+        Assert.EndsWith("Unknown role. 1 more problem is not shown.", exception.Detail);
+        Assert.Equal(ValidationErrors.MaxMessages, exception.Errors!["roles"].Length);
+    }
+
+    /// <summary>
+    /// SEC-01: a million messages leave a small error. Before the cap, the reviewer's 3,000,000 null lines produced a
+    /// 412 MB response; the detail is now bounded by 100 messages.
+    /// </summary>
+    [Fact]
+    public void A_million_messages_give_a_small_detail()
+    {
+        var errors = new ValidationErrors();
+        for (var index = 0; index < 1_000_000; index++)
+        {
+            errors.Add($"lines[{index}].quantity", "Quantity is required.");
+        }
+
+        Assert.True(errors.Detail.Length < 5_000, $"detail is {errors.Detail.Length} characters");
+        Assert.EndsWith("999,900 more problems are not shown.", errors.Detail);
+    }
+
     /// <summary>The single-field shortcut puts the message in both detail and errors.</summary>
     [Fact]
     public void Single_field_shortcut()

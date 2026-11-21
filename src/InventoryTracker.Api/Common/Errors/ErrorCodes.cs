@@ -24,6 +24,21 @@ public static class ErrorCodes
     /// <summary>The request body is not JSON at all (wrong or missing <c>Content-Type</c>).</summary>
     public const string UnsupportedMediaType = "unsupported-media-type";
 
+    /// <summary>
+    /// SEC-02: the web server refused the request body because it is over the size limit
+    /// (<see cref="Validation.RequestLimits.MaxBodyBytes"/>). Status <c>413</c>.
+    /// </summary>
+    public const string RequestTooLarge = "request-too-large";
+
+    /// <summary>SEC-02: the request body arrived too slowly, and the web server stopped waiting for it. Status <c>408</c>.</summary>
+    public const string RequestTimeout = "request-timeout";
+
+    /// <summary>
+    /// SEC-01: a body has more lines than <see cref="Validation.RequestLimits.MaxLines"/>. Status <c>400</c>, raised by
+    /// recipes, sends, completions, complementary requests and complementary sends.
+    /// </summary>
+    public const string TooManyLines = "too-many-lines";
+
     /// <summary>Architecture 4.1 items 8 and 11: a database constraint stopped a write that the checks missed.</summary>
     public const string ConcurrentChange = "concurrent-change";
 

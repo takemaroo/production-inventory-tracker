@@ -69,9 +69,15 @@ public sealed class RecipeService(AppDbContext db, Clock clock)
     /// <summary>
     /// AC-08.1, AC-08.2: sets the recipe of finished product <paramref name="itemId"/> to exactly the submitted lines,
     /// replacing any previous list, and records who saved it and when. Returns the saved recipe (<c>200</c>).
+    /// A body with more than <see cref="RequestLimits.MaxLines"/> lines is refused first, with <c>400</c>
+    /// <c>too-many-lines</c> (SEC-01).
     /// </summary>
-    public Task<RecipeResponse> ReplaceAsync(int itemId, RecipeRequest request, string userId, CancellationToken cancellationToken) =>
-        db.InWriteTransactionAsync(async () =>
+    public Task<RecipeResponse> ReplaceAsync(int itemId, RecipeRequest request, string userId, CancellationToken cancellationToken)
+    {
+        // SEC-01: refused before the write transaction; why, and what stays inside: RequestLimits.CheckLineCount.
+        RequestLimits.CheckLineCount(request.Lines);
+
+        return db.InWriteTransactionAsync(async () =>
         {
             // Design 2.2 step 3: the item in the URL (404) is checked before the body (400).
             var product = await db.Items.FindAsync([itemId], cancellationToken) ?? throw ItemNotFound(itemId);
@@ -125,6 +131,7 @@ public sealed class RecipeService(AppDbContext db, Clock clock)
             await db.SaveChangesAsync(cancellationToken);
             return (await ReadAsync(itemId, cancellationToken))!;
         }, cancellationToken);
+    }
 
     /// <summary>The recipe of <paramref name="finishedProductId"/> as its response, or null when it has none.</summary>
     private Task<RecipeResponse?> ReadAsync(int finishedProductId, CancellationToken cancellationToken) =>

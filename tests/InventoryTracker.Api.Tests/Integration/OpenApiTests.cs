@@ -138,6 +138,7 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
     /// <summary>
     /// Design 2.2 and 6 as documented, for each endpoint: <c>403</c> exactly when PRD 4.2 limits it to some roles;
     /// <c>404</c> exactly when the path names a record; <c>400</c> exactly when it reads a body or a query string;
+    /// <c>413</c> <c>request-too-large</c> exactly when it reads a body (SEC-01, SEC-02);
     /// <c>409</c> exactly for the endpoints a business rule can refuse with a conflict. Every 4xx response is the design 6
     /// ProblemDetails body, as <c>application/problem+json</c> only.
     /// </summary>
@@ -157,6 +158,7 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
         Assert.Equal(row.Action.Allowed.Length < Roles.All.Count, statuses.Contains("403"));
         Assert.Equal(row.Template.Contains('{'), statuses.Contains("404"));
         Assert.Equal(hasQuery || hasBody, statuses.Contains("400"));
+        Assert.Equal(hasBody, statuses.Contains("413"));
         Assert.Equal(ConflictEndpoints.Contains(endpoint), statuses.Contains("409"));
 
         foreach (var status in statuses.Where(status => status.StartsWith('4')))

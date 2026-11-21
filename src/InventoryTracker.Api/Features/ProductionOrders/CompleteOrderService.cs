@@ -116,12 +116,17 @@ public sealed class CompleteOrderService(
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     /// <exception cref="NotFoundException"><c>404</c>: no order has this number.</exception>
     /// <exception cref="ValidationException">
-    /// <c>400</c> <c>validation</c> for a bad body, <c>reason-required</c> or <c>leftover-exceeds-stock</c> (AC-19.4).
+    /// <c>400</c> <c>validation</c> for a bad body, <c>reason-required</c> or <c>leftover-exceeds-stock</c> (AC-19.4), or
+    /// <c>too-many-lines</c> for more than <see cref="RequestLimits.MaxLines"/> lines (SEC-01, checked before the
+    /// <c>404</c>).
     /// </exception>
     /// <exception cref="ConflictException"><c>409</c>: the order is not InProduction (AC-19.5).</exception>
     public async Task<ProductionOrderResponse> CompleteAsync(
         int number, CompleteOrderRequest request, string userId, CancellationToken cancellationToken)
     {
+        // SEC-01: refused before the write transaction; why, and what stays inside: RequestLimits.CheckLineCount.
+        RequestLimits.CheckLineCount(request.Lines);
+
         var (detail, mismatches) = await db.InWriteTransactionAsync(async () =>
         {
             // Design 2.2 step 3: the record named in the URL, tracked because completion writes onto it and its lines.

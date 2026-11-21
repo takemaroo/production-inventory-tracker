@@ -7,6 +7,7 @@ using InventoryTracker.Api.Common.Configuration;
 using InventoryTracker.Api.Common.Errors;
 using InventoryTracker.Api.Common.OpenApi;
 using InventoryTracker.Api.Common.Time;
+using InventoryTracker.Api.Common.Validation;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Features;
 using Microsoft.AspNetCore.Mvc;
@@ -25,6 +26,14 @@ builder.Services.Configure<InventoryOptions>(builder.Configuration.GetSection(In
 
 // EF Core with SQLite. Migrations are applied further down, before the app starts listening.
 builder.Services.AddInventoryDatabase(builder.Configuration, builder.Environment);
+
+// SEC-01: the largest request body the server accepts, 1 MB (RequestLimits.MaxBodyBytes explains the size). Kestrel is
+// the web server built into ASP.NET Core; its own default is 30 MB. A larger body is refused when the app starts reading
+// it, with 413 request-too-large (ApiExceptionHandler, SEC-02), so a huge body never reaches the services. The IIS line
+// applies the same limit if the release phase hosts the API inside IIS, where Kestrel's setting does not apply; when the
+// API does not run in IIS it does nothing.
+builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = RequestLimits.MaxBodyBytes);
+builder.Services.Configure<IISServerOptions>(iis => iis.MaxRequestBodySize = RequestLimits.MaxBodyBytes);
 
 // Controllers are classes whose public methods handle HTTP requests (one controller per resource).
 builder.Services.AddControllers().AddJsonOptions(options =>
