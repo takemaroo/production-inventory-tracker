@@ -17,7 +17,7 @@ These rules apply to every endpoint. Section 5 lists each endpoint against them.
 - The resource is called `production-orders`, not `orders`, because sales orders are on the PRD's "Later" list.
 - Production orders, complementary orders and returns are identified in URLs by their **number**, the same number people say aloud ("order #12"). Each has its own sequence starting at 1. Units, items, movements and notifications use integer ids. Users use the string id ASP.NET Core Identity generates.
 - Nesting is used only to create a child that cannot exist without its parent: `POST /production-orders/12/complementary-orders`. Once created, a child is read and acted on at its own top-level URL (`/complementary-orders/3`), because it has its own number. The recipe is a single sub-resource of its finished product: `/items/7/recipe`.
-- State changes are `POST` to an action path named with a verb: `/send`, `/complete`, `/cancel`, `/approve`, `/reject`, `/receive`, `/deactivate`, `/reactivate`, `/read`. The response is `200` with the updated resource, so a client never needs a second request to show the result.
+- State changes are `POST` to an action path named with a verb: `/send`, `/complete`, `/cancel`, `/approve`, `/reject`, `/receive`, `/deactivate`, `/reactivate`, `/read`. The response is `200` with the updated resource, so a client never needs a second request to show the result. The one exception is marking notifications read (`/read`, `/read-all`): it answers `204` with no body, because the read mark belongs to the calling Manager and there is nothing new to show.
 - Query parameters are camelCase: `?status=Created&orderNumber=12`.
 
 ### 2.2 Status codes
@@ -35,7 +35,7 @@ These rules apply to every endpoint. Section 5 lists each endpoint against them.
 
 `422` is not used. The PRD assigns every rejection to `400` or `409`, and ASP.NET Core uses `400` for validation by default.
 
-**Order of checks.** When a request breaks several rules, the first failing check decides the response: (1) `401` token, (2) `403` role, (3) `404` record in the URL, (4) `400` input shape and format (missing fields, decimal places, negative numbers, unknown ids in the body), (5) `409` state (status, another order in production, pending return, item in use), (6) `400` range rules (send ranges, leftover larger than stock), (7) `409` stock. Checking roles before existence means a user without the role cannot learn which numbers exist. QA can rely on this order.
+**Order of checks.** When a request breaks several rules, the first failing check decides the response: (1) `401` token, (2) `403` role, (3) `404` record in the URL, (4) `400` input shape and format (missing fields, decimal places, negative numbers, unknown ids in the body), (5) `409` state (status, another order in production, pending return, item in use), (6) `400` range rules (send ranges, leftover larger than stock), (7) `409` stock. Checking roles before existence means a user without the role cannot learn which numbers exist. QA can rely on this order, with two consequences of how the framework works (decision #23, built): a body that is not valid JSON, or has a value of the wrong JSON type, is `400` before the `404` check, because the body is read before the action runs; and without a token every path, including one that does not exist, answers `401`, because the token check comes first.
 
 ### 2.3 JSON fields and values
 
@@ -57,7 +57,7 @@ These rules apply to every endpoint. Section 5 lists each endpoint against them.
 
 - **Quantities are JSON numbers, not strings.** System.Text.Json reads a JSON number straight into a C# `decimal` without going through floating point, so input is exact. Numbers are the ASP.NET Core and OpenAPI default, so no custom converters are needed. The usual reason for sending decimals as strings is client-side arithmetic in JavaScript. Here clients do no arithmetic, because every computed value comes back already rounded.
 - **Decimal places on input** (PRD 4.1): at most 3 for quantities and 6 for recipe amounts per unit. Trailing zeros do not count: `12.5000` is accepted as 12.5. A quantity sent as a string (`"12.5"`) is `400`.
-- **Maximums on input** (decision #80, owner): every entered quantity (receipts, ordered and produced quantities, sends, complementary requested amounts and sends, leftover entered, adjustments, returns) is at most 999,999,999.999; a recipe amount per unit is at most 999,999.999999. For an adjustment the limit applies to the size, so -999,999,999.999 is the lowest. Above the limit is `400` `validation` (7.2). These limits keep every computed amount inside the stored range.
+- **Maximums on input** (decision #80, owner): every entered quantity (receipts, ordered and produced quantities, sends, complementary requested amounts and sends, leftover entered, adjustments, returns) is at most 999,999,999.999; a recipe amount per unit is at most 999,999.999999. For an adjustment the limit applies to the size, so -999,999,999.999 is the lowest. Above the limit is `400` `validation` (7.2). These limits keep every computed amount for an order (planned and required amounts, ranges, variances) inside the stored range. The one accepted exception (architecture risk 12) is stock, which is a sum and is not capped: only about a million maximum-size movements of one item could push a stock total, or a value stored from it, past that range.
 - **Computed values** (planned amount, estimates, send ranges, usage, variances) are rounded by the server to 3 decimal places, half away from zero, before they are returned. Every displayed percentage, in API responses and in notification messages and data, is round(round(unrounded, 6), 2), both steps half away from zero, so a notification and the order response always show the same value (decision #58). Clients must not rely on trailing zeros being present: `1000` and `1000.000` mean the same thing.
 - **Percentages are percent values**, not fractions: `1.5` means 1.50%. Field names end in `Percent`.
 - **Sign:** a variance or difference is signed. Positive means more than planned or required.
@@ -73,7 +73,7 @@ These rules apply to every endpoint. Section 5 lists each endpoint against them.
   { "items": [ ], "page": 1, "pageSize": 50, "totalCount": 132 }
   ```
 
-- **Order:** newest first (PRD 4.1), meaning by creation time descending, then by id or number descending. There is no `sort` parameter in v1. Stock has no creation time of its own, so stock rows follow the item's creation time.
+- **Order:** newest first (PRD 4.1), meaning by creation time descending, then by id or number descending. There is no `sort` parameter in v1. Stock has no creation time of its own, so stock rows follow the item's creation time. Units have no creation time either, so they are newest first by id (decision #68).
 - **Filters** are optional query parameters. They combine with AND. A filter that matches nothing, including an id that does not exist, returns `200` with an empty list (AC-11.2). A filter value in the wrong format (`status=Done`, `from=yesterday`) is `400`.
 - **Date ranges** (`from`, `to`) are dates (`2026-11-01`). Both are whole UTC days and both are included (AC-11.2). `from` later than `to` is `400`.
 
@@ -81,7 +81,7 @@ These rules apply to every endpoint. Section 5 lists each endpoint against them.
 
 - Names and reasons have leading and trailing spaces removed before they are checked. A value that is empty after trimming counts as missing.
 - Uniqueness checks on names and emails ignore letter case. The value is stored as entered.
-- Limits: unit name 1–50 (PRD); reasons and notes up to 500 (PRD); item name 1–100 and item description up to 500 (not in the PRD; default chosen here, see section 9).
+- Limits: unit name 1–50 (PRD); reasons and notes up to 500 (PRD); item name 1–100 and item description up to 500 (not in the PRD; default chosen here, see section 9); email up to 256 (the Identity default, decision #66). Length limits apply after trimming. Passwords are never trimmed.
 
 ## 3. User flows
 
@@ -338,7 +338,7 @@ Roles: W = Warehouse, P = Production, M = Manager, All = any signed-in user. A u
 
 Receipts and adjustments are commands that create a movement. They have no list of their own: they appear in `/movements` as types `Received` and `Adjustment`, and their `201` response carries `Location: /api/v1/movements/{id}`.
 
-There is no endpoint that edits or deletes a movement (AC-11.3), edits an order (AC-13.6), deletes a user (AC-03.6) or deletes a notification (AC-23.5). Calls to those methods return the framework's `405`.
+There is no endpoint that edits or deletes a movement (AC-11.3), edits an order (AC-13.6), deletes a user (AC-03.6) or deletes a notification (AC-23.5). Calls to those methods return `405` with the section 6 error body (7.2, Lists and general).
 
 The OpenAPI description (PRD section 5) is the tech lead's choice of path; `/openapi/v1.json` is the ASP.NET Core default.
 
@@ -747,8 +747,9 @@ Every order line must appear exactly once; zero is allowed. `200` returns the de
 - `decisionNote` holds the optional rejection note. `cancellationNote` holds "Parent order completed" or "Parent order cancelled".
 - `POST /complementary-orders/3/approve`: no body → `200`.
 - `POST /complementary-orders/3/reject`: `{ "note": "Use the spare from order #11" }` (optional) → `200`.
-- `POST /complementary-orders/3/send`: `{ "lines": [ { "itemId": 3, "quantity": 20 } ] }` → `200`.
-- `GET /complementary-orders` filters: `status`, `orderNumber`.
+- `POST /complementary-orders/3/send`: `{ "lines": [ { "itemId": 3, "quantity": 20 } ] }` → `200`. Every line of the complementary order must appear exactly once.
+- `lines` keep the order in which they were requested.
+- `GET /complementary-orders` filters: `status`, `orderNumber`. Each row is the full complementary order shape above, with its `lines` and `history`; there is no separate summary row (decision #105f). Newest first by `requestedAt`, then by number.
 
 ### 5.9 Returns
 
@@ -777,7 +778,8 @@ Every order line must appear exactly once; zero is allowed. `200` returns the de
 ```
 
 - `POST /returns/5/receive` and `POST /returns/5/cancel`: no body → `200`.
-- `GET /returns` filters: `status`, `itemId`.
+- `history` is Pending, then Received or Cancelled; each `note` is `null`.
+- `GET /returns` filters: `status`, `itemId`. Each row is the full return shape above (decision #108g). Newest first by creation time, then by number.
 
 ### 5.10 Notifications
 
@@ -849,6 +851,7 @@ Validation (`400`) adds `errors`, keyed by the JSON path of the field in camelCa
 Rules:
 
 - `detail` always holds the complete readable message. When several messages apply, they are joined with a space. A client can show `detail` alone.
+- `errors` is present when a field is at fault. Whole-body errors (the body is missing, is not valid JSON, or is the wrong kind of JSON value) have no `errors` field (decision #41). Each field gets at most one message, from the first rule it fails, in the order required, sign, decimal places, maximum (decisions #75, #81).
 - `code` is a stable kebab-case identifier for programs and tests. `400` input errors that are plain field checks share the code `validation`.
 - `title` is fixed per status: `400` "Invalid request", `401` "Not signed in", `403` "Not allowed", `404` "Not found", `409` "Conflict with current state".
 - `type` is left at the framework default. Clients should use `status` and `code`.
@@ -873,23 +876,34 @@ Rules:
 | 401 | `account-locked` | 5 failures in a row, for 15 minutes (AC-01.4) | Account temporarily locked. Try again later. |
 | 401 | `not-authenticated` | No token, invalid or expired token, token of a deactivated user (AC-01.2, AC-01.5, AC-03.6) | Your sign-in is missing or has expired. Sign in again. |
 | 403 | `forbidden` | None of the user's roles allows the action (AC-05.1) | Your roles do not allow this action. It needs the {Role} role. *(two roles: "the Warehouse or Manager role")* |
-| 400 | `current-password-incorrect` | AC-04.2 | Current password is incorrect. |
-| 400 | `weak-password` | Policy failed (AC-03.3, AC-03.7, AC-04.1) | Password must be at least 8 characters and include an upper-case letter, a lower-case letter and a digit. |
+| 400 | `current-password-incorrect` | AC-04.2, under `currentPassword` | Current password is incorrect. |
+| 400 | `weak-password` | Policy failed (AC-03.3, AC-03.7, AC-04.1), under the password field | Password must be at least 8 characters and include an upper-case letter, a lower-case letter and a digit. |
+| 400 | `validation` | Sign-in or `POST /users` with a missing or blank email (decisions #52, #66) | Email is required. |
+| 400 | `validation` | Sign-in or `POST /users` with a missing or empty password | Password is required. |
+| 400 | `validation` | Change-password without `currentPassword` | Current password is required. |
+| 400 | `validation` | Change-password or password reset without `newPassword` | New password is required. |
+
+A wrong current password on change-password counts towards the sign-in lock-out; while the account is locked, change-password gets the same `401` `account-locked` (decision #71).
 
 ASP.NET Core's JWT handler returns an empty `401` by default. It must be configured to return the ProblemDetails body above.
 
 ### 7.2 Business-rule rejections
 
-Placeholders are in braces. Messages marked PRD are exact. The rows marked "any quantity" under Receipts and adjustments apply to every quantity in every section below. A field message goes under the field's JSON path as its `errors` key (section 6): `quantity`, `orderedQuantity`, `producedQuantity`, `lines[0].quantity`, `lines[0].leftover`, `lines[0].requestedAmount`, `lines[0].amountPerUnit`.
+Placeholders are in braces. Messages marked PRD are exact. The rows marked "any quantity" under Receipts and adjustments apply to every quantity in every section below. `{Field}` is the field's label, the name its other messages use: Quantity, Ordered quantity, Produced quantity, Leftover, Requested amount, Reason, Note, Description. A field message goes under the field's JSON path as its `errors` key (section 6): `quantity`, `orderedQuantity`, `producedQuantity`, `finishedProductId`, `itemId`, `reason`, `lines`, `lines[0].itemId`, `lines[0].quantity`, `lines[0].leftover`, `lines[0].requestedAmount`, `lines[0].amountPerUnit`, `roles[0]`.
+
+**Order line bodies.** Four bodies list one figure per order material and share one set of rules and messages (decision #100): the send (`quantity`), the completion (`leftover`), the complementary request (`requestedAmount`) and the complementary send (`quantity`). A line sent as `null` gets both "Item is required." and the figure's "required" message. Where every line must appear (send, completion, complementary send), the missing ones are named together in one message under `lines`, in recipe line order. "Order line" in that message means the lines of the record being sent or completed: the production order's lines, or for a complementary send the complementary order's lines. The sentence is the same for all three, kept as built: the figure on every line is a quantity of the material, whether sent or left over, and the message names the missing materials, which is what the client needs to fix the request. A per-body wording ("needs a leftover") would read worse and add nothing.
 
 **Users (US-03)**
 
 | Status | Code | When | Message |
 |--------|------|------|---------|
 | 409 | `email-taken` | AC-03.2 | A user with this email already exists. (PRD) |
+| 400 | `validation` | Missing or blank email (decision #66) | Email is required. |
+| 400 | `validation` | Email longer than 256 (decision #66) | Email must be 256 characters or fewer. |
 | 400 | `validation` | Bad email (AC-03.3) | Email is not a valid email address. |
-| 400 | `validation` | Empty role list | At least one role is required. |
-| 400 | `validation` | Unknown role | Unknown role '{value}'. Roles are Warehouse, Production and Manager. |
+| 400 | `validation` | Missing password on `POST /users` | Password is required. |
+| 400 | `validation` | Missing or empty role list | At least one role is required. |
+| 400 | `validation` | Unknown role, under `roles[i]` | Unknown role '{value}'. Roles are Warehouse, Production and Manager. |
 | 409 | `last-manager` | AC-03.8 | At least one active Manager is required. (PRD) |
 | 404 | `not-found` | Unknown user id | User not found. |
 
@@ -908,7 +922,10 @@ Placeholders are in braces. Messages marked PRD are exact. The rows marked "any 
 | Status | Code | When | Message |
 |--------|------|------|---------|
 | 400 | `validation` | Missing name | Name is required. |
-| 400 | `validation` | Unknown type | Type must be RawMaterial or FinishedProduct. |
+| 400 | `validation` | Name longer than 100 (decision #69) | Name must be 100 characters or fewer. |
+| 400 | `validation` | Description longer than 500 (decision #69) | Description must be 500 characters or fewer. |
+| 400 | `validation` | Missing or unknown type | Type must be RawMaterial or FinishedProduct. |
+| 400 | `validation` | Missing unit (decision #69) | Unit is required. |
 | 400 | `validation` | Unknown unit | Unit {unitId} does not exist. |
 | 409 | `item-name-taken` | AC-07.2 | An item named '{name}' already exists. |
 | 409 | `item-in-use` | Type or unit change (AC-07.3) | Type and unit cannot change once the item is in use. (PRD) |
@@ -916,59 +933,78 @@ Placeholders are in braces. Messages marked PRD are exact. The rows marked "any 
 | 404 | `not-found` | Unknown id | Item {id} not found. |
 | 404 | `not-found` | `GET` recipe when none | {item} has no recipe. |
 | 400 | `recipe-not-finished-product` | Recipe for a raw material | Recipes are for finished products only. {item} is a raw material. |
+| 400 | `validation` | Line item missing (decision #74) | Item is required. |
 | 400 | `validation` | Line item is a finished product | Recipe lines must be raw materials. {item} is a finished product. |
 | 400 | `validation` | Line item unknown | Item {itemId} does not exist. |
-| 400 | `validation` | Same item twice | {item} appears on more than one line. |
+| 400 | `validation` | Same item twice: every later line naming it (decision #75) | {item} appears on more than one line. |
+| 400 | `validation` | Amount missing (decision #74) | Amount per unit is required. |
 | 400 | `validation` | Amount zero or less | Amount per unit must be greater than 0. |
 | 400 | `validation` | More than 6 decimals | Amount per unit can have at most 6 decimal places. |
 | 400 | `validation` | Amount above 999,999.999999 (decision #80) | Amount per unit must be 999,999.999999 or less. |
-| 400 | `validation` | No lines | A recipe needs at least one line. |
+| 400 | `validation` | No lines, or `lines` missing or `null` (decision #74) | A recipe needs at least one line. |
 
 **Receipts and adjustments (US-09, US-12)**
 
 | Status | Code | When | Message |
 |--------|------|------|---------|
+| 400 | `validation` | Quantity missing (any quantity; decisions #78, #90, #98, #103, #105, #108) | {Field} is required. |
 | 400 | `validation` | Quantity zero or less (receipt) | Quantity must be greater than 0. |
-| 400 | `validation` | More than 3 decimals (any quantity) | Quantity can have at most 3 decimal places. |
-| 400 | `validation` | Above 999,999,999.999 (any quantity: receipt, ordered, send, requested amount, complementary send, produced, leftover, adjustment, return; decision #80) | {Field} must be 999,999,999.999 or less. *({Field} is the name the field's other messages use: Quantity, Ordered quantity, Produced quantity, Leftover, Requested amount.)* |
+| 400 | `validation` | More than 3 decimals (any quantity; decision #95) | {Field} can have at most 3 decimal places. |
+| 400 | `validation` | Above 999,999,999.999 (any quantity: receipt, ordered, send, requested amount, complementary send, produced, leftover, adjustment, return; decision #80) | {Field} must be 999,999,999.999 or less. |
 | 400 | `validation` | Adjustment quantity below -999,999,999.999 | Quantity must be between -999,999,999.999 and 999,999,999.999. |
 | 400 | `validation` | Missing item | Item is required. |
 | 400 | `validation` | Unknown item | Item {itemId} does not exist. |
+| 400 | `validation` | Missing receipt date (decision #78) | Receipt date is required. |
+| 400 | `validation` | Receipt date not a date (decision #78) | Receipt date must be a date in the format yyyy-MM-dd. |
 | 400 | `validation` | Future receipt date | Receipt date cannot be later than today (UTC). |
 | 400 | `validation` | Note or reason over 500 | {Field} must be 500 characters or fewer. |
 | 400 | `receipt-not-raw-material` | AC-09.3 | Receipts are for raw materials only. (PRD) |
 | 400 | `validation` | Adjustment quantity zero | Quantity cannot be zero. |
 | 400 | `validation` | Missing or blank reason (any reason field) | Reason is required. |
-| 400 | `validation` | Unknown location | Location must be Warehouse or ProductionStorage. |
+| 400 | `validation` | Missing or unknown location | Location must be Warehouse or ProductionStorage. |
 | 409 | `insufficient-stock` | AC-12.3 | Not enough stock: {item} in {Warehouse \| Production storage} has {available} {unit}. (PRD) |
 | 409 | `material-in-use` | AC-12.5 | {item} in production storage is in use by order #{number}. Adjust it after the order is completed or cancelled. (PRD) |
 | 400 | `finished-product-in-production-storage` | AC-12.6 | Finished products are adjusted in the Warehouse only. |
+
+Field errors (`validation`) come before `receipt-not-raw-material` and `finished-product-in-production-storage` (decisions #78, #103).
+
+**Stock and movements (US-10, US-11)**
+
+| Status | Code | When | Message |
+|--------|------|------|---------|
+| 404 | `not-found` | `GET /stock/{itemId}` for an unknown item | Item {itemId} not found. |
+| 404 | `not-found` | Unknown movement id (decision #89) | Movement {id} not found. |
 
 **Production orders (US-13, US-15, US-19, US-21)**
 
 | Status | Code | When | Message |
 |--------|------|------|---------|
 | 404 | `not-found` | Unknown number (AC-14.3) | Order #{number} not found. |
+| 400 | `validation` | Missing finished product (decision #90) | Finished product is required. |
+| 400 | `validation` | Finished product id names no item (decision #90), under `finishedProductId` | Item {finishedProductId} does not exist. |
 | 400 | `order-not-finished-product` | AC-13.3 | Orders are for finished products only. {item} is a raw material. |
 | 400 | `no-recipe` | AC-13.3 | {item} has no recipe. Set its recipe before creating an order. |
 | 400 | `validation` | Ordered quantity zero or less | Ordered quantity must be greater than 0. |
-| 400 | `send-out-of-range` | AC-15.6, one sentence per failing line | {item}: send must be between {min} and {max} {unit} (planned {planned} {unit}, leftover applied {leftover} {unit}). (PRD) |
-| 409 | `insufficient-stock` | AC-15.7, one sentence per line short | Not enough stock: {item} in Warehouse has {available} {unit}. |
-| 400 | `validation` | Missing line (send or complete) | Every order line needs a quantity. Missing: {item}. |
-| 400 | `validation` | Item not on the order | Item {itemId} is not on order #{number}. |
-| 400 | `validation` | Same item twice | {item} appears on more than one line. |
+| 400 | `send-out-of-range` | AC-15.6, one sentence per failing line, in body order | {item}: send must be between {min} and {max} {unit} (planned {planned} {unit}, leftover applied {leftover} {unit}). (PRD) |
+| 409 | `insufficient-stock` | AC-15.7, one sentence per line short, in body order | Not enough stock: {item} in Warehouse has {available} {unit}. |
+| 400 | `validation` | Missing line (send, completion and complementary send; decision #96), under `lines`. `{items}` is the missing materials' names joined with ", ", in recipe line order | Every order line needs a quantity. Missing: {items}. *(example: "Every order line needs a quantity. Missing: Cheese, Potato starch.")* |
+| 400 | `validation` | Line item missing (send or completion) | Item is required. |
+| 400 | `validation` | Item not on the order, or an id that names no item at all (send or completion; decision #96) | Item {itemId} is not on order #{number}. |
+| 400 | `validation` | Same item twice: every later line naming it | {item} appears on more than one line. |
 | 400 | `validation` | Negative send | Quantity cannot be negative. |
 | 409 | `already-sent` | AC-15.9, InProduction or Completed | Materials have already been sent for this order. Raise a complementary order for more material. (PRD) |
 | 409 | `order-cancelled` | AC-15.9, AC-19.5, AC-21.5, Cancelled | This order is cancelled. (PRD) |
 | 409 | `another-order-in-production` | AC-15.10 | Order #{N} is in production. Only one order can be in production at a time. (PRD) |
-| 409 | `pending-return` | AC-15.11 | Return #{R} of {item} is waiting to be received by the warehouse. Record it first. (PRD) |
+| 409 | `pending-return` | AC-15.11; one sentence per blocking return, in recipe line order, then return number (decision #96) | Return #{R} of {item} is waiting to be received by the warehouse. Record it first. (PRD) |
 | 409 | `order-not-sent` | Complete a Created order (AC-19.5) | Order #{number} has not been sent yet. Send its materials before completing it. |
 | 409 | `already-completed` | Second completion (AC-19.5) | Output for order #{number} has already been registered. |
 | 400 | `validation` | Produced quantity zero or less | Produced quantity must be greater than 0. |
 | 400 | `validation` | Negative leftover | Leftover cannot be negative. |
-| 400 | `reason-required` | AC-19.4 | A reason is required when leftover is recorded. (PRD) |
-| 400 | `leftover-exceeds-stock` | AC-19.4 | Leftover for {item} cannot exceed the {stock} {unit} in production storage. (PRD) |
+| 400 | `reason-required` | AC-19.4, under `reason`; checked after the field errors (decision #98) | A reason is required when leftover is recorded. (PRD) |
+| 400 | `leftover-exceeds-stock` | AC-19.4, under `lines[i].leftover` for every line over its stock, in body order | Leftover for {item} cannot exceed the {stock} {unit} in production storage. (PRD) |
 | 409 | `order-completed` | Cancel a Completed order (AC-21.5) | Order #{number} is completed and cannot be cancelled. |
+
+Field errors come before `order-not-finished-product` and `no-recipe` (decision #90). A cancellation's reason is checked before the order's status, so a blank reason on a Completed order is `400`, not `409` (decision #104).
 
 **Complementary orders (US-16, US-17, US-18)**
 
@@ -976,22 +1012,35 @@ Placeholders are in braces. Messages marked PRD are exact. The rows marked "any 
 |--------|------|------|---------|
 | 404 | `not-found` | Unknown number | Complementary order #{number} not found. |
 | 409 | `parent-not-in-production` | AC-16.2 | Order #{number} is {status}. Complementary orders can be raised only while the order is in production. |
-| 400 | `validation` | No lines | At least one line is required. |
+| 400 | `validation` | No lines, or `lines` missing or `null` (decision #105) | At least one line is required. |
+| 400 | `validation` | Request line item missing | Item is required. |
 | 400 | `validation` | Amount zero or less | Requested amount must be greater than 0. |
-| 400 | `validation` | Item not on parent | {item} is not on order #{number}. |
-| 400 | `validation` | Same item twice | {item} appears on more than one line. |
+| 400 | `validation` | Request: an existing item not on the parent | {item} is not on order #{number}. |
+| 400 | `validation` | Request: an id that names no item at all (decision #105a) | Item {itemId} is not on order #{number}. |
+| 400 | `validation` | Same item twice (request or send): every later line naming it | {item} appears on more than one line. |
 | 409 | `not-pending-approval` | AC-17.3 | Complementary order #{number} is {status}. Only a PendingApproval complementary order can be approved or rejected. |
 | 409 | `not-approved` | AC-18.3 | Complementary order #{number} is {status}. Only an Approved complementary order can be sent. |
-| 400 | `send-out-of-range` | AC-18.2 | {item}: send must be between {min} and {max} {unit} (requested {requested} {unit}). |
-| 409 | `insufficient-stock` | AC-18.4 | Not enough stock: {item} in Warehouse has {available} {unit}. |
+| 400 | `validation` | Send: a line of the complementary order is missing (decision #106a) | Every order line needs a quantity. Missing: {items}. *(the shared order-line message, Production orders above)* |
+| 400 | `validation` | Send line item missing | Item is required. |
+| 400 | `validation` | Send: an item that is not one of the complementary order's lines, existing or not (decision #106a) | Item {itemId} is not on complementary order #{number}. |
+| 400 | `validation` | Negative send | Quantity cannot be negative. |
+| 400 | `send-out-of-range` | AC-18.2, one sentence per failing line, in body order | {item}: send must be between {min} and {max} {unit} (requested {requested} {unit}). |
+| 409 | `insufficient-stock` | AC-18.4, one sentence per line short, in body order | Not enough stock: {item} in Warehouse has {available} {unit}. |
+
+The three "not on" wordings are deliberate and stay as built (decisions #96, #105a, #106a). A complementary request is the one place a person picks materials from the parent's recipe, so an existing item is named to say which choice was wrong. Sends and completions answer with the id the client sent, because each of their lines must already match an order line one to one, and a wrong one is a client mistake rather than a choice. The complementary send names its own record, "complementary order #{number}", because its lines are a subset of the parent's.
+
+Field errors (the reason and every line, in one `400`) come before `parent-not-in-production`; a reject note over 500 (`400`) comes before `not-pending-approval` (decision #105b). The reject body is optional: no body, `{}`, a `null` or an all-spaces note all mean no note.
 
 **Returns (US-22)**
 
 | Status | Code | When | Message |
 |--------|------|------|---------|
 | 404 | `not-found` | Unknown number | Return #{number} not found. |
-| 400 | `return-not-raw-material` | Item is a finished product | Returns are for raw materials only. |
-| 400 | `validation` | Linked order unknown | Order #{number} does not exist. |
+| 400 | `validation` | Missing item (decision #108) | Item is required. |
+| 400 | `validation` | Unknown item, under `itemId` | Item {itemId} does not exist. |
+| 400 | `validation` | Quantity zero or less (decision #108) | Quantity must be greater than 0. |
+| 400 | `return-not-raw-material` | Item is a finished product; after the field errors | Returns are for raw materials only. |
+| 400 | `validation` | Linked order unknown, under `orderNumber` | Order #{number} does not exist. |
 | 409 | `insufficient-free-leftover` | AC-22.2 | Not enough free leftover: {item} has {free} {unit} free in production storage. |
 | 409 | `material-in-use` | AC-22.3 | {item} is in use by order #{number}, which is in production. Return it after the order is completed or cancelled. |
 | 409 | `not-pending` | AC-22.5 | Return #{number} is {status}. Only a Pending return can be received or cancelled. |
@@ -1002,8 +1051,9 @@ Placeholders are in braces. Messages marked PRD are exact. The rows marked "any 
 | Status | Code | When | Message |
 |--------|------|------|---------|
 | 404 | `not-found` | AC-23.5 | Notification {id} not found. |
+| 400 | `validation` | `unreadOnly` is not exactly `true` or `false` (any letter case; decision #102) | unreadOnly must be true or false. |
 
-Marking an already-read notification read again succeeds (`204`).
+Marking an already-read notification read again succeeds (`204`). A missing or empty `unreadOnly` means `false`.
 
 **Lists and general**
 
@@ -1012,8 +1062,20 @@ Marking an already-read notification read again succeeds (`204`).
 | 400 | `validation` | `pageSize` outside 1–100 | pageSize must be between 1 and 100. |
 | 400 | `validation` | `page` below 1 | page must be 1 or greater. |
 | 400 | `validation` | `from` after `to` | 'from' must be on or before 'to'. |
+| 400 | `validation` | `from` or `to` not a date (decision #43) | '{from \| to}' must be a date in the format yyyy-MM-dd. |
+| 400 | `validation` | Unknown value in an enum filter, under the parameter (decisions #69, #78) | {parameter} must be {values}. *(for example "status must be Created, InProduction, Completed or Cancelled.", "type must be RawMaterial or FinishedProduct.", "itemType must be RawMaterial or FinishedProduct.", "location must be Warehouse or ProductionStorage."; the values are the enum's names in section 2.3 order, the last two joined by "or")* |
+| 400 | `validation` | A number query value that is not a number, such as `?page=abc` (decisions #44, #113; framework wording, accepted) | The value '{value}' is not valid for {Property}. *(on some filters: "The value '{value}' is not valid.")* |
 | 400 | `validation` | Body is not valid JSON | The request body is not valid JSON. |
+| 400 | `validation` | Body missing where the endpoint needs one | A request body is required. |
+| 400 | `validation` | Body is valid JSON but the wrong kind of value, for example an array instead of an object | The request body has the wrong type. |
+| 400 | `validation` | A field has the wrong JSON type, for example a quantity sent as a string (design 2.4), under the field's path | {path} has the wrong type. |
+| 404 | `not-found` | No endpoint matches the path | No endpoint matches this path. |
+| 405 | `method-not-allowed` | The path exists but not for this method (section 4) | This method is not allowed on this path. |
+| 415 | `unsupported-media-type` | A body sent with a `Content-Type` other than JSON (decision #40) | The request body must be JSON, sent with Content-Type: application/json. |
 | 409 | `concurrent-change` | A concurrent request changed the data first and no more specific message applies (PRD section 5) | The data changed while your request was being processed. Read it again and retry. |
+| 500 | `internal-error` | Any unexpected failure; details are logged, never returned (architecture 4.1 item 8) | An unexpected error occurred. |
+
+`405`, `415` and `500` keep the framework's default `title`; the fixed titles in section 6 cover `400` to `409`.
 
 When two conflicting requests race, the losing one gets the specific message where one applies (for example `insufficient-stock` or `already-sent`), and `concurrent-change` only as a fallback.
 
@@ -1032,15 +1094,17 @@ When two conflicting requests race, the losing one gets the specific message whe
 
 ### 7.4 Start-up messages (console, not HTTP)
 
-The application stops with one of these and creates no user. Variable names other than `ADMIN_EMAIL` and `ADMIN_PASSWORD` are the tech lead's choice; the wording pattern stays.
+The application stops with one of these and creates no user. The token signing key is `JWT_SIGNING_KEY` (decision #32). A value of only spaces counts as not set (decision #53).
 
 | When | Message |
 |------|---------|
 | No users and `ADMIN_EMAIL` missing or empty (AC-02.3) | Start-up stopped: ADMIN_EMAIL is not set. Set ADMIN_EMAIL and ADMIN_PASSWORD to create the first Manager. |
+| No users and `ADMIN_EMAIL` not a valid email address (decision #53) | Start-up stopped: ADMIN_EMAIL is not a valid email address. Set ADMIN_EMAIL and ADMIN_PASSWORD to create the first Manager. |
 | No users and `ADMIN_PASSWORD` missing or empty (AC-02.3) | Start-up stopped: ADMIN_PASSWORD is not set. Set ADMIN_EMAIL and ADMIN_PASSWORD to create the first Manager. |
 | `ADMIN_PASSWORD` fails the policy (AC-02.4) | Start-up stopped: ADMIN_PASSWORD does not meet the password policy. It must be at least 8 characters and include an upper-case letter, a lower-case letter and a digit. |
-| Token signing key missing | Start-up stopped: {KEY_VARIABLE} is not set. Set it to a random secret of at least 32 characters. |
-| Tolerance outside 0–100 (PRD section 5) | Start-up stopped: Tolerance must be between 0 and 100. Current value: {value}. |
+| Token signing key missing | Start-up stopped: JWT_SIGNING_KEY is not set. Set it to a random secret of at least 32 characters. |
+| Token signing key shorter than 32 characters (decision #53) | Start-up stopped: JWT_SIGNING_KEY is too short. Set it to a random secret of at least 32 characters. |
+| Tolerance outside 0–100, or not a number (PRD section 5; decision #53) | Start-up stopped: Tolerance must be between 0 and 100. Current value: {value}. *({value} is the configured text, trimmed)* |
 
 ## 8. Story coverage
 
@@ -1055,8 +1119,8 @@ The application stops with one of these and creates no user. Variable names othe
 | US-07 Items | 3.4, 5.4, 7.2 Items |
 | US-08 Recipes | 3.4, 5.4, 7.2 Items and recipes |
 | US-09 Receipts | 3.5, 5.6, 7.2 Receipts |
-| US-10 Current stock | 5.5 |
-| US-11 Movement history | 2.5, 5.6 |
+| US-10 Current stock | 5.5, 7.2 Stock and movements |
+| US-11 Movement history | 2.5, 5.6, 7.2 Stock and movements |
 | US-12 Adjustments | 3.10, 5.6, 7.2 Adjustments |
 | US-13 Create order | 3.6, 5.7, 7.2 Production orders |
 | US-14 View orders | 5.7 |
