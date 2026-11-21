@@ -6,28 +6,30 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 
 | ID | Task | Owner | Depends on | Status |
 |----|------|-------|------------|--------|
-| T-001 | Common foundations: errors, paging, quantities, validation, clock | backend-developer | none | todo |
-| T-002 | Data model, domain migration, write transaction | backend-developer | none | todo |
-| T-003 | Authentication, roles, first Manager, start-up checks | backend-developer | T-001, T-002 | todo |
-| T-004 | Production calculations (pure functions D-3 to D-9) | backend-developer | T-001 | todo |
-| T-005 | Notification messages and data (pure) | backend-developer | T-001, T-002 | todo |
-| T-006 | Units and items | backend-developer | T-003 | todo |
-| T-007 | Recipes | backend-developer | T-006 | todo |
-| T-008 | Stock ledger, receipts, current stock | backend-developer | T-004, T-006 | todo |
-| T-008a | Input quantity maximums: shared check, retrofit recipes and receipts | backend-developer | T-007, T-008 | todo |
-| T-009 | Create and view production orders | backend-developer | T-007, T-008, T-008a | todo |
-| T-010 | Send materials for an order | backend-developer | T-009 | todo |
-| T-011 | Complete an order: output, variances, notifications | backend-developer | T-005, T-010 | todo |
-| T-012 | Notifications API | backend-developer | T-011 | todo |
-| T-013 | Movement history | backend-developer | T-008 | todo |
-| T-014 | User management and own password | backend-developer | T-003 | todo |
-| T-015 | Adjustments and write-offs | backend-developer | T-010 | todo |
-| T-016 | Cancel an order | backend-developer | T-011 | todo |
-| T-017 | Complementary orders: request, approve, reject, view | backend-developer | T-005, T-010 | todo |
-| T-018 | Complementary order send | backend-developer | T-017 | todo |
-| T-019 | Leftover returns | backend-developer | T-010 | todo |
-| T-020 | End-to-end scenarios, role matrix, concurrency | backend-developer | T-012 to T-019 | todo |
-| T-021 | OpenAPI completeness and sample requests | backend-developer | T-012 to T-019 | todo |
+| T-001 | Common foundations: errors, paging, quantities, validation, clock | backend-developer | none | done |
+| T-002 | Data model, domain migration, write transaction | backend-developer | none | done |
+| T-003 | Authentication, roles, first Manager, start-up checks | backend-developer | T-001, T-002 | done |
+| T-004 | Production calculations (pure functions D-3 to D-9) | backend-developer | T-001 | done |
+| T-005 | Notification messages and data (pure) | backend-developer | T-001, T-002 | done |
+| T-006 | Units and items | backend-developer | T-003 | done |
+| T-007 | Recipes | backend-developer | T-006 | done |
+| T-008 | Stock ledger, receipts, current stock | backend-developer | T-004, T-006 | done |
+| T-008a | Input quantity maximums: shared check, retrofit recipes and receipts | backend-developer | T-007, T-008 | done |
+| T-009 | Create and view production orders | backend-developer | T-007, T-008, T-008a | done |
+| T-010 | Send materials for an order | backend-developer | T-009 | done |
+| T-011 | Complete an order: output, variances, notifications | backend-developer | T-005, T-010 | done |
+| T-012 | Notifications API | backend-developer | T-011 | done |
+| T-013 | Movement history | backend-developer | T-008 | done |
+| T-014 | User management and own password | backend-developer | T-003 | done |
+| T-015 | Adjustments and write-offs | backend-developer | T-010 | done |
+| T-016 | Cancel an order | backend-developer | T-011 | done |
+| T-017 | Complementary orders: request, approve, reject, view | backend-developer | T-005, T-010 | done |
+| T-018 | Complementary order send | backend-developer | T-017 | done |
+| T-019 | Leftover returns | backend-developer | T-010 | done |
+| T-020 | End-to-end scenarios, role matrix, concurrency | backend-developer | T-012 to T-019 | done |
+| T-021 | OpenAPI completeness and sample requests | backend-developer | T-012 to T-019 | done |
+
+**Build phase complete (2026-11-21):** 22 of 22 tasks done, each reviewed by `code-reviewer` and committed as `T-0NN: ...` (last: `d09c6db T-021`). No task is open. Nothing was added after the decision on a full "only writer" guard for movements (decision #112: not adopted, so no post-QA task).
 
 **Thin slice first.** T-001 to T-012 give a working path through every layer: sign in, set up master data, receive stock, create an order, send, complete, read the notifications. T-013 to T-019 add breadth. T-020 and T-021 close out. T-008a was added on 2026-11-13 for decision #80 (owner): it puts the input maximums in place before the first task that multiplies quantities (T-009).
 
@@ -190,7 +192,7 @@ Each task is done only when all of these hold, as well as its own criteria below
 
 - **Owner:** backend-developer
 - **Serves:** US-13 (AC-13.1 to AC-13.7), US-14 (AC-14.1 to AC-14.3), AC-08.4, AC-15.5 (estimate bullet)
-- **Depends on:** T-007, T-008
+- **Depends on:** T-007, T-008, T-008a
 - **Touches:** `src/InventoryTracker.Api/Features/ProductionOrders/` (ProductionOrdersController, ProductionOrderService, ProductionOrderContracts, mapping), `tests/InventoryTracker.Api.Tests/Integration/ProductionOrdersTests.cs`
 - **What to build:** `POST /production-orders` (recipe snapshot, planned amounts, no stock moved), `GET /production-orders` (filter `status`, summary shape), `GET /production-orders/{number}` (full detail of design 5.7). The detail includes `estimate` per line while Created (D-5 and D-7, via T-004 and `StockQueries`), `history` built from the timestamp pairs, and `complementaryOrders` read from their table.
 - **Acceptance criteria:**
@@ -299,7 +301,7 @@ Each task is done only when all of these hold, as well as its own criteria below
 - **Serves:** US-21 (AC-21.1 to AC-21.6), AC-15.5 (cancel bullet), AC-23.2 (OrderCancelledWithMaterial)
 - **Depends on:** T-011 (shares the controller)
 - **Touches:** `src/InventoryTracker.Api/Features/ProductionOrders/CancelOrderService.cs`, `ProductionOrdersController.cs` (one action), `ProductionOrderContracts.cs`, `tests/InventoryTracker.Api.Tests/Integration/CancelOrderTests.cs`
-- **What to build:** `POST /production-orders/{number}/cancel` in one write transaction. No stock moves. It cancels open complementary orders with "Parent order cancelled" (AC-21.4), and creates the OrderCancelledWithMaterial notification through T-005 when any of the order's materials has Production storage stock above zero.
+- **What to build:** `POST /production-orders/{number}/cancel` in one write transaction. No stock moves. It cancels open complementary orders with "Parent order cancelled" (AC-21.4), and creates the OrderCancelledWithMaterial notification through T-005 when an InProduction order is cancelled with production-storage stock above zero (AC-21.3, design 3.8): at least one of the order's materials has stock above zero in Production storage, and each such material is listed with its whole production-storage quantity. Cancelling a Created order raises no notification (decision #104a, b).
 - **Acceptance criteria:**
   - Every criterion of US-21. AC-21.5: Completed gives `409` "Order #{n} is completed and cannot be cancelled."; Cancelled gives "This order is cancelled.".
   - AC-15.5 cancel bullet: cancelling #7 makes #8's estimate leftover 50, nominal 950, range 930 to 970.
@@ -359,6 +361,7 @@ Each task is done only when all of these hold, as well as its own criteria below
   - AC-05.3: every movement, order, complementary order and return status change in the scenarios has a user and a UTC time in its response.
   - AC-11.4: after the scenarios, for every item and location, the sum of movements equals the stock.
   - Concurrency: a send and a negative Warehouse adjustment that together exceed stock give at most one success, and stock is never negative.
+- **As built (decision #109):** besides `Integration/Scenarios/`, T-020 moved the two 100,000-movement performance tests into nested `Performance` classes in `StockTests.cs` and `MovementsTests.cs` (collection `PerformanceCollection`, new in `tests/.../Infrastructure`), extended `Infrastructure/OrderFlow.cs` (`LedgerAsync` with several movements, `InsertReturnAsync`), and made small tidy-ups in `ForcedOrder.cs`, `AdjustmentsTests.cs` and `ItemsTests.cs`. Tests only; no product code changed, no product bugs found. The role matrix also covers Warehouse plus Production (AC-05.2) and compares with `EndpointDataSource`; a complementary send against a negative adjustment was added alongside the order send.
 
 ### T-021: OpenAPI completeness and sample requests
 
@@ -371,33 +374,34 @@ Each task is done only when all of these hold, as well as its own criteria below
   - In Development, `/openapi/v1.json` lists all 48 method and path pairs of design section 4 and the Bearer scheme. A test compares the list.
   - Each endpoint's description comes from its `///` comment.
   - The `.http` walk-through runs top to bottom against a fresh database (manual check, described in the report).
+- **As built (decision #110, accepted by the delivery manager outside the Touches list):** every controller action gained `[ProducesResponseType]` attributes; request records whose optional fields lacked a default got `= null` (`ItemRequest`'s `Description` moved last for this); `PageQuery.Skip` became `[BindNever]`; `Program.cs` changed in a few lines (the OpenAPI set-up and the minimal-API JSON options), not one; `.env.example` is unchanged, and the `.http` file reads `src/InventoryTracker.Api/.env` with `$dotenv`.
 
 ## Coverage
 
-Every user story appears at least once.
+Every one of the 23 user stories in the PRD is served by at least one task, and every task is done (2026-11-21). The tasks in brackets add a specific criterion or an end-to-end proof.
 
-| User story | Tasks |
-|------------|-------|
-| US-01 Sign in | T-003, T-014 (AC-01.6), T-021 |
-| US-02 First Manager | T-003 |
-| US-03 Manage users | T-014 (T-003 provides the token check behind AC-03.6) |
-| US-04 Change own password | T-014 |
-| US-05 Role checks and audit | T-003 (mechanism), every endpoint task (403 tests), T-002 (audit columns), T-020 (full matrix and audit) |
-| US-06 Units | T-006 |
-| US-07 Items | T-006 |
-| US-08 Recipes | T-007, T-008a (amount maximum), T-009 (AC-08.4) |
-| US-09 Stock receipt | T-008, T-008a (quantity maximum) |
-| US-10 Current stock | T-008, T-019 (pending returns end to end) |
-| US-11 Movement history | T-013, T-020 (AC-11.4) |
-| US-12 Adjustments | T-015 |
-| US-13 Create order | T-009, T-004 (calculations) |
-| US-14 View orders | T-009 |
-| US-15 Send materials | T-010, T-004, T-019 (AC-15.11 end to end), T-016 (AC-15.5 cancel bullet), T-020 |
-| US-16 Request complementary order | T-017 |
-| US-17 Approve or reject | T-017 |
-| US-18 Complementary send | T-018, T-004 |
-| US-19 Complete order | T-011, T-004 |
-| US-20 Variances | T-004, T-011, T-020 (examples A and B) |
-| US-21 Cancel order | T-016 |
-| US-22 Returns | T-019 |
-| US-23 Notifications | T-005, T-011, T-016, T-017 (creation), T-012 (API) |
+| User story | Tasks | All done |
+|------------|-------|----------|
+| US-01 Sign in | T-003, T-014 (AC-01.6; change-password failures count towards the lock-out, #71), T-021 (sign-in documented), T-020 (401 on every endpoint in the role matrix) | yes |
+| US-02 First Manager | T-003 | yes |
+| US-03 Manage users | T-014 (T-003 provides the token check behind AC-03.6) | yes |
+| US-04 Change own password | T-014 | yes |
+| US-05 Role checks and audit | T-003 (mechanism), every endpoint task (401 and 403 tests), T-002 (audit columns), T-020 (full role matrix, AC-05.3 audit) | yes |
+| US-06 Units | T-006 | yes |
+| US-07 Items | T-006 (in-use checks over every reference in architecture 3.2) | yes |
+| US-08 Recipes | T-007, T-008a (amount maximum), T-009 (AC-08.4) | yes |
+| US-09 Stock receipt | T-008, T-008a (quantity maximum) | yes |
+| US-10 Current stock | T-008 (all fields, including committed, pending returns and free leftover), T-018 (committed after a complementary send), T-019 (pending returns end to end) | yes |
+| US-11 Movement history | T-013, T-019 (return movements linked to their order, #107), T-020 (AC-11.4, performance) | yes |
+| US-12 Adjustments | T-015, T-020 (send and complementary send against a negative adjustment) | yes |
+| US-13 Create order | T-009, T-004 (calculations), T-008a (ordered-quantity maximum) | yes |
+| US-14 View orders | T-009, T-017 (complementary orders in the detail) | yes |
+| US-15 Send materials | T-010, T-004, T-019 (AC-15.11 end to end), T-016 (AC-15.5 cancel bullet), T-020 (AC-15.5 whole scenario) | yes |
+| US-16 Request complementary order | T-017, T-005 (notification text) | yes |
+| US-17 Approve or reject | T-017 | yes |
+| US-18 Complementary send | T-018, T-004, T-020 (examples A and B) | yes |
+| US-19 Complete order | T-011, T-004, T-005 (notification text), T-016 (shared cancellation of unsent complementary orders, #104d) | yes |
+| US-20 Variances | T-004, T-011 (examples C and D), T-020 (examples A and B) | yes |
+| US-21 Cancel order | T-016, T-005 (notification text) | yes |
+| US-22 Returns | T-019 | yes |
+| US-23 Notifications | T-005 (texts), T-011, T-016, T-017 (creation), T-012 (API) | yes |
