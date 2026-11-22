@@ -28,7 +28,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-Check the first CI run on GitHub. Then v1 is complete; Later list in the PRD.
+v1 is complete. Next work comes from the PRD Later list when the owner chooses (e.g. PostgreSQL, HTTPS and rate limit before any cloud use, then CD).
 
 ## Log
 
@@ -76,6 +76,7 @@ Check the first CI run on GitHub. Then v1 is complete; Later list in the PRD.
 - 2026-11-22 `tech-lead` updated architecture for phase 7 (SEC-12 placeholder, Production configuration #128, hosting). Committed locally. Next: `technical-writer`.
 - 2026-11-22 `technical-writer`: README rewritten, user guide (08) and release notes (09) (#134); .http sample passwords moved to .env (#135). Final security check: release approved for localhost-only v1, all nine conditions met; SEC-19 and SEC-20 fixed and re-checked. Committed locally; waiting on owner approval to push.
 - 2026-11-22 Owner approved the release; design-taste-frontend skill untracked (#136). Pushed to main.
+- 2026-11-22 First CI run on GitHub passed (about 7 min). Owner merged Dependabot PRs #1 (checkout 7.0.1) and #2 (setup-dotnet 6.1.0); both passed CI. v1 complete.
 
 ## Follow-ups to route
 
