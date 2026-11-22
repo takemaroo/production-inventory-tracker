@@ -79,7 +79,8 @@ az group create --name $rg --location $location
 Generate the database password locally, keep it in a variable only, and never paste it into a file:
 
 ```powershell
-# 64 random characters from the signing-key script, keeping letters and digits only.
+# 64 random characters from the signing-key script, keeping letters and digits only. Letters and digits pass
+# safely through az on Windows (see step 7 for why other characters can be mangled).
 $pgPassword = (powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1) -replace '[^A-Za-z0-9]', ''
 
 az postgres flexible-server create `
@@ -87,12 +88,16 @@ az postgres flexible-server create `
   --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 17 `
   --admin-user inventoryadmin --admin-password $pgPassword `
   --backup-retention 14 `
-  --public-access 0.0.0.0
+  --public-access None `
+  --yes -o none
 
-az postgres flexible-server db create --resource-group $rg --server-name $pg --database-name inventory
+az postgres flexible-server db create --resource-group $rg --server-name $pg --database-name inventory -o none
 ```
 
-- `--public-access 0.0.0.0` allows connections from Azure services only (not from the internet at large). It is the simplest setup. The stronger option is private networking (a virtual network with App Service "VNet integration" and `--public-access None`), which keeps the database off public addresses entirely; it costs nothing extra on these tiers but adds several steps.
+- **`-o none`** (short for `--output none`) stops `az` from printing its result. For `flexible-server create` that result contains the admin password and a connection string with the password in it. Microsoft's guidance is to use `--output none` for any command whose output holds a secret. To look at the server later without the password, use `az postgres flexible-server show --resource-group $rg --name $pg -o table`.
+- **`--public-access None`** creates the server with public access switched on but **no firewall rule**, so nothing can connect yet. Step 4b opens it to this app's outbound addresses only.
+- **Do not use `--public-access 0.0.0.0`**, which some tutorials show. It allows connections from **any resource in Azure, including other customers' virtual machines and apps**, not just yours. The password and TLS still protect the database, but the whole of Azure can try to log in.
+- The strongest option is **private access**: the database gets no public address at all, and the app reaches it through a virtual network (App Service "VNet integration", available from the Basic tier). It needs a virtual network with two delegated subnets, and a private DNS zone linked to that network, which is a small extra monthly charge **[COSTS MONEY]**. The server must be created that way from the start (`--vnet`, `--subnet`, `--private-dns-zone`). Microsoft's steps: [Configure private access with the Azure CLI](https://learn.microsoft.com/azure/postgresql/flexible-server/how-to-manage-virtual-network-cli) and [Integrate your app with an Azure virtual network](https://learn.microsoft.com/azure/app-service/overview-vnet-integration). Choose it if the data is sensitive enough to justify the extra steps. This guide's commands have not been run against Azure (no account, by design), so follow Microsoft's pages for this option.
 - Connections must use TLS; that is the server's default (`require_secure_transport`).
 - `--backup-retention 14` keeps 14 days of automatic backups (7 to 35 allowed). Backup storage up to the size of the database is included.
 
@@ -106,6 +111,25 @@ az webapp create --resource-group $rg --plan $plan --name $app --runtime "DOTNET
 If `DOTNETCORE:10.0` is refused, list the exact names with `az webapp list-runtimes --os linux`. App Service installs and patches the .NET 10 runtime itself, which covers SEC-06 in the cloud; check the patch level later with the log stream (step 10).
 
 `--sku F1` is free but limited (60 CPU minutes a day, no Always On, the app sleeps when idle). It is enough to try the steps, not to use.
+
+### Step 4b. Let only this app reach the database (free)
+
+Allow the Web App's outbound addresses through the database firewall, one rule per address. `possibleOutboundIpAddresses` lists every address the app can use, including ones it would get after a change of pricing tier.
+
+```powershell
+$appIps = (az webapp show --resource-group $rg --name $app --query possibleOutboundIpAddresses -o tsv) -split ','
+$n = 0
+foreach ($ip in $appIps) {
+    $n++
+    az postgres flexible-server firewall-rule create --resource-group $rg --server-name $pg `
+      --name "app-outbound-$n" --start-ip-address $ip --end-ip-address $ip -o none
+}
+az postgres flexible-server firewall-rule list --resource-group $rg --server-name $pg -o table
+```
+
+- This is much narrower than "all of Azure", but these addresses are **not exclusive to you**: App Service shares outbound addresses between all the App Service plans in the same deployment unit, which can include other customers' apps. Only private access (step 3) is exclusive.
+- If you move the app to a pricing tier it did not have before, its outbound addresses can change: run this step again and delete the rules for addresses that are gone (`az postgres flexible-server firewall-rule delete`).
+- Never add your own home or office address permanently. If you need to connect from your machine once (for `pg_dump`, section 6), add a rule for your address, then delete it straight afterwards.
 
 ### Step 5. Keep one instance
 
@@ -135,24 +159,49 @@ $vaultId = az keyvault show --name $vault --query id -o tsv
 az role assignment create --role "Key Vault Secrets Officer" --assignee-object-id $me --assignee-principal-type User --scope $vaultId
 ```
 
-Role assignments can take a minute or two to apply. Then store the three secrets:
+Role assignments can take a minute or two to apply. Then store the three secrets.
+
+Each secret goes to the vault **through a temporary file** (`--file`), never as `--value` on the command line, for two reasons:
+
+- On Windows, `az` runs through a batch file (`az.cmd`), so characters such as `&`, `|`, `<`, `>` and `^` in a value can be cut off or misread even inside quotes. A password containing them would be stored wrongly, or part of it run as a command.
+- A value on the command line can be seen by other programs on the machine while the command runs.
+
+`-o none` stops `az keyvault secret set` from printing the stored secret back to the screen.
 
 ```powershell
+# Stores one secret through a temporary file, then deletes the file.
+function Set-VaultSecret([string] $Name, [string] $Value) {
+    $file = Join-Path $env:TEMP ([IO.Path]::GetRandomFileName())
+    try {
+        # WriteAllText writes the exact characters as UTF-8, with no byte-order mark and no trailing newline,
+        # so the vault receives exactly the value (checked on Windows PowerShell 5.1).
+        [IO.File]::WriteAllText($file, $Value)
+        az keyvault secret set --vault-name $vault --name $Name --file $file --encoding utf-8 -o none
+        if ($LASTEXITCODE -ne 0) { throw "Storing the secret '$Name' failed." }
+    }
+    finally {
+        # Delete the temporary file even if az failed.
+        Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # A NEW signing key for this instance. Never reuse the key of your own machine or of a test instance (SEC-13).
-$jwtKey = powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1
-az keyvault secret set --vault-name $vault --name jwt-signing-key --value $jwtKey
+Set-VaultSecret 'jwt-signing-key' (powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1)
 
 # The first Manager's password: typed, so it is not stored in your command history. Read-Host does show it on
 # screen while you type, so make sure nobody is watching, and run Clear-Host afterwards.
-$adminPassword = Read-Host 'First Manager password (8+ characters, upper, lower, digit)'
-az keyvault secret set --vault-name $vault --name admin-password --value $adminPassword
+Set-VaultSecret 'admin-password' (Read-Host 'First Manager password (8+ characters, upper, lower, digit)')
 
 # The database connection string (the format of the Npgsql provider the PostgreSQL port will use).
-$db = "Host=$pg.postgres.database.azure.com;Database=inventory;Username=inventoryadmin;Password=$pgPassword;SSL Mode=Require"
-az keyvault secret set --vault-name $vault --name db-connection --value $db
+Set-VaultSecret 'db-connection' "Host=$pg.postgres.database.azure.com;Database=inventory;Username=inventoryadmin;Password=$pgPassword;SSL Mode=Require"
 
-Remove-Variable jwtKey, adminPassword, pgPassword, db
+Remove-Variable pgPassword
+Clear-Host
 ```
+
+The function deletes each temporary file as soon as `az` has read it. The file sits in your own `%TEMP%` folder, which only your Windows user can read, for about a second. Deleting a file does not wipe it from the disk; on a BitLocker-encrypted drive that does not matter.
+
+If you ever store a secret with `--value` instead, use only letters, digits and `-` in it.
 
 ### Step 8. Give the app its identity and its settings **[ACCOUNT]** (a managed identity; free)
 
@@ -163,7 +212,7 @@ $appIdentity = az webapp identity assign --resource-group $rg --name $app --quer
 az role assignment create --role "Key Vault Secrets User" --assignee-object-id $appIdentity --assignee-principal-type ServicePrincipal --scope $vaultId
 ```
 
-The settings go in through a small JSON file, because `az` on Windows mangles values that contain `;` or parentheses when they are passed on the command line. The file holds only references to the vault and ordinary values, no secrets; delete it afterwards anyway.
+The settings go in through a small JSON file, because `az` on Windows can mangle values that contain `;`, parentheses or `&` when they are passed on the command line (step 7). `-o none` stops `az` from printing every setting back. The file holds only references to the vault and ordinary values, no secrets; delete it afterwards anyway.
 
 ```powershell
 $settings = @(
@@ -177,7 +226,7 @@ $settings = @(
 )
 $settingsFile = Join-Path $env:TEMP 'inventory-appsettings.json'
 $settings | ForEach-Object { [pscustomobject]$_ } | ConvertTo-Json | Set-Content -Path $settingsFile -Encoding ASCII
-az webapp config appsettings set --resource-group $rg --name $app --settings "@$settingsFile"
+az webapp config appsettings set --resource-group $rg --name $app --settings "@$settingsFile" -o none
 Remove-Item $settingsFile
 ```
 
@@ -226,8 +275,8 @@ Invoke-RestMethod -Method Post "$base/api/v1/auth/change-password" -Headers @{ A
 Then remove the first-Manager settings and secret. They are never read again once a user exists (AC-02.2):
 
 ```powershell
-az webapp config appsettings delete --resource-group $rg --name $app --setting-names ADMIN_PASSWORD ADMIN_EMAIL
-az keyvault secret delete --vault-name $vault --name admin-password
+az webapp config appsettings delete --resource-group $rg --name $app --setting-names ADMIN_PASSWORD ADMIN_EMAIL -o none
+az keyvault secret delete --vault-name $vault --name admin-password -o none
 ```
 
 Finally, create a second Manager account (the README explains why: keep at least two active Managers, SEC-04).
@@ -244,8 +293,9 @@ Finally, create a second Manager account (the README explains why: keep at least
 - **Restore** creates a **new** server **[COSTS MONEY while it exists]**; then you point the app at it:
 
   ```powershell
-  az postgres flexible-server restore --resource-group $rg --name "$pg-restored" --source-server $pg --restore-time "2026-11-22T09:00:00Z"
-  # Store a new db-connection secret with Host=<pg>-restored..., then restart the app:
+  az postgres flexible-server restore --resource-group $rg --name "$pg-restored" --source-server $pg --restore-time "2026-11-22T09:00:00Z" -o none
+  # The restored server has no firewall rules of its own: repeat step 4b with --server-name "$pg-restored".
+  # Then store a new db-connection secret with Host=<pg>-restored... (Set-VaultSecret, step 7), and restart the app:
   az webapp restart --resource-group $rg --name $app
   ```
 

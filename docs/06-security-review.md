@@ -4,7 +4,7 @@ Phase 6, `security-reviewer`, 2026-11-21, at commit `14c60fb` (main). **Re-check
 
 ## Summary
 
-**Final check (phase 7, 2026-11-22).** The release scripts, CI workflow, release and cloud guides, README, user guide and release notes meet all nine release conditions of section 7.2. Condition 2 is met for the released build: the published folder bundles runtime 10.0.15. Updating the runtime installed on the machine stays the owner's task, and the documents say so. I started `scripts\run.ps1 -Published` with `ASPNETCORE_URLS`, `DOTNET_URLS`, `URLS` and `ASPNETCORE_ENVIRONMENT=Development` all set to try to redirect it. It still listened only on `127.0.0.1` and `[::1]`, and only in Production (netstat). It refused every Kestrel endpoint variable I tried, and backup, restore and a second start all refused while it ran. With the Production log setting (#130), a 2 MB body got `413` and wrote no log line. The log held none of the throwaway secrets. The signing-key script uses the operating system's cryptographic generator. CI has a read-only token and no secrets, does not use `pull_request_target`, and interpolates no untrusted input. No real secret is in any tracked or new file or in the two new commits. Both SEC-12 places, and every password in the `.http` walk-through, now hold placeholders or `$dotenv` reads. The NuGet audit is clean. I found three new low or info items, none blocking: CI actions are pinned to tags rather than commit SHAs (SEC-19); the cloud guide's `az` commands would print secrets to the terminal (SEC-20, to fix before that guide is used); and policy-passing literals remain in the design document and in git history (SEC-21, Later). **Verdict: release approved from a security standpoint**, for localhost-only v1. One condition: the uncommitted files are committed as reviewed (section 7.1).
+**Final check (phase 7, 2026-11-22).** The release scripts, CI workflow, release and cloud guides, README, user guide and release notes meet all nine release conditions of section 7.2. Condition 2 is met for the released build: the published folder bundles runtime 10.0.15. Updating the runtime installed on the machine stays the owner's task, and the documents say so. I started `scripts\run.ps1 -Published` with `ASPNETCORE_URLS`, `DOTNET_URLS`, `URLS` and `ASPNETCORE_ENVIRONMENT=Development` all set to try to redirect it. It still listened only on `127.0.0.1` and `[::1]`, and only in Production (netstat). It refused every Kestrel endpoint variable I tried, and backup, restore and a second start all refused while it ran. With the Production log setting (#130), a 2 MB body got `413` and wrote no log line. The log held none of the throwaway secrets. The signing-key script uses the operating system's cryptographic generator. CI has a read-only token and no secrets, does not use `pull_request_target`, and interpolates no untrusted input. No real secret is in any tracked or new file or in the two new commits. Both SEC-12 places, and every password in the `.http` walk-through, now hold placeholders or `$dotenv` reads. The NuGet audit is clean. I found three new low or info items, none blocking: CI actions pinned to tags rather than commit SHAs (SEC-19), `az` commands in the cloud guide that would print secrets (SEC-20), and policy-passing literals in the design document and git history (SEC-21, Later). **Follow-up the same day:** `devops-engineer` fixed SEC-19 and SEC-20, and the README wording of SEC-21. I re-checked the diff (section 6.11). **Verdict: release approved from a security standpoint**, for localhost-only v1. One condition: the uncommitted files are committed as reviewed (section 7.1).
 
 **First review and re-check (phase 6).** The authentication and authorisation core holds up. Every forged, altered or expired token I tried was refused. The security stamp is checked on every request. The lock-out counts correctly under 40 parallel attempts, and the T-003 timing leak is still closed. All 48 endpoints match PRD 4.2, and no endpoint takes a user id from the request body. All SQL is parameterised. Error bodies and logs reveal nothing secret. No secret is in any tracked file or anywhere in git history. The NuGet audit finds no known vulnerabilities (re-run at `a3c1d66`). Even when flooded by authenticated clients, the stock rules held. The first review found no critical or high findings and four medium ones. **The two code findings are now fixed and re-verified against a live instance.** SEC-01: one request could stall every write and take 3.1 GB of memory. Now the same bodies are refused in 1 to 77 ms with a 0.3 KB answer, other users' writes are not delayed, and the process stayed at about 210 MB. SEC-02: an anonymous flood wrote Error-level stack traces at 2.6 MB/s. Now the same requests get a proper `413`, and each writes one Information line of 198 bytes, with no stack trace. The owner settled the other two mediums for v1: the API runs on localhost only (#119), and the lock-out stays without a rate limit (#120). The 401/403 checks still come before any body is read, and the error responses that are not capped are bounded in size. What remains are deployment and documentation conditions for phase 7 (section 7.2). **Recommendation: clear to release**, on those phase 7 conditions. This replaces the earlier "go-with-conditions".
 
@@ -252,7 +252,9 @@ The product stores, per staff member, an email, a password hash, roles, an activ
 
 **Why it is only info.** The 500-line cap does not bound this list. It is bounded by how many Pending returns exist, and only a Manager can create them (`ReturnsController`, `[Authorize(Roles = Manager)]`), one request each, each limited by free leftover (AC-22.2). Each sentence is about 100 to 200 bytes, so 10,000 Pending returns would make a 1 to 2 MB answer. That takes 10,000 deliberate requests by the fully trusted role (SEC-15). The list is read with one query inside the write lock. I did not measure this case. **Later:** list the first few returns and add "and N more", like `ValidationErrors`.
 
-### SEC-19 (low, Later; new in the final check): CI actions are pinned to movable tags, not commit SHAs
+### SEC-19 (low; new in the final check): CI actions are pinned to movable tags, not commit SHAs. **Fixed.**
+
+**Status: fixed (follow-up, 2026-11-22, working tree, not yet committed; diff reviewed, CI not run).** `ci.yml:41` now reads `actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0` and `:49` reads `actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0`. Both are full 40-character SHAs, explained in a comment at `:37-38`. The new `.github/dependabot.yml` watches `github-actions` only, monthly, with at most 5 pull requests and no automatic merge. A Dependabot pull request runs the same read-only, secret-free CI. `docs/07-release.md` section 4 describes the pins. I did not check the SHAs against GitHub myself: I make no outside lookups. `devops-engineer` reports checking them against the official repositories. A SHA that does not exist makes the job fail rather than run other code. The first CI run will confirm that both resolve. The original finding is kept below.
 
 **Where.** `.github/workflows/ci.yml:39` `actions/checkout@v5` and `:47` `actions/setup-dotnet@v5`.
 
@@ -260,7 +262,15 @@ The product stores, per staff member, an email, a password hash, roles, an activ
 
 **Fix (`devops-engineer`, Later).** Pin each action to its full commit SHA, with the version in a comment (`uses: actions/checkout@<40-hex-sha> # v5.x.y`). Add a Dependabot `github-actions` entry so the pins are kept current.
 
-### SEC-20 (low; fix before the cloud guide is used; new in the final check): the cloud guide's `az` commands would print secrets to the terminal
+### SEC-20 (low; new in the final check): the cloud guide's `az` commands would print secrets to the terminal. **Fixed.**
+
+**Status: fixed in the guide (follow-up, 2026-11-22, working tree, not yet committed; diff reviewed, nothing run against Azure).**
+- **Printed secrets.** Every `az` command whose result could contain a secret now ends in `-o none`: `flexible-server create` and `db create` (step 3), `firewall-rule create` (step 4b), `secret set` (step 7, inside `Set-VaultSecret`), `appsettings set` and `appsettings delete`, `secret delete` and `flexible-server restore`. The remaining commands without `-o` print no secret: login, resource group, plan, `webapp create`, role assignments, deploy, logs, restart and teardown. The commands that read values use `--query ... -o tsv`.
+- **`az.cmd` quoting and the process list.** All three vault secrets now go through `Set-VaultSecret`. It writes the value with `[IO.File]::WriteAllText` (UTF-8, no byte-order mark, no newline) to a randomly named file in the user's `%TEMP%`, calls `az keyvault secret set --file ... --encoding utf-8 -o none`, throws if `az` failed, and deletes the file in `finally`. No secret is passed as `--value` any more. The guide says to keep any future `--value` to letters, digits and `-`. The PostgreSQL admin password is still passed as `--admin-password` on the command line. It is letters and digits only, so it cannot be mangled. It is visible to other programs of the same user only while that one command runs. I accept that.
+- **Database exposure.** Step 3 now uses `--public-access None` (public endpoint, no firewall rule). The new step 4b opens it only to the Web App's `possibleOutboundIpAddresses`, one rule each, and says these addresses are shared with other App Service customers in the same deployment unit. `0.0.0.0` is explicitly discouraged, with the reason ("any resource in Azure, including other customers'"). Private access is described as the strongest option and marked **[COSTS MONEY]**. Restores repeat step 4b for the new server. A temporary rule for the owner's own address is to be deleted straight after use.
+- Still optional for the re-review: turning off basic-authentication publishing credentials on the Web App.
+
+The original finding is kept below.
 
 **Where.** `docs/07a-cloud-guide.md` step 3 (`:85-90`, `az postgres flexible-server create ... --admin-password $pgPassword`) and step 7 (`:143`, `:148`, `:152`, `az keyvault secret set ... --value ...`).
 
@@ -285,7 +295,7 @@ None of these is a real credential. None is in anything the owner is told to run
 | `tests/` (for example `Initial2026` 23 times, `Reset-2026a` 6 times, `Admin-Test-2026`) | test fixtures | **Keep.** They are used only by `TestApiFactory`'s in-memory instances with temporary SQLite files and the test-only signing key, which is labelled as such. |
 | git history (pushed) | the former architecture sample; the former `.http` values `Initial2026`, `Reset-2026a`, `Gouda-Wheel-77` | **Accept.** The owner's rules forbid rewriting pushed history. Treat these values as public. If the old walk-through was ever run against a database that is kept, change or deactivate the `warehouse.user@example.com` account there. |
 
-The README says (`README.md:117`): "Where this repository shows a password, it is a placeholder". That is true of everything a person runs, but not of the design document or the tests. A wording fix for `technical-writer`: "Every password in a command or sample request here is a placeholder."
+The README said (`README.md:117`): "Where this repository shows a password, it is a placeholder". That was true of everything a person runs, but not of the design document or the tests. **Fixed (follow-up, working tree):** it now reads "Every password in a command or sample request here is a placeholder such as `<choose-your-own-strong-password>`. Example values in the design document and the tests are for throwaway databases only; never use them for a real account." That is accurate.
 
 ## 3. Checked and found sound
 
@@ -381,9 +391,9 @@ Status as of the final check (2026-11-22, `8dbdbe7` plus the working tree).
 | SEC-16 | info | Personal data: emails visible to all roles; no erasure path; unencrypted file | file and backups protection **met** (release guide 7, README "Data", backup script) | done | none for v1 |
 | SEC-17 | info | `*.db-journal` not ignored; duplicate JSON keys; no sign-out; stamp claim | `.gitignore` line **fixed** (#133); the rest accepted | no | none |
 | SEC-18 | info | `pending-return` 409 lists every Pending return, uncapped (Manager-created data) | open | no (Later) | backend-developer |
-| SEC-19 | low | CI actions pinned to movable tags, not SHAs | **new**, open | no (Later) | devops-engineer |
-| SEC-20 | low | Cloud guide's `az` commands would print secrets; `az.cmd` quoting; `0.0.0.0` wording | **new**, open (not run; documented CLI behaviour) | no for localhost v1; **yes before the cloud guide is followed** | devops-engineer, technical-writer |
-| SEC-21 | info | Policy-passing literals in the design doc, QA records, tests and git history | **new**; judged in the finding | no (design examples: Later) | ux-designer, technical-writer (wording) |
+| SEC-19 | low | CI actions pinned to movable tags, not SHAs | **fixed** (follow-up: SHA pins, Dependabot; diff reviewed, CI not yet run) | done (commit) | delivery manager (commit) |
+| SEC-20 | low | Cloud guide's `az` commands would print secrets; `az.cmd` quoting; `0.0.0.0` wording | **fixed** in the guide (follow-up: `-o none`, `--file` secrets, `--public-access None` + step 4b; diff reviewed, not run) | done (commit); the cloud re-review still applies | delivery manager (commit) |
+| SEC-21 | info | Policy-passing literals in the design doc, QA records, tests and git history | judged in the finding; README wording **fixed** (follow-up) | no (design examples: Later) | ux-designer |
 
 No critical or high findings, and no open medium finding without an owner decision.
 
@@ -478,7 +488,7 @@ No request without a valid token or the right role caused a body read, a query b
 
 ### 6.6 Final check: what was reviewed
 
-Commits `43b3934` (scripts, CI, `07-release`, `07a`, `appsettings.Production.json`, the `.http` placeholder) and `8dbdbe7` (architecture). The uncommitted working tree as of this check: `README.md` (rewritten), `docs/08-user-guide.md` and `docs/09-release-notes.md` (new), the `.http` walk-through passwords moved to `$dotenv` (#135), `.env.example`, and fixes to `docs/07-release.md`, `docs/07a-cloud-guide.md` and `docs/decisions.md`. The verdict covers these files **as they are now**. They must be committed unchanged, or re-checked if they change.
+Commits `43b3934` (scripts, CI, `07-release`, `07a`, `appsettings.Production.json`, the `.http` placeholder) and `8dbdbe7` (architecture). The uncommitted working tree as of this check: `README.md` (rewritten), `docs/08-user-guide.md` and `docs/09-release-notes.md` (new), the `.http` walk-through passwords moved to `$dotenv` (#135), `.env.example`, and fixes to `docs/07-release.md`, `docs/07a-cloud-guide.md` and `docs/decisions.md`. The verdict covers these files **as they are now**. They must be committed unchanged, or re-checked if they change. **Update:** the delivery manager committed these files in `9e49d42`. The follow-up (section 6.11) is still uncommitted and adds `.github/workflows/ci.yml`, the new `.github/dependabot.yml`, and further changes to `docs/07a-cloud-guide.md`, `docs/07-release.md` section 4 and `README.md:117`.
 
 ### 6.7 Scripts
 
@@ -506,7 +516,7 @@ Commits `43b3934` (scripts, CI, `07-release`, `07a`, `appsettings.Production.jso
 | No secrets | No `secrets.` reference; the tests set their own throwaway values (`TestApiFactory`). |
 | Triggers | `push` and `pull_request` to `main` only (`:9-13`). **No `pull_request_target`**, no `workflow_run`, no `issue_comment`. |
 | Untrusted input | No `${{ github.event.* }}` or other user-controlled expression in any `run:` step. The only expressions are `github.ref` and `github.event_name` in `concurrency` (`:22-23`), which are not run as shell. |
-| Pinned actions | Pinned to major tags `@v5`, not commit SHAs: **SEC-19** (low, Later). |
+| Pinned actions | Final check: major tags `@v5` (**SEC-19**). Follow-up: full commit SHAs with the version in a comment (`:41`, `:49`), plus `.github/dependabot.yml` for `github-actions` (**fixed**). |
 | Other | `timeout-minutes: 25`; no cache (so no cache poisoning); no artefact upload; no deployment. |
 
 Not run on GitHub: it runs only after a push.
@@ -526,7 +536,17 @@ Not run on GitHub: it runs only after a push.
 | PostgreSQL first | Section 1 item 1; section 2 explains why SQLite is unsafe on App Service | met |
 | Re-open the security review | Section 1 item 6; section 12's last line; README and release guide section 9 | met |
 | Steps that cost money marked | **[COSTS MONEY]** on steps 3, 4 and 7, the custom domain, Application Insights and restores; **[ACCOUNT]** on account and identity steps; a budget alert (step 1); teardown (section 11) | met |
-| Does not lead into an insecure deployment | Section 1 is a "Stop" list of blocking changes before any step goes live; one instance only (step 5) | met, with **SEC-20** to fix before the guide is used |
+| Does not lead into an insecure deployment | Section 1 is a "Stop" list of blocking changes before any step goes live; one instance only (step 5); database firewall limited to the app's outbound addresses (step 4b, follow-up) | met; **SEC-20 fixed** in the follow-up |
+
+### 6.11 Follow-up: SEC-19, SEC-20 and the README wording (diff only)
+
+Same day, after the final check. `devops-engineer` changed `ci.yml`, added `.github/dependabot.yml`, and changed `07a-cloud-guide.md`, `07-release.md` section 4 and `README.md:117`. As the delivery manager asked, I reviewed `git diff` and the new file only, with no live run. The details are under SEC-19, SEC-20 and SEC-21. The diff:
+
+- changes nothing in product code, scripts or settings;
+- adds no secret: the only new long hex strings are the two action SHAs;
+- widens no CI permission and adds no trigger: still `contents: read`, `push` and `pull_request`.
+
+The cloud guide still requires everything in section 6.10. **SEC-19 and SEC-20 are fixed.** The verdict in 7.1 stands.
 
 ## 7. Release recommendation
 
@@ -536,9 +556,9 @@ Not run on GitHub: it runs only after a push.
 
 This approval holds on these terms:
 
-1. **The uncommitted files are committed as reviewed** (section 6.6). Conditions 4 to 8 depend on the rewritten README, the `.http` `$dotenv` change (#135) and the release-guide fixes. If any of them changes before the commit, it needs another look.
+1. **The reviewed files are committed as reviewed** (section 6.6): done in `9e49d42` for the final-check files. The follow-up files (section 6.11) still need committing as reviewed. Conditions 4 to 8 depend on the rewritten README, the `.http` `$dotenv` change (#135) and the release-guide fixes. If any of them changes before the commit, it needs another look.
 2. **The owner's own tasks:** install the latest .NET 10 runtime or SDK on this machine, then record `dotnet sdk check` in `docs/07-release.md` section 1. Until then, start the real instance with `run.ps1 -Published` only (SEC-06). After the first start, change the first password and remove `ADMIN_PASSWORD` (README "First password"). Create a second Manager.
-3. **SEC-20 is fixed before anyone follows the cloud guide.** That point is already behind the re-review that section 1 of the cloud guide requires.
+3. **SEC-20 is fixed in the guide** (follow-up, section 6.11). Following the cloud guide still requires the product changes and the security re-review of its section 1.
 
 If the API is ever made reachable from another machine, this verdict no longer holds. SEC-03 (HTTPS and HSTS) and SEC-05 (rate limit) then become blocking, SEC-04 must be revisited, and this review must be re-opened. The release guide (section 9), the README ("Localhost only"), the release notes and the cloud guide (section 1) all say so.
 
@@ -567,4 +587,4 @@ Each condition below was set at the re-check and is marked as found in the final
 9. **SEC-02 residual, #126 (optional for localhost-only):** set `Logging:LogLevel:InventoryTracker.Api.Common.Errors.ApiExceptionHandler` to `Warning` in the release configuration, or rotate the log. This becomes required together with item 1's HTTPS before any non-localhost exposure. (`devops-engineer`)
    **Met.** `src/InventoryTracker.Api/appsettings.Production.json:4` (#130), included in `publish\win-x64` (identical file). Verified live: a 2 MB body gave `413` and no log line.
 
-Everything else belongs on the PRD's Later list: SEC-05, SEC-08 to SEC-11, the rest of SEC-13, SEC-17's remaining points, SEC-18, SEC-19 and SEC-21's design examples. SEC-10 is a requirement for the future front end. SEC-20 must be fixed before the cloud guide is used.
+Everything else belongs on the PRD's Later list: SEC-05, SEC-08 to SEC-11, the rest of SEC-13, SEC-17's remaining points, SEC-18 and SEC-21's design examples. SEC-10 is a requirement for the future front end. SEC-19 and SEC-20 are fixed (section 6.11).

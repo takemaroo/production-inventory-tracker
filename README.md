@@ -114,7 +114,7 @@ The first Manager's password has been typed into a terminal and held in an envir
 
    `run.ps1` warns on every start while `ADMIN_PASSWORD` is still set.
 
-Never write a real password in a file git tracks. Where this repository shows a password, it is a placeholder such as `<choose-your-own-strong-password>`.
+Never write a real password in a file git tracks. Every password in a command or sample request here is a placeholder such as `<choose-your-own-strong-password>`. Example values in the design document and the tests are for throwaway databases only; never use them for a real account.
 
 ## Keep two active Managers
 

@@ -34,9 +34,11 @@ jobs:
       DOTNET_NOLOGO: true
       DOTNET_CLI_TELEMETRY_OPTOUT: true
 
+    # Each action is pinned to a full commit SHA, not a tag (SEC-19): a tag can be moved to other code later, a commit
+    # cannot. The comment names the release the SHA belongs to. Dependabot (.github/dependabot.yml) proposes updates.
     steps:
       - name: Check out the code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           # Do not leave the job's GitHub token in the checked-out repository's git settings; nothing here pushes.
           persist-credentials: false
@@ -44,7 +46,7 @@ jobs:
       # Installs the SDK that global.json asks for. Its rollForward "latestFeature" makes this the newest 10.0 SDK,
       # which also brings the newest 10.0 runtime for the tests.
       - name: Install the .NET SDK from global.json
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           global-json-file: global.json
 

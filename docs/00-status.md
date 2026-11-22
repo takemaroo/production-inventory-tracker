@@ -18,18 +18,19 @@ Kept current by the delivery manager. Last updated: 2026-11-21
 | 4 | Build | done | code | tasks done: 22 of 22 (T-001 to T-021, T-008a) |
 | 5 | QA | done | `docs/05-test-plan.md` | Verdict PASS. |
 | 6 | Security | done | `docs/06-security-review.md` | Clear to release, with 9 conditions for phase 7 (report 7.2). |
-| 7 | Release | in progress | `docs/07-release.md`, `README.md` | README is out of date; update it here. |
+| 7 | Release | waiting on owner | `docs/07-release.md`, `README.md` | Built, reviewed and security-approved; committed locally, not pushed. |
 
 Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Waiting on the owner
 
 - SEC-06: install the .NET 10.0.15 runtime (or later) on this machine; it runs 10.0.12. Owner's call.
-- Cloud tutorial provider: Azure App Service unless the owner prefers another.
+- Approve the release (phase 7): push the local phase 7 commits, including the CI workflow, to GitHub.
+- Claude/company files in the repo: keep, remove only design-taste-frontend (recommended), or stop tracking all.
 
 ## Next step
 
-Phase 7: `devops-engineer` (run scripts, CI, `docs/07-release.md` with the 9 security conditions and the cloud guide), then `technical-writer` (README, user guide, release notes). Owner approves before anything leaves this machine.
+Owner approves the release; then push and check the first CI run on GitHub.
 
 ## Log
 
@@ -75,6 +76,7 @@ Phase 7: `devops-engineer` (run scripts, CI, `docs/07-release.md` with the 9 sec
 - 2026-11-21 `security-reviewer` re-check: SEC-01 and SEC-02 fixed and verified live; verdict clear to release with 9 phase 7 conditions; SEC-18 (info) added to Later. Phase 6 done. Started phase 7 with `devops-engineer`.
 - 2026-11-22 `devops-engineer` finished scripts, CI, `docs/07-release.md` and `docs/07a-cloud-guide.md` (Azure; #128-#133). Approved by `code-reviewer` after two rounds (backup/restore refuse while the API runs; relative publish folder). Committed locally; phase 7 is not pushed until the owner approves the release.
 - 2026-11-22 `tech-lead` updated architecture for phase 7 (SEC-12 placeholder, Production configuration #128, hosting). Committed locally. Next: `technical-writer`.
+- 2026-11-22 `technical-writer`: README rewritten, user guide (08) and release notes (09) (#134); .http sample passwords moved to .env (#135). Final security check: release approved for localhost-only v1, all nine conditions met; SEC-19 and SEC-20 fixed and re-checked. Committed locally; waiting on owner approval to push.
 
 ## Follow-ups to route
 
@@ -91,5 +93,4 @@ Phase 7: `devops-engineer` (run scripts, CI, `docs/07-release.md` with the 9 sec
 - devops-engineer (phase 7): #126 optional Warning level for ApiExceptionHandler; the body limit is also set for IIS hosting.
 - Optional comment nits (later, from the comment-tidy review): CheckLineCount remarks also cite #123; RequestTimeoutMessage and UnreadableBodyMessage cite #124; RequestBodyLimitTests comment says TestOutputHelper (not TestContext.Current) is null outside a test; TooManyRolesMessage points to design 7.2.
 - Optional script nits (later): Test-FileInUse description says the lock check fails "exactly when the API is running" (not true when idle); 07-release section 10 row could mention a running build of the API project matching the process check.
-- security-reviewer (before release approval): 06-security-review.md:186 still lists SEC-12 as open in 03-architecture and the .http file; both now use the placeholder.
 - Test tidy (later, not v1): third copy of the 100,000-movement volume seed in Acceptance/PerformanceAcceptanceTests; private AdjustAsync in StockZeroForms/NotificationEvents acceptance tests duplicates ScenarioApi.AdjustAsync; fold into OrderFlow/Seed (BUG-001 review).

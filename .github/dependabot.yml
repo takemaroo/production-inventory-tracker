@@ -1,0 +1,13 @@
+# Dependabot: GitHub opens a pull request when a newer version of an action used in .github/workflows is released,
+# updating both the pinned commit SHA and its version comment (security review SEC-19). The CI workflow then runs on
+# that pull request, so an update is tested before it is merged. Nothing is merged automatically.
+#
+# Only GitHub Actions are watched here. NuGet packages are left out on purpose: the .NET packages are pinned to the
+# 10.0.x line (decision #19) and are updated by hand with the monthly runtime patch (docs/07-release.md, section 1).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
