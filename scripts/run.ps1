@@ -13,7 +13,10 @@
   would select Development (SEC-13): Development reads user-secrets and publishes the OpenAPI document anonymously.
 
   Checks before starting, each with a clear message:
-    - JWT_SIGNING_KEY is set and at least 32 characters (generate one with scripts\new-signing-key.ps1);
+    - JWT_SIGNING_KEY is set, at least 32 characters and without spaces (save one for your Windows user with
+      scripts\new-signing-key.ps1 -SaveForUser);
+    - if JWT_SIGNING_KEY is missing from this window but saved for your Windows user, it says so and how to pick
+      it up, instead of suggesting a new key that would not match the saved one;
     - on the first start (no database file yet), ADMIN_EMAIL and ADMIN_PASSWORD are set: the API creates the
       first Manager from them;
     - after the first start, a warning if ADMIN_PASSWORD is still set: it is never read again (AC-02.2) and
@@ -87,11 +90,11 @@ if ($kestrelVariables.Count -gt 0) {
 $urls = "http://127.0.0.1:$Port;http://[::1]:$Port"
 
 # --- The token signing key. ----------------------------------------------------------------------------------------
-if ([string]::IsNullOrWhiteSpace($env:JWT_SIGNING_KEY)) {
-    Stop-WithMessage 'JWT_SIGNING_KEY is not set. Generate a key for this machine with: $env:JWT_SIGNING_KEY = powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1'
-}
-if ($env:JWT_SIGNING_KEY.Length -lt 32) {
-    Stop-WithMessage 'JWT_SIGNING_KEY is shorter than 32 characters. Generate a random key with scripts\new-signing-key.ps1.'
+# Get-SigningKeyProblem (common.ps1) tells apart "not set anywhere" from "saved for your Windows user, but this
+# window started before it was saved", which need opposite advice.
+$keyProblem = Get-SigningKeyProblem
+if ($keyProblem) {
+    Stop-WithMessage $keyProblem
 }
 
 # --- The database and the first Manager. ---------------------------------------------------------------------------

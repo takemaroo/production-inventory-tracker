@@ -48,15 +48,19 @@ Every command runs in PowerShell from the repository root.
 
    It ends with `Bundled ASP.NET Core runtime: 10.0.15` and `Published to ...\publish\win-x64`.
 
-3. **Set the variables for the first start.** The signing key goes straight from the script into the variable, so it never appears on screen:
+3. **Set the variables for the first start.**
 
    ```powershell
-   $env:JWT_SIGNING_KEY = powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1
-   $env:ADMIN_EMAIL     = 'you@yourcompany.example'
-   $env:ADMIN_PASSWORD  = Read-Host 'First Manager password'
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1 -SaveForUser
+   $env:JWT_SIGNING_KEY = [Environment]::GetEnvironmentVariable('JWT_SIGNING_KEY', 'User')   # this window too
+   $env:ADMIN_EMAIL    = 'you@yourcompany.example'
+   $env:ADMIN_PASSWORD = Read-Host 'First Manager password'   # not saved in the command history
    ```
 
-   `$env:` variables last for this PowerShell window only. Keep the signing key as a variable for your Windows user instead, so it is the same in every window and tokens survive a restart (see [Signing key](#signing-key) and [`docs/07-release.md` section 3](docs/07-release.md#3-configuration)). The password must have at least 8 characters, with an upper-case letter, a lower-case letter and a digit. `Read-Host` keeps it out of the command history but shows it while you type; run `Clear-Host` afterwards.
+   - The first line makes a random signing key and saves it for your Windows user, so every window you open later has the same key and tokens survive a restart. It prints only `Saved a new JWT_SIGNING_KEY ...`, never the key. Run it **once per machine**, from the repository root. If a key is already saved it keeps it and says so ([Signing key](#signing-key)).
+   - The second line loads the saved key into this window, which was opened before the key was saved and so does not have it yet.
+   - `ADMIN_EMAIL` and `ADMIN_PASSWORD` are for this window and this first start only. Write down the exact email: it is the one you sign in with. The password must have at least 8 characters, with an upper-case letter, a lower-case letter and a digit. `Read-Host` keeps it out of the command history but shows it while you type; run `Clear-Host` afterwards.
+   - Only for a quick test in one window, from the repository root, `$env:JWT_SIGNING_KEY = powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1` instead of the first two lines makes a window-only key. It is lost when the window closes, and every new key signs everybody out.
 
 4. **Start the API**:
 
@@ -71,10 +75,27 @@ Every command runs in PowerShell from the repository root.
    ```powershell
    Invoke-RestMethod http://localhost:5133/health
    $body  = @{ email = 'you@yourcompany.example'; password = (Read-Host 'Password') } | ConvertTo-Json
-   $token = (Invoke-RestMethod -Method Post http://localhost:5133/api/v1/auth/sign-in -ContentType 'application/json' -Body $body).accessToken
+   $token = $null
+   try {
+       $token = (Invoke-RestMethod -Method Post http://localhost:5133/api/v1/auth/sign-in -ContentType 'application/json' -Body $body).accessToken
+       'Signed in.'
+   }
+   catch {
+       # No answer at all (the API is not running, or the address or port is wrong): show PowerShell's own error.
+       if ($null -eq $_.Exception.Response) { throw }
+       # Windows PowerShell 5.1 shows only the status, such as "(401) Unauthorized". The API's reason is in the response body: read it.
+       # PowerShell has already read the body once while building the error, so rewind the stream to its start first.
+       $stream = $_.Exception.Response.GetResponseStream(); $stream.Position = 0
+       (ConvertFrom-Json (New-Object System.IO.StreamReader($stream)).ReadToEnd()).detail
+   }
    ```
 
-   `/health` answers `Healthy`. `$token` now holds a bearer token, valid for 8 hours.
+   `/health` answers `Healthy`. On success the snippet prints `Signed in.` and `$token` holds a bearer token, valid for 8 hours. When sign-in is refused it prints the API's reason instead:
+
+   - `Invalid email or password.` The email or the password is not the one the account was created with. The email must be exactly the `ADMIN_EMAIL` of the very first start (letter case does not matter). The first Manager is created once, with the values set at that moment. Changing `ADMIN_EMAIL` or `ADMIN_PASSWORD` later does nothing, because once a user exists the API never reads them again.
+   - `Account temporarily locked. Try again later.` Five wrong passwords in a row lock the account for 15 minutes, even for the right password. **Stop retrying**: each try while it is locked changes nothing. Wait 15 minutes, then sign in with the right values.
+
+   This snippet and the change-password one under [First password](#first-password) read the response the way Windows PowerShell 5.1 provides it, which is what this machine has; PowerShell 7 reports errors differently.
 
 6. **Change the first password and remove `ADMIN_PASSWORD`** at once. See [First password](#first-password).
 
@@ -94,10 +115,25 @@ The first Manager's password has been typed into a terminal and held in an envir
 
    ```powershell
    $change = @{ currentPassword = (Read-Host 'Current password'); newPassword = (Read-Host 'New password') } | ConvertTo-Json
-   Invoke-RestMethod -Method Post http://localhost:5133/api/v1/auth/change-password -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' -Body $change
+   try {
+       Invoke-RestMethod -Method Post http://localhost:5133/api/v1/auth/change-password -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' -Body $change | Out-Null
+       'Password changed. Sign in again with the new password.'
+   }
+   catch {
+       # No answer at all (the API is not running, or the address or port is wrong): show PowerShell's own error.
+       if ($null -eq $_.Exception.Response) { throw }
+       # Windows PowerShell 5.1 shows only the status, such as "(401) Unauthorized". The API's reason is in the response body: read it.
+       # PowerShell has already read the body once while building the error, so rewind the stream to its start first.
+       $stream = $_.Exception.Response.GetResponseStream(); $stream.Position = 0
+       (ConvertFrom-Json (New-Object System.IO.StreamReader($stream)).ReadToEnd()).detail
+   }
    ```
 
-   This ends every session of that user, `$token` included. Sign in again with the new password.
+   On success it prints `Password changed. Sign in again with the new password.` A change signs out every session of that user (including `$token`), so sign in again with quick start step 5. When the change is refused it prints the reason:
+   - `Current password is incorrect.` This counts towards the same 5-try lock-out as sign-in.
+   - The password-policy sentence, for a weak new password.
+   - `Account temporarily locked. Try again later.`
+   - `Your sign-in is missing or has expired. Sign in again.` There is no valid `$token`: run quick start step 5 first.
 
 2. Remove `ADMIN_PASSWORD` (and `ADMIN_EMAIL`) from the environment. Once a user exists the API never reads them again (AC-02.2). Close the window you started the API from, or run:
 
@@ -138,13 +174,25 @@ Users are never deleted, so their name stays on every record they touched. Examp
 - Make it with `scripts\new-signing-key.ps1`: 48 random bytes from Windows' cryptographic generator, 64 characters. Never use a phrase or anything you made up.
 - Use one key per machine and per instance. Never share a key between a test instance and a real one: a token from one would be accepted by the other.
 - Never put it in a file git tracks.
-- Keep it as a variable for your Windows user, so it stays the same across windows and restarts:
+- Keep it as a variable for your Windows user, so it stays the same across windows and restarts. Once per machine, from the repository root:
 
   ```powershell
-  [Environment]::SetEnvironmentVariable('JWT_SIGNING_KEY', (powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1), 'User')
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1 -SaveForUser
   ```
 
-  Open a new window to see it. User variables are readable by programs running as you.
+  The script makes the key and saves it itself. It prints only `Saved a new JWT_SIGNING_KEY ...`, never the key. If a key is already saved, it keeps it and says so. Run from another folder, PowerShell cannot find the script and nothing is saved. User variables are readable by programs running as you. Windows also hands a user variable to every program you start, and such a program could expose it (a crash report, a log, or `set` on a shared screen); if the key may have been exposed, replace it with `-SaveForUser -Force` (SEC-23).
+- **To replace the key**, add `-Force`: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1 -SaveForUser -Force`. This signs everybody out.
+- **Do not save a key with** `[Environment]::SetEnvironmentVariable('JWT_SIGNING_KEY', (powershell ... -File scripts\new-signing-key.ps1), 'User')`, a form earlier versions of these documents showed. Run from the wrong folder, it saves PowerShell's start-up banner as the key: text anyone can guess. So `run.ps1` refuses a key that contains spaces, with "JWT_SIGNING_KEY in this window contains spaces, so it is not a generated key". If a key is also saved for your user, the bad value may be only in this window: first open a new window (or clear and reload it, as the message shows). Replace the saved key with `-SaveForUser -Force` from the repository root only if the message comes back in a new window; that signs everybody out.
+- For a quick test in one window only, from the repository root: `$env:JWT_SIGNING_KEY = powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1`. That key is lost when the window closes, and every new one signs everybody out.
+- **Windows hands user variables to a program only when it starts.** A PowerShell window that was already open does not see a newly saved key. Neither does any terminal in VS Code, new tabs included, until VS Code itself is closed completely and reopened. `scripts\run.ps1` notices this and says "JWT_SIGNING_KEY is saved for your Windows user, but this window does not have it: most likely it was opened before the key was saved". The fix is either of these:
+  - open a new PowerShell window (in VS Code, close and reopen VS Code completely);
+  - or load the saved key into this window:
+
+    ```powershell
+    $env:JWT_SIGNING_KEY = [Environment]::GetEnvironmentVariable('JWT_SIGNING_KEY', 'User')
+    ```
+
+  **Never answer it by making a second key.** A new key would not match the saved one, and everybody's sign-in would stop working at the next start.
 - Changing the key signs everyone out. Nothing else is lost; people sign in again.
 
 ## Data

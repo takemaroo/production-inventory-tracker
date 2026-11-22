@@ -46,14 +46,27 @@ A user holds one or more of three roles and may do everything any of their roles
 - **The sample requests**, [`src/InventoryTracker.Api/InventoryTracker.Api.http`](../src/InventoryTracker.Api/InventoryTracker.Api.http), for VS Code's REST Client or Visual Studio 2022 17.12 or later: one request per endpoint, run top to bottom. They are for a **Development** instance with a fresh database (`dotnet run --project src/InventoryTracker.Api`). They read the first Manager's email and password, and the three passwords of the sample Warehouse user they create (`SAMPLE_USER_PASSWORD`, `SAMPLE_USER_RESET_PASSWORD`, `SAMPLE_USER_NEW_PASSWORD`), from `src/InventoryTracker.Api/.env`, which you create yourself ([README, Development](../README.md#development); the names are in `.env.example`). Never run them against your real database: they create fixed units, items and users, and nothing is ever deleted. Port 5133 is also the Production port, so check which API is running first.
 - **The OpenAPI description** at `http://localhost:5133/openapi/v1.json` lists every endpoint with its fields and status codes. It exists in **Development only**; the Production instance answers `401`.
 
-**The helper.** Paste this into the PowerShell window you work in. `Get-Token` signs in and asks for the password, so the password never lands in the command history. `Invoke-Api` sends a request with your token and, when the API refuses, shows the status code and the reason instead of a long PowerShell error.
+**The helper.** Paste this into the PowerShell window you work in. `Get-Token` signs in and asks for the password, so the password never lands in the command history. `Invoke-Api` sends a request with your token. When the API refuses either one, `Get-ApiMessage` shows the status code and the API's reason instead of a bare "(401) Unauthorized": Windows PowerShell 5.1 keeps the reason in the response body, so the helper reads it from there. It first tries `ErrorDetails`, where PowerShell 7 puts the reason, but only Windows PowerShell 5.1 has been tested.
 
 ```powershell
 $api = 'http://localhost:5133/api/v1'
 
+function Get-ApiMessage($Failure) {
+    $response = $Failure.Exception.Response
+    if ($null -eq $response) { throw $Failure }   # no answer at all: the API is not running, or the address is wrong
+    $text = $Failure.ErrorDetails.Message
+    if (-not $text) {
+        # PowerShell has already read the body once while building the error, so rewind the stream to its start first.
+        $stream = $response.GetResponseStream(); $stream.Position = 0
+        $text = (New-Object System.IO.StreamReader($stream)).ReadToEnd()
+    }
+    "$([int]$response.StatusCode): $((ConvertFrom-Json $text).detail)"
+}
+
 function Get-Token([string] $Email) {
     $body = @{ email = $Email; password = (Read-Host "Password for $Email") } | ConvertTo-Json
-    (Invoke-RestMethod -Method Post "$api/auth/sign-in" -ContentType 'application/json' -Body $body).accessToken
+    try { (Invoke-RestMethod -Method Post "$api/auth/sign-in" -ContentType 'application/json' -Body $body).accessToken }
+    catch { Write-Warning (Get-ApiMessage $_) }
 }
 
 function Invoke-Api([string] $Method, [string] $Path, $Body) {
@@ -63,16 +76,7 @@ function Invoke-Api([string] $Method, [string] $Path, $Body) {
         $request.ContentType = 'application/json'; $request.Body = $Body
     }
     try { Invoke-RestMethod @request }
-    catch {
-        $response = $_.Exception.Response
-        if ($null -eq $response) { throw }
-        $text = $_.ErrorDetails.Message
-        if (-not $text) {
-            $stream = $response.GetResponseStream(); $stream.Position = 0
-            $text = (New-Object System.IO.StreamReader($stream)).ReadToEnd()
-        }
-        Write-Warning "$([int]$response.StatusCode): $((ConvertFrom-Json $text).detail)"
-    }
+    catch { Write-Warning (Get-ApiMessage $_) }
 }
 ```
 
@@ -106,12 +110,12 @@ $token = Get-Token 'you@yourcompany.example'
 
 Success prints nothing (`204`). It ends every session of yours, so sign in again.
 
-If sign-in fails:
+If sign-in fails, `Get-Token` prints a warning with the reason, and `$token` is left empty:
 
-- `401` "Invalid email or password." The email is unknown, the password is wrong, or the account is deactivated. The message is the same for all three on purpose.
-- `401` "Account temporarily locked. Try again later." Five wrong passwords in a row, at sign-in or at change-password, lock the account for 15 minutes, even for the right password. Wait, or ask a Manager to reset your password, which also clears the lock.
+- `401: Invalid email or password.` The email is unknown, the password is wrong, or the account is deactivated. The message is the same for all three on purpose.
+- `401: Account temporarily locked. Try again later.` Five wrong passwords in a row, at sign-in or at change-password, lock the account for 15 minutes, even for the right password. Stop retrying. Wait, or ask a Manager to reset your password, which also clears the lock.
 
-The first Manager changes the first password at once, as the README says under [First password](../README.md#first-password).
+For the first Manager, the email is exactly the `ADMIN_EMAIL` of the API's very first start (letter case does not matter). The account was created once, with the values set at that moment; changing `ADMIN_EMAIL` or `ADMIN_PASSWORD` later does nothing. The first Manager changes the first password at once, as the README says under [First password](../README.md#first-password).
 
 ## 2. Add people and give them roles
 

@@ -79,9 +79,19 @@ az group create --name $rg --location $location
 Generate the database password locally, keep it in a variable only, and never paste it into a file:
 
 ```powershell
-# 64 random characters from the signing-key script, keeping letters and digits only. Letters and digits pass
-# safely through az on Windows (see step 7 for why other characters can be mangled).
-$pgPassword = (powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1) -replace '[^A-Za-z0-9]', ''
+# Random secrets are made right here in this window, from the operating system's cryptographic generator, not
+# captured from another program: if a script path were wrong, PowerShell would print its banner and an error, and
+# that text would become the secret. Keep this window open until step 10; step 7 uses the function again.
+function New-RandomSecret {
+    $bytes = New-Object byte[] 48
+    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
+    [Convert]::ToBase64String($bytes)
+}
+
+# About 60 random letters and digits. Letters and digits pass safely through az on Windows (see step 7 for why
+# other characters can be mangled).
+$pgPassword = (New-RandomSecret) -replace '[^A-Za-z0-9]', ''
 
 az postgres flexible-server create `
   --resource-group $rg --name $pg --location $location `
@@ -186,7 +196,7 @@ function Set-VaultSecret([string] $Name, [string] $Value) {
 }
 
 # A NEW signing key for this instance. Never reuse the key of your own machine or of a test instance (SEC-13).
-Set-VaultSecret 'jwt-signing-key' (powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1)
+Set-VaultSecret 'jwt-signing-key' (New-RandomSecret)
 
 # The first Manager's password: typed, so it is not stored in your command history. Read-Host does show it on
 # screen while you type, so make sure nobody is watching, and run Clear-Host afterwards.
@@ -264,13 +274,50 @@ In another PowerShell window. Each `Read-Host` below shows what you type on scre
 ```powershell
 $base = "https://$app.azurewebsites.net"
 Invoke-RestMethod "$base/health"                                   # -> Healthy
-$cred = @{ email = 'you@yourcompany.example'; password = (Read-Host 'First Manager password') } | ConvertTo-Json
-$token = (Invoke-RestMethod -Method Post "$base/api/v1/auth/sign-in" -ContentType 'application/json' -Body $cred).accessToken
+$body  = @{ email = 'you@yourcompany.example'; password = (Read-Host 'Password') } | ConvertTo-Json
+$token = $null
+try {
+    $token = (Invoke-RestMethod -Method Post "$base/api/v1/auth/sign-in" -ContentType 'application/json' -Body $body).accessToken
+    'Signed in.'
+}
+catch {
+    # No answer at all (the API is not running, or the address or port is wrong): show PowerShell's own error.
+    if ($null -eq $_.Exception.Response) { throw }
+    $httpError = $_
+    # Windows PowerShell 5.1 shows only the status, such as "(401) Unauthorized". The API's reason is in the response body: read it.
+    # PowerShell has already read the body once while building the error, so rewind the stream to its start first.
+    $stream = $_.Exception.Response.GetResponseStream(); $stream.Position = 0
+    $text = (New-Object System.IO.StreamReader($stream)).ReadToEnd()
+    # Azure's front end can answer 502 or 503 with an empty or HTML body (while the app starts or restarts).
+    # The API's own answers are JSON with a "detail" field; for anything else show PowerShell's message.
+    $problem = $null
+    try { $problem = ConvertFrom-Json $text } catch { }
+    if ($problem -and $problem.detail) { $problem.detail } else { $httpError.Exception.Message }
+}
 
 # Change the first password straight away (it passed through your terminal and the vault).
 $change = @{ currentPassword = (Read-Host 'Current password'); newPassword = (Read-Host 'New password') } | ConvertTo-Json
-Invoke-RestMethod -Method Post "$base/api/v1/auth/change-password" -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' -Body $change
+try {
+    Invoke-RestMethod -Method Post "$base/api/v1/auth/change-password" -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' -Body $change | Out-Null
+    'Password changed. Sign in again with the new password.'
+}
+catch {
+    # No answer at all (the API is not running, or the address or port is wrong): show PowerShell's own error.
+    if ($null -eq $_.Exception.Response) { throw }
+    $httpError = $_
+    # Windows PowerShell 5.1 shows only the status, such as "(401) Unauthorized". The API's reason is in the response body: read it.
+    # PowerShell has already read the body once while building the error, so rewind the stream to its start first.
+    $stream = $_.Exception.Response.GetResponseStream(); $stream.Position = 0
+    $text = (New-Object System.IO.StreamReader($stream)).ReadToEnd()
+    # Azure's front end can answer 502 or 503 with an empty or HTML body (while the app starts or restarts).
+    # The API's own answers are JSON with a "detail" field; for anything else show PowerShell's message.
+    $problem = $null
+    try { $problem = ConvertFrom-Json $text } catch { }
+    if ($problem -and $problem.detail) { $problem.detail } else { $httpError.Exception.Message }
+}
 ```
+
+The messages are the same as on the owner's machine (`docs/07-release.md` section 6, steps 5 and 6): `Invalid email or password.`, `Account temporarily locked. Try again later.` (stop retrying for 15 minutes), `Current password is incorrect.`, the password-policy sentence, or `Your sign-in is missing or has expired. Sign in again.` (run the sign-in part again).
 
 Then remove the first-Manager settings and secret. They are never read again once a user exists (AC-02.2):
 
@@ -312,7 +359,7 @@ Finally, create a second Manager account (the README explains why: keep at least
 
 ## 8. Signing key
 
-- One random key per instance, generated with `scripts\new-signing-key.ps1`, stored only in the vault.
+- One random key per instance, generated with `New-RandomSecret` (step 3) and stored only in the vault.
 - To replace it (for example if it may have leaked): store a new value under `jwt-signing-key` and restart the app (`az webapp restart`). Everybody is signed out; nothing else changes.
 
 ## 9. Rough monthly cost

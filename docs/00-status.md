@@ -78,6 +78,7 @@ v1 is complete. Next work comes from the PRD Later list when the owner chooses (
 - 2026-11-22 Owner approved the release; design-taste-frontend skill untracked (#136). Pushed to main.
 - 2026-11-22 First CI run on GitHub passed (about 7 min). Owner merged Dependabot PRs #1 (checkout 7.0.1) and #2 (setup-dotnet 6.1.0); both passed CI. v1 complete.
 - 2026-11-22 Owner's first real start done (first password changed, first backup made). Owner installed SDK 10.0.404 with runtime 10.0.15: SEC-06 met on this machine. CD added to the PRD Later list (#137).
+- 2026-11-22 Small fixes from the first start: run.ps1 explains a saved-but-not-loaded key; new-signing-key.ps1 -SaveForUser replaces the unsafe capture form (it could save PowerShell's banner as the key); keys with spaces refused; sign-in and change-password snippets show the API's message. Approved by `code-reviewer` after two rounds; security re-check OK (SEC-22 Later, SEC-23 done). Committed and pushed.
 
 ## Follow-ups to route
 
@@ -94,7 +95,5 @@ v1 is complete. Next work comes from the PRD Later list when the owner chooses (
 - devops-engineer (phase 7): #126 optional Warning level for ApiExceptionHandler; the body limit is also set for IIS hosting.
 - Optional comment nits (later, from the comment-tidy review): CheckLineCount remarks also cite #123; RequestTimeoutMessage and UnreadableBodyMessage cite #124; RequestBodyLimitTests comment says TestOutputHelper (not TestContext.Current) is null outside a test; TooManyRolesMessage points to design 7.2.
 - Optional script nits (later): Test-FileInUse description says the lock check fails "exactly when the API is running" (not true when idle); 07-release section 10 row could mention a running build of the API project matching the process check.
-- From the owner's first real start (2026-11-22), small fixes for later:
-  - run.ps1's "JWT_SIGNING_KEY is not set" message suggests a one-window key; it should mention opening a new window (or restarting VS Code) after saving the user variable, and show the load-from-User line `$env:JWT_SIGNING_KEY = [Environment]::GetEnvironmentVariable('JWT_SIGNING_KEY','User')`.
-  - README quick start step 5 signs in with a bare Invoke-RestMethod; on a refusal PowerShell 5.1 shows only "(401) Unauthorized". Show the API's message (try/catch reading the response stream, as the user guide's helper does).
+- backend-developer (Later, SEC-22): move the signing-key rule into the API's start-up checks (StartupChecks.CheckSettings): characters A-Z a-z 0-9 + / = - _, at least 43 characters, at least 10 different; keep run.ps1's check in step; tests for the banner, a repeated letter and a generated key.
 - Test tidy (later, not v1): third copy of the 100,000-movement volume seed in Acceptance/PerformanceAcceptanceTests; private AdjustAsync in StockZeroForms/NotificationEvents acceptance tests duplicates ScenarioApi.AdjustAsync; fold into OrderFlow/Seed (BUG-001 review).

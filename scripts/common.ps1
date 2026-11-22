@@ -30,6 +30,171 @@ Set-StrictMode -Version Latest
 # The repository root is the folder above scripts\.
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
 
+function Test-SavedUserVariable {
+    <#
+    .SYNOPSIS
+      True when a variable is saved for your Windows user (the 'User' scope), whatever this window holds.
+    .DESCRIPTION
+      Windows keeps two kinds of environment variable that matter here:
+        - the process's own copy, $env:NAME, which every program receives from the program that started it, once,
+          at the moment it starts;
+        - the saved user variables ([Environment]::SetEnvironmentVariable(NAME, value, 'User')), stored in your
+          Windows profile. A window opened after they were saved (from the Start menu or Explorer) gets them; a
+          program started from a window that was already open gets that window's older copy instead.
+      So a window opened before a variable was saved does not have it. VS Code is the common case: its terminals,
+      new tabs included, inherit VS Code's environment from when VS Code itself started.
+      Only true or false comes out of this function: the value itself is never returned or printed.
+    #>
+    param([Parameter(Mandatory)] [string] $Name)
+    -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($Name, 'User'))
+}
+
+function Set-SavedUserVariable {
+    <#
+    .SYNOPSIS
+      Saves a variable for your Windows user (the 'User' scope), so every window opened from now on has it.
+    .DESCRIPTION
+      A one-line wrapper, kept separate so the logic that decides whether to save (Save-NewSigningKeyForUser) can be
+      tested with a stand-in that does not touch the real saved variables.
+    #>
+    param([Parameter(Mandatory)] [string] $Name, [Parameter(Mandatory)] [string] $Value)
+    [Environment]::SetEnvironmentVariable($Name, $Value, 'User')
+}
+
+function New-SigningKey {
+    <#
+    .SYNOPSIS
+      A new random token signing key: 48 random bytes, as 64 Base64 characters.
+    .DESCRIPTION
+      The bytes come from the operating system's cryptographic random number generator, not from Get-Random,
+      which is predictable.
+    #>
+    $bytes = New-Object byte[] 48
+    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $generator.GetBytes($bytes)
+    }
+    finally {
+        $generator.Dispose()
+    }
+    [Convert]::ToBase64String($bytes)
+}
+
+function Save-NewSigningKeyForUser {
+    <#
+    .SYNOPSIS
+      Generates a key and saves it as JWT_SIGNING_KEY for your Windows user. Returns the lines to show; never the key.
+    .DESCRIPTION
+      Used by new-signing-key.ps1 -SaveForUser. The key is generated and saved inside this one PowerShell process,
+      so nothing is captured from the output of another program. (Capturing "powershell -File ..." output is how a
+      mistyped path once saved PowerShell's start-up banner as a key: when the script file is not found,
+      powershell.exe prints its banner and an error instead, and that text became the "key".)
+      Replacing an existing key signs everybody out, so an existing saved key is kept unless -Force is given.
+      Throws on any failure; the caller turns that into a message and a non-zero exit code.
+    #>
+    param([switch] $Force)
+
+    if ((Test-SavedUserVariable 'JWT_SIGNING_KEY') -and -not $Force) {
+        throw ('A JWT_SIGNING_KEY is already saved for your Windows user, so it was kept. Replacing it signs everybody out. ' +
+            'To replace it anyway, run this again with -Force.')
+    }
+
+    Set-SavedUserVariable 'JWT_SIGNING_KEY' (New-SigningKey)
+
+    # Confirm the save without reading the value back: only whether something is now saved.
+    if (-not (Test-SavedUserVariable 'JWT_SIGNING_KEY')) {
+        throw 'Windows did not save JWT_SIGNING_KEY for your user.'
+    }
+
+    @(
+        'Saved a new JWT_SIGNING_KEY for your Windows user (the key itself is not shown).',
+        'Open a new PowerShell window to use it (in VS Code, close and reopen VS Code completely: a new terminal tab is not enough),',
+        'or load it into this window with:',
+        "    `$env:JWT_SIGNING_KEY = [Environment]::GetEnvironmentVariable('JWT_SIGNING_KEY', 'User')"
+    )
+}
+
+function Get-SigningKeyProblem {
+    <#
+    .SYNOPSIS
+      Checks JWT_SIGNING_KEY in this window. Returns nothing when it is usable, otherwise the message to show.
+    .DESCRIPTION
+      The cases need different advice:
+        - set in this window but invalid: shorter than 32 characters (the API's own rule, architecture section 6), or
+          containing spaces. A generated key never has spaces; a value with spaces is a phrase, or text captured by
+          mistake (such as PowerShell's start-up banner), and either is guessable (security review SEC-13).
+          What to do depends on whether a key is also saved for your Windows user:
+            - nothing saved: save a generated key for your user;
+            - a key is saved: the bad value may be only in this window (for example from the quick-test command run
+              in the wrong folder) while the saved key is fine. Replacing the saved key would then sign everybody
+              out and still leave the bad value here. The script cannot tell which value is bad without reading
+              the saved key, which it never does. So the advice is: first use the saved key (clear this window's
+              value or open a new window), and replace the saved key with -Force only if the message comes back;
+        - missing here but saved for your Windows user: this window was most likely opened before it was saved
+          (the same happens after Remove-Item Env:JWT_SIGNING_KEY). Making a new key now would be wrong: it would
+          not match the saved one, and tokens would stop working at the next start. So the message says how to
+          pick up the saved key instead, and the script does not load it silently, so you see what happened;
+        - set nowhere: save a random key for your user once, then open a new window.
+    #>
+    $newLine = [Environment]::NewLine
+    $key = $env:JWT_SIGNING_KEY
+    if (-not [string]::IsNullOrWhiteSpace($key)) {
+        $reason = $null
+        if ($key.Length -lt 32) {
+            $reason = 'JWT_SIGNING_KEY in this window is shorter than 32 characters.'
+        }
+        elseif ($key -match '\s') {
+            $reason = @(
+                'JWT_SIGNING_KEY in this window contains spaces, so it is not a generated key: it is a phrase, or text captured by mistake',
+                '(running the key script from the wrong folder captures PowerShell''s start-up banner). Either can be guessed.'
+            ) -join $newLine
+        }
+        if (-not $reason) {
+            return $null
+        }
+
+        if (Test-SavedUserVariable 'JWT_SIGNING_KEY') {
+            return @(
+                $reason,
+                'A key is also saved for your Windows user. Do not replace it yet: the bad value may be only in this window',
+                '(for example from the quick-test command run in the wrong folder), and replacing the saved key signs everybody out.',
+                'First use the saved key: clear this window''s value and load the saved one,',
+                '    Remove-Item Env:JWT_SIGNING_KEY',
+                "    `$env:JWT_SIGNING_KEY = [Environment]::GetEnvironmentVariable('JWT_SIGNING_KEY', 'User')",
+                'or open a new PowerShell window (in VS Code, close and reopen VS Code completely), then run this again.',
+                'Only if this message comes back, the saved key itself is the bad one. Then replace it, from the repository root:',
+                '    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1 -SaveForUser -Force',
+                'and open a new PowerShell window. Replacing the key signs everybody out.'
+            ) -join $newLine
+        }
+
+        return @(
+            $reason,
+            'Replace it with a generated key saved for your Windows user, from the repository root:',
+            '    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1 -SaveForUser',
+            'then open a new PowerShell window (in VS Code, close and reopen VS Code completely) and run this again.'
+        ) -join $newLine
+    }
+
+    if (Test-SavedUserVariable 'JWT_SIGNING_KEY') {
+        return @(
+            'JWT_SIGNING_KEY is saved for your Windows user, but this window does not have it: most likely it was opened before the key was saved.',
+            'Do not make a new key: it would not match the saved one, and sign-in tokens would stop working at the next start.',
+            'Either open a new PowerShell window and run this again (in VS Code, close and reopen VS Code completely: a new terminal tab is not enough),',
+            'or load the saved key into this window with:',
+            "    `$env:JWT_SIGNING_KEY = [Environment]::GetEnvironmentVariable('JWT_SIGNING_KEY', 'User')"
+        ) -join $newLine
+    }
+
+    return @(
+        'JWT_SIGNING_KEY is not set. Save a random key for your Windows user once, from the repository root:',
+        '    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1 -SaveForUser',
+        'then open a new PowerShell window (in VS Code, close and reopen VS Code completely) and run this again.',
+        'Only for a quick test in this window, a window-only key works too (also from the repository root); every new one signs everybody out:',
+        '    $env:JWT_SIGNING_KEY = powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1'
+    ) -join $newLine
+}
+
 function Get-ApiProcess {
     <#
     .SYNOPSIS

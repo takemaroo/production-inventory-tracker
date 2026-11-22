@@ -1,10 +1,17 @@
 # Security review: Production & Inventory Tracker API
 
-Phase 6, `security-reviewer`, 2026-11-21, at commit `14c60fb` (main). **Re-check** of the SEC-01 and SEC-02 fixes, and of the owner decisions, the same day at commit `a3c1d66` (main); see section 6. **Final check of the phase 7 release** on 2026-11-22, at commit `8dbdbe7` plus the uncommitted working tree listed in section 6.6.
+Phase 6, `security-reviewer`, 2026-11-21, at commit `14c60fb` (main). **Re-check** of the SEC-01 and SEC-02 fixes, and of the owner decisions, the same day at commit `a3c1d66` (main); see section 6. **Final check of the phase 7 release** on 2026-11-22, at commit `8dbdbe7` plus the uncommitted working tree listed in section 6.6. **Signing-key re-check** of an uncommitted change on 2026-11-22, on top of `1e820b4`; see section 6.12.
 
 ## Summary
 
 **Final check (phase 7, 2026-11-22).** The release scripts, CI workflow, release and cloud guides, README, user guide and release notes meet all nine release conditions of section 7.2. Condition 2 is met for the released build: the published folder bundles runtime 10.0.15. Updating the runtime installed on the machine stays the owner's task, and the documents say so. I started `scripts\run.ps1 -Published` with `ASPNETCORE_URLS`, `DOTNET_URLS`, `URLS` and `ASPNETCORE_ENVIRONMENT=Development` all set to try to redirect it. It still listened only on `127.0.0.1` and `[::1]`, and only in Production (netstat). It refused every Kestrel endpoint variable I tried, and backup, restore and a second start all refused while it ran. With the Production log setting (#130), a 2 MB body got `413` and wrote no log line. The log held none of the throwaway secrets. The signing-key script uses the operating system's cryptographic generator. CI has a read-only token and no secrets, does not use `pull_request_target`, and interpolates no untrusted input. No real secret is in any tracked or new file or in the two new commits. Both SEC-12 places, and every password in the `.http` walk-through, now hold placeholders or `$dotenv` reads. The NuGet audit is clean. I found three new low or info items, none blocking: CI actions pinned to tags rather than commit SHAs (SEC-19), `az` commands in the cloud guide that would print secrets (SEC-20), and policy-passing literals in the design document and git history (SEC-21, Later). **Follow-up the same day:** `devops-engineer` fixed SEC-19 and SEC-20, and the README wording of SEC-21. I re-checked the diff (section 6.11). **Verdict: release approved from a security standpoint**, for localhost-only v1. One condition: the uncommitted files are committed as reviewed (section 7.1).
+
+**Signing-key re-check (2026-11-22, section 6.12).** A code review found that the old documented key-save command, run from the wrong folder, saved PowerShell's 81-character start-up banner as the permanent key. The uncommitted fix makes and saves the key inside one script, and `run.ps1` now refuses keys with spaces. I verified it with stubs, without touching the saved key:
+- 384 random bits from the operating system's generator;
+- no path prints the key;
+- the banner is now refused.
+
+It is **approved to commit**. Two new low items, neither blocking: the API itself still accepts any 32 characters (SEC-22, Later), and the storage advice understates who receives a user variable (SEC-23).
 
 **First review and re-check (phase 6).** The authentication and authorisation core holds up. Every forged, altered or expired token I tried was refused. The security stamp is checked on every request. The lock-out counts correctly under 40 parallel attempts, and the T-003 timing leak is still closed. All 48 endpoints match PRD 4.2, and no endpoint takes a user id from the request body. All SQL is parameterised. Error bodies and logs reveal nothing secret. No secret is in any tracked file or anywhere in git history. The NuGet audit finds no known vulnerabilities (re-run at `a3c1d66`). Even when flooded by authenticated clients, the stock rules held. The first review found no critical or high findings and four medium ones. **The two code findings are now fixed and re-verified against a live instance.** SEC-01: one request could stall every write and take 3.1 GB of memory. Now the same bodies are refused in 1 to 77 ms with a 0.3 KB answer, other users' writes are not delayed, and the process stayed at about 210 MB. SEC-02: an anonymous flood wrote Error-level stack traces at 2.6 MB/s. Now the same requests get a proper `413`, and each writes one Information line of 198 bytes, with no stack trace. The owner settled the other two mediums for v1: the API runs on localhost only (#119), and the lock-out stays without a rate limit (#120). The 401/403 checks still come before any body is read, and the error responses that are not capped are bounded in size. What remains are deployment and documentation conditions for phase 7 (section 7.2). **Recommendation: clear to release**, on those phase 7 conditions. This replaces the earlier "go-with-conditions".
 
@@ -297,6 +304,29 @@ None of these is a real credential. None is in anything the owner is told to run
 
 The README said (`README.md:117`): "Where this repository shows a password, it is a placeholder". That was true of everything a person runs, but not of the design document or the tests. **Fixed (follow-up, working tree):** it now reads "Every password in a command or sample request here is a placeholder such as `<choose-your-own-strong-password>`. Example values in the design document and the tests are for throwaway databases only; never use them for a real account." That is accurate.
 
+### SEC-22 (low, Later; new in the signing-key re-check): the API accepts any 32 characters as the signing key; only `run.ps1` refuses captured text
+
+**Where.** `src/InventoryTracker.Api/Auth/StartupChecks.cs:126` checks only `key.Length < 32`. The new no-whitespace rule is in `scripts/common.ps1` (`Get-SigningKeyProblem`) only. This sharpens the fourth point of SEC-13.
+
+**What I verified** (stub, section 6.12). The value the old unsafe command saved when run from the wrong folder is 81 characters and starts "Windows PowerShell". `Get-SigningKeyProblem` now refuses it. The API would still start with it whenever it is not started through `run.ps1`, for example by running `publish\win-x64\InventoryTracker.Api.exe` directly or on a cloud host. So would `aaaa...` (32 times) and `MyInventoryTrackerSecretKey2026!`; the script check accepts both of those too. Anyone who knows the value can mint a Manager token (section 3.1).
+
+**Is a Base64 check better?** Partly. No format check can prove a value is random, so generating the key with the script remains the real control. A *strict* "Base64 of at least 48 bytes" rule would refuse the tests' key (`TestApiFactory.cs:46` contains `-` and is 72 characters long) and hex keys of other lengths. A rule that keeps every key made so far:
+- only the characters `A-Z a-z 0-9 + / = - _` (Base64 and Base64url): this refuses spaces, the banner's `(`, `)` and `.`, and punctuated phrases;
+- at least 43 characters (32 bytes of Base64);
+- at least 10 different characters: this refuses `aaaa...` and similar repeats.
+
+Every key `New-SigningKey` made in my stub run would pass: 1,000 of 1,000 were 64 characters with 33 to 46 different characters. So would the architecture section 8 command (the same 48-byte Base64), the cloud guide's `New-RandomSecret`, a 64-character hex key and the test key. A long phrase written as one word without punctuation would still pass. That gap is accepted.
+
+**Fix (`backend-developer`, Later).** Put that rule in `StartupChecks.CheckSettings`, using the existing too-short message style, and keep `Get-SigningKeyProblem` in step with it, so every start path is protected and not only `run.ps1`. Add tests for the banner, the repeated letter and a generated key.
+
+### SEC-23 (low, doc wording; new in the signing-key re-check): the user-variable advice understates who receives the key
+
+**Where.** `README.md:183` says "User variables are readable by programs running as you". `docs/07-release.md:90` says "... which is the same protection the database has".
+
+**What is missing.** Both statements are true as far as they go: the value sits unencrypted in your profile's registry hive (`HKCU\Environment`), which you, administrators and SYSTEM can read, like the database file. But a user variable is also **copied into the environment of every program you start from then on**: browsers, editors and their extensions, build tools, package scripts. Some programs write their environment into crash reports, debug logs or support bundles, and `Get-ChildItem Env:` or `set` show it on screen during a screen share. A database file is read only by a program that chooses to open it, so for accidental exposure this is wider than "the same protection". On a domain with roaming profiles, the value also travels with the profile.
+
+**Fix (`technical-writer`; cheap, can be done now, not blocking).** Add one sentence to both places, for example: "Windows also hands it to every program you start, so never run a tool that uploads its environment (crash reporters, `set` in a shared screen) while it is set, and replace the key (`-SaveForUser -Force`) if it may have been exposed." Optional, Later: a file readable only by your user, or Windows' protected storage (DPAPI), passed only to the API process.
+
 ## 3. Checked and found sound
 
 ### 3.1 Authentication and sessions
@@ -394,6 +424,8 @@ Status as of the final check (2026-11-22, `8dbdbe7` plus the working tree).
 | SEC-19 | low | CI actions pinned to movable tags, not SHAs | **fixed** (follow-up: SHA pins, Dependabot; diff reviewed, CI not yet run) | done (commit) | delivery manager (commit) |
 | SEC-20 | low | Cloud guide's `az` commands would print secrets; `az.cmd` quoting; `0.0.0.0` wording | **fixed** in the guide (follow-up: `-o none`, `--file` secrets, `--public-access None` + step 4b; diff reviewed, not run) | done (commit); the cloud re-review still applies | delivery manager (commit) |
 | SEC-21 | info | Policy-passing literals in the design doc, QA records, tests and git history | judged in the finding; README wording **fixed** (follow-up) | no (design examples: Later) | ux-designer |
+| SEC-22 | low | API accepts any 32 characters as the key; only `run.ps1` refuses text with spaces | **new**, open | no (Later) | backend-developer |
+| SEC-23 | low | User-variable advice omits that every started program receives the key | **new**, open | no (cheap doc fix, can be done now) | technical-writer |
 
 No critical or high findings, and no open medium finding without an owner decision.
 
@@ -408,7 +440,7 @@ No critical or high findings, and no open medium finding without an owner decisi
 
 ## 6. Re-checks
 
-Sections 6.1 to 6.5 are the re-check of the SEC-01 and SEC-02 fixes at `a3c1d66`. Sections 6.6 to 6.10 are the final check of the phase 7 release.
+Sections 6.1 to 6.5 are the re-check of the SEC-01 and SEC-02 fixes at `a3c1d66`. Sections 6.6 to 6.10 are the final check of the phase 7 release, 6.11 its follow-up, and 6.12 the signing-key re-check.
 
 ### 6.1 SEC-01: fixed
 
@@ -548,6 +580,32 @@ Same day, after the final check. `devops-engineer` changed `ci.yml`, added `.git
 
 The cloud guide still requires everything in section 6.10. **SEC-19 and SEC-20 are fixed.** The verdict in 7.1 stands.
 
+### 6.12 Re-check: how the signing key is created and checked (uncommitted, on top of `1e820b4`)
+
+**Background.** `code-reviewer` found that the documented key-save command, `[Environment]::SetEnvironmentVariable('JWT_SIGNING_KEY', (powershell ... -File scripts\new-signing-key.ps1), 'User')`, run from any folder but the repository root, saved PowerShell's start-up banner as the permanent key. That value passed the old 32-character rule. The delivery manager reports that the owner's own saved key passed a format check that did not print it.
+
+**Reviewed.** `git diff` of:
+- `scripts/new-signing-key.ps1`;
+- `scripts/common.ps1` (`New-SigningKey`, `Save-NewSigningKeyForUser`, `Test-SavedUserVariable`, `Set-SavedUserVariable`, `Get-SigningKeyProblem`);
+- `scripts/run.ps1`. Not only its header changed: its key check at `:92-98` now calls `Get-SigningKeyProblem`. I reviewed that too;
+- `README.md`, `docs/07-release.md`, `docs/07a-cloud-guide.md` and `docs/08-user-guide.md`.
+
+**How I tested it.** By reading the code and running stubs only: `...\scratchpad\final-sec\keystub.ps1` and `capture.ps1`, with output in `logs\keystub-out.txt`. The stubs load `common.ps1`, then replace `Test-SavedUserVariable` and `Set-SavedUserVariable` with stand-ins that use an in-memory table. `-SaveForUser` was never run for real, and the owner's saved `JWT_SIGNING_KEY` was never read, printed or changed.
+
+| Check | Result |
+|-------|--------|
+| Randomness and length | `New-SigningKey` (`common.ps1:64-80`) fills 48 bytes from `RandomNumberGenerator`, which is 384 bits, and returns Base64. Stub: 1,000 keys, all different, all 64 characters, each decoding to 48 bytes, none with whitespace, 33 to 46 different characters each. **Sound.** |
+| `-SaveForUser` path | Stub: with nothing saved, it stored one 64-character key and returned 4 lines, none containing the key. With a key saved and no `-Force`, it refused with a message that did not contain the key, and the saved value was unchanged. With `-Force` it replaced the key, and the output contained neither the old nor the new key. When the store failed, the error message was Windows' own ("... value is too long."), without the value. `new-signing-key.ps1:45-59` prints only those lines or `Not saved: <message>`, and refuses `-Force` without `-SaveForUser`. The save is confirmed without reading the value back (`Test-SavedUserVariable` returns only true or false). **No leak.** |
+| Plain mode | Prints the key by design (`new-signing-key.ps1:63`), for one-window tests captured into `$env:`. The documents present it only that way. |
+| Error messages | `Get-SigningKeyProblem` never includes the value. Stub: none of 9 cases (missing, saved but missing here, too short, spaces, tab, repeated letter, no-space phrase, hex, generated key) put the value in its message. The new sign-in and change-password snippets (07a step 10, `08-user-guide.md` `Get-ApiMessage`) show only the status and the API's `detail`, or PowerShell's own error when there is no answer. Neither includes the request body or token. |
+| Logging | The key goes to `[Environment]::SetEnvironmentVariable` as a function argument. With Windows' optional PowerShell module logging (event 4103, off by default and not set on this machine), parameter values can be recorded. Info only. |
+| No-spaces rule | Stub, `capture.ps1`: the documented one-window form, run from `%TEMP%` with standard error hidden, stored an 81-character value starting "Windows PowerShell", with whitespace. `Get-SigningKeyProblem` refused it: "... contains spaces, so it is not a generated key". A tab is refused too (`\s` covers every Unicode white space). The rule plus the 32-character minimum stops the reported failure. It does not stop a repeated letter or a no-space phrase (both accepted in the stub), and it lives only in the script: **SEC-22**, with the stronger rule that keeps existing keys. |
+| Storage advice | Honest about other programs running as you, and the database comparison holds for who can *read* it. It does not say that every program you start *receives* it: **SEC-23**. |
+| Cloud guide `New-RandomSecret` | Same as `New-SigningKey`: 48 bytes from `RandomNumberGenerator`, Base64. It is defined in the window, so nothing is captured from another program. The signing key is stored through `Set-VaultSecret` (`--file`, `-o none`). The database password keeps letters and digits only, about 60 characters or roughly 350 bits. **Sound.** |
+| Unsafe capture form left in the documents | The `SetEnvironmentVariable(..., (powershell ... new-signing-key.ps1), 'User')` form appears only as a "Do not" warning (`README.md:185`, `docs/07-release.md:80`). I grepped every `.md`, `.ps1`, `.http` and `.example` file. The one-window form `$env:JWT_SIGNING_KEY = powershell ... new-signing-key.ps1` remains in `README.md:63` and `:186`, `docs/07-release.md:85`, the script help and `Get-SigningKeyProblem`'s last hint. It is always labelled "quick test, from the repository root", and `run.ps1` now refuses its failure output. The cloud guide no longer captures the script at all. Acceptable. |
+
+**Verdict: approved to commit from a security standpoint.** The change closes the reported weakness for every documented start path, and it adds no path that prints or leaks the key. SEC-22 (Later) and SEC-23 (a cheap wording fix) are low and do not block the commit. The release verdict in 7.1 is unchanged.
+
 ## 7. Release recommendation
 
 ### 7.1 Verdict
@@ -587,4 +645,4 @@ Each condition below was set at the re-check and is marked as found in the final
 9. **SEC-02 residual, #126 (optional for localhost-only):** set `Logging:LogLevel:InventoryTracker.Api.Common.Errors.ApiExceptionHandler` to `Warning` in the release configuration, or rotate the log. This becomes required together with item 1's HTTPS before any non-localhost exposure. (`devops-engineer`)
    **Met.** `src/InventoryTracker.Api/appsettings.Production.json:4` (#130), included in `publish\win-x64` (identical file). Verified live: a 2 MB body gave `413` and no log line.
 
-Everything else belongs on the PRD's Later list: SEC-05, SEC-08 to SEC-11, the rest of SEC-13, SEC-17's remaining points, SEC-18 and SEC-21's design examples. SEC-10 is a requirement for the future front end. SEC-19 and SEC-20 are fixed (section 6.11).
+Everything else belongs on the PRD's Later list: SEC-05, SEC-08 to SEC-11, the rest of SEC-13, SEC-17's remaining points, SEC-18, SEC-21's design examples and SEC-22. SEC-23 is a cheap wording fix that can be done now. SEC-10 is a requirement for the future front end. SEC-19 and SEC-20 are fixed (section 6.11).
