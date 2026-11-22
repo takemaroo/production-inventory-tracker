@@ -18,19 +18,17 @@ Kept current by the delivery manager. Last updated: 2026-11-21
 | 4 | Build | done | code | tasks done: 22 of 22 (T-001 to T-021, T-008a) |
 | 5 | QA | done | `docs/05-test-plan.md` | Verdict PASS. |
 | 6 | Security | done | `docs/06-security-review.md` | Clear to release, with 9 conditions for phase 7 (report 7.2). |
-| 7 | Release | waiting on owner | `docs/07-release.md`, `README.md` | Built, reviewed and security-approved; committed locally, not pushed. |
+| 7 | Release | done | `docs/07-release.md`, `README.md` | Approved by owner 2026-11-22 and pushed. |
 
 Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Waiting on the owner
 
 - SEC-06: install the .NET 10.0.15 runtime (or later) on this machine; it runs 10.0.12. Owner's call.
-- Approve the release (phase 7): push the local phase 7 commits, including the CI workflow, to GitHub.
-- Claude/company files in the repo: keep, remove only design-taste-frontend (recommended), or stop tracking all.
 
 ## Next step
 
-Owner approves the release; then push and check the first CI run on GitHub.
+Check the first CI run on GitHub. Then v1 is complete; Later list in the PRD.
 
 ## Log
 
@@ -77,6 +75,7 @@ Owner approves the release; then push and check the first CI run on GitHub.
 - 2026-11-22 `devops-engineer` finished scripts, CI, `docs/07-release.md` and `docs/07a-cloud-guide.md` (Azure; #128-#133). Approved by `code-reviewer` after two rounds (backup/restore refuse while the API runs; relative publish folder). Committed locally; phase 7 is not pushed until the owner approves the release.
 - 2026-11-22 `tech-lead` updated architecture for phase 7 (SEC-12 placeholder, Production configuration #128, hosting). Committed locally. Next: `technical-writer`.
 - 2026-11-22 `technical-writer`: README rewritten, user guide (08) and release notes (09) (#134); .http sample passwords moved to .env (#135). Final security check: release approved for localhost-only v1, all nine conditions met; SEC-19 and SEC-20 fixed and re-checked. Committed locally; waiting on owner approval to push.
+- 2026-11-22 Owner approved the release; design-taste-frontend skill untracked (#136). Pushed to main.
 
 ## Follow-ups to route
 

@@ -492,3 +492,6 @@ $RECYCLE.BIN/
 *.db-wal
 *.db-journal
 *.sqlite
+
+# Claude Code skill not used by this project (owner, 2026-11-22, decision #136): kept on disk, not tracked.
+.claude/skills/design-taste-frontend/
