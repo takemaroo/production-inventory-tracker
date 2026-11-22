@@ -1,121 +1,235 @@
 # Production & Inventory Tracker API
 
-A backend API that tracks raw materials and finished products through
-production and flags discrepancies, to reduce waste.
+An HTTP API for a small food manufacturer that turns bulk raw materials into packaged products. It tracks stock in the Warehouse and in production storage, plans how much raw material each production order should use, nets leftover in production storage against the next order, and records and flags every difference between what was planned, used and produced. It is for the production and inventory manager, and for the warehouse and production line staff who record what they receive, send, produce and have left over.
 
-## Problem
-Inventory and production managers need to know what raw materials a
-production order should use, what was actually used, and where the numbers
-don't match. When this is tracked by hand or in spreadsheets, discrepancies
-are found late and waste goes unnoticed.
+Version 1 is an API only, with no user interface. The full rules are in the product requirements, [`docs/01-prd.md`](docs/01-prd.md). How to use the API day to day is in the [user guide](docs/08-user-guide.md). What is in this version is in the [release notes](docs/09-release-notes.md).
 
-## How it works
-1. A production order is received (e.g. 1,000 bags of 1 kg shredded cheese).
-2. The app calculates the raw materials needed, using the product's recipe.
-3. The raw materials are sent to production and deducted from inventory.
-4. When production finishes, the finished products are registered.
-5. The app compares the actual output with the order and recalculates the
-   raw materials that output really required.
-6. If the numbers differ, the app records the difference and notifies
-   the manager.
+## Terms used here
 
-## User stories
+- **Warehouse** and **production storage** are the two stock locations. Stock in each is the sum of its movements and never goes below zero.
+- **Manager**, **Warehouse** and **Production** are the three roles. One user can hold several.
+- **First Manager**: the one account the API creates by itself, on its first start, from `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+- **Signing key**: `JWT_SIGNING_KEY`, the secret that signs every sign-in token.
 
-- As a warehouse user, I want to send raw materials to production against
-  an order, so that inventory is deducted at the right time.
-- As a production user, I want to register finished products, so that the
-  app compares actual output with the order.
-- As a manager, I want to be notified when usage or output differs from the
-  order, so that I can investigate waste or errors.
-- As a manager, I want a history of every stock change, so that I can
-  audit what happened.
+## Prerequisites
 
-## Design decisions
-- **Stock is a history of movements, not a number I edit.** Every change is
-  saved as a movement (+50 kg received, -5 kg used), and current stock is the
-  sum of an item's movements. This gives a full audit trail and avoids two
-  users overwriting each other's updates.
-- **Warehouse stock cannot go negative.** The app rejects a movement that
-  would take an item below zero, because negative stock hides mistakes.
-- **Production differences are recorded as variances, not silently fixed.**
-  Example: an order for 1,000 bags needs 1,000 kg of cheese. If the machine
-  produces 1,001 bags, the recipe says 1,001 kg were needed. The 1 kg
-  difference is saved on that production order, and the manager is notified
-  if it is above a tolerance of [X]%. A person decides whether stock needs
-  an adjustment.
-- **Quantities use `decimal`**, not `float` or `double`, because rounding
-  errors in inventory are not acceptable.
-- **Each item has one unit of measure** (Kg, Bag, Unit...), stored in its own
-  table. Recipe amounts are expressed in the raw item's unit, e.g. 1 Bag of
-  shredded cheese needs 1 Kg of cheese.
-- **One warehouse for now.** Multiple locations are a later feature.
-- **Notifications are saved records** that the manager can fetch from an
-  endpoint. Email or chat alerts come later.
+| Tool | Version | Check with |
+|------|---------|------------|
+| Windows | 11, 64-bit (the only system it has been run on) | |
+| .NET SDK | 10.0 (`global.json` accepts 10.0.100 or any later 10.0 SDK) | `dotnet --version` |
+| ASP.NET Core runtime | 10.0.15 or later recommended (security review SEC-06). The folder made by `scripts\publish.ps1` bundles its own 10.0.15 runtime, so the published API is patched even if the installed runtime is older. Development runs and the tests use the installed runtime. | `dotnet --list-runtimes`, then `dotnet sdk check` |
+| Windows PowerShell | 5.1, built into Windows (PowerShell 7 has not been tested) | `$PSVersionTable.PSVersion` |
+| git | any recent version | `git --version` |
+| Optional | VS Code with the REST Client extension, or Visual Studio 2022 17.12 or later, for the sample requests | |
 
-## Data model
+Download the .NET 10 SDK from <https://dotnet.microsoft.com/download/dotnet/10.0>.
 
-```mermaid
-erDiagram
-    UNIT_OF_MEASURE ||--o{ ITEM : "measures"
-    ITEM ||--o{ MOVEMENT : "has"
-    ITEM ||--o{ RECIPE_LINE : "finished product"
-    ITEM ||--o{ RECIPE_LINE : "raw ingredient"
-    ITEM ||--o{ PRODUCTION_ORDER : "is produced in"
-    ITEM ||--o{ PRODUCTION_ORDER_LINE : "ingredient"
-    PRODUCTION_ORDER ||--o{ PRODUCTION_ORDER_LINE : "needs"
-    PRODUCTION_ORDER |o--o{ MOVEMENT : "causes"
-    PRODUCTION_ORDER ||--o{ NOTIFICATION : "triggers"
+## Quick start on Windows
 
-    UNIT_OF_MEASURE {
-        int Id PK
-        string Name "Kg, Bag, Unit"
-    }
-    ITEM {
-        int Id PK
-        string Name
-        string Description
-        string Type "RawMaterial or FinishedProduct"
-        int UnitOfMeasureId FK
-    }
-    MOVEMENT {
-        int Id PK
-        int ItemId FK
-        int ProductionOrderId FK "optional"
-        datetime CreatedAt
-        decimal Quantity "positive in, negative out"
-        string Type "Received, SentToProduction, ProducedOutput, Adjustment"
-    }
-    RECIPE_LINE {
-        int Id PK
-        int FinishedItemId FK
-        int RawItemId FK
-        decimal AmountPerUnit "raw amount per 1 unit of finished product"
-    }
-    PRODUCTION_ORDER {
-        int Id PK
-        int FinishedItemId FK
-        decimal OrderedQuantity
-        decimal ProducedQuantity "empty until finished"
-        string Status "Created, InProduction, Completed"
-        datetime CreatedAt
-        datetime CompletedAt
-    }
-    PRODUCTION_ORDER_LINE {
-        int Id PK
-        int ProductionOrderId FK
-        int RawItemId FK
-        decimal PlannedAmount "copied from the recipe at order creation"
-        decimal SentAmount
-        decimal RequiredForActualOutput "set when production finishes"
-    }
-    NOTIFICATION {
-        int Id PK
-        int ProductionOrderId FK
-        string Message
-        datetime CreatedAt
-        bool IsRead
-    }
+Every command runs in PowerShell from the repository root.
+
+**Why the long form of every script command.** Windows' default execution policy refuses to run script files, so `.\scripts\test.ps1` fails with "running scripts is disabled on this system". `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1` allows scripts for that one command only and changes no setting on your machine. `-NoProfile` skips your personal PowerShell profile, so the script runs the same way everywhere.
+
+1. **Get the code and run the tests** (about 2 to 4 minutes; no secrets needed):
+
+   ```powershell
+   git clone <repository-url> production-inventory-tracker
+   cd production-inventory-tracker
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1
+   ```
+
+   It ends with `Build succeeded with 0 warnings.` and `All tests passed.`
+
+2. **Publish** a self-contained folder, `publish\win-x64`, with the 10.0.15 runtime inside:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish.ps1
+   ```
+
+   It ends with `Bundled ASP.NET Core runtime: 10.0.15` and `Published to ...\publish\win-x64`.
+
+3. **Set the variables for the first start.** The signing key goes straight from the script into the variable, so it never appears on screen:
+
+   ```powershell
+   $env:JWT_SIGNING_KEY = powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1
+   $env:ADMIN_EMAIL     = 'you@yourcompany.example'
+   $env:ADMIN_PASSWORD  = Read-Host 'First Manager password'
+   ```
+
+   `$env:` variables last for this PowerShell window only. Keep the signing key as a variable for your Windows user instead, so it is the same in every window and tokens survive a restart (see [Signing key](#signing-key) and [`docs/07-release.md` section 3](docs/07-release.md#3-configuration)). The password must have at least 8 characters, with an upper-case letter, a lower-case letter and a digit. `Read-Host` keeps it out of the command history but shows it while you type; run `Clear-Host` afterwards.
+
+4. **Start the API**:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run.ps1 -Published
+   ```
+
+   On the first start it says `First start: the API will create the database and the first Manager.`, applies the database migrations, logs `Created the first Manager (user ...)`, then shows `Now listening on: http://127.0.0.1:5133`. The warning `Failed to determine the https port for redirect.` appears once and is expected (v1 has no HTTPS, see [Localhost only](#localhost-only)). Leave this window open while the API runs; stop it with Ctrl+C.
+
+5. **Check it and sign in**, in a second PowerShell window:
+
+   ```powershell
+   Invoke-RestMethod http://localhost:5133/health
+   $body  = @{ email = 'you@yourcompany.example'; password = (Read-Host 'Password') } | ConvertTo-Json
+   $token = (Invoke-RestMethod -Method Post http://localhost:5133/api/v1/auth/sign-in -ContentType 'application/json' -Body $body).accessToken
+   ```
+
+   `/health` answers `Healthy`. `$token` now holds a bearer token, valid for 8 hours.
+
+6. **Change the first password and remove `ADMIN_PASSWORD`** at once. See [First password](#first-password).
+
+More detail, including later starts, upgrades and troubleshooting: [`docs/07-release.md`](docs/07-release.md), sections [2 (commands)](docs/07-release.md#2-commands), [3 (configuration)](docs/07-release.md#3-configuration) and [6 (deploying on the owner's machine)](docs/07-release.md#6-deploying-on-the-owners-machine).
+
+## Localhost only
+
+Version 1 runs on this machine only. `scripts\run.ps1` binds the API to `http://127.0.0.1:5133` and `http://[::1]:5133` and offers no way to choose another address. Traffic is plain HTTP, which is acceptable only because it never leaves the machine (owner decision #119).
+
+Before the API is reachable from any other machine (another PC, the office network, the internet, a cloud host), these are **required**: HTTPS, HSTS and a sign-in rate limit. All three need product changes. The security review ([`docs/06-security-review.md`](docs/06-security-review.md)) must then be re-opened. See [`docs/07-release.md` section 9](docs/07-release.md#9-before-the-api-is-reachable-from-any-other-machine).
+
+## First password
+
+The first Manager's password has been typed into a terminal and held in an environment variable. Straight after the first sign-in:
+
+1. Change it (`$token` from quick start step 5):
+
+   ```powershell
+   $change = @{ currentPassword = (Read-Host 'Current password'); newPassword = (Read-Host 'New password') } | ConvertTo-Json
+   Invoke-RestMethod -Method Post http://localhost:5133/api/v1/auth/change-password -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' -Body $change
+   ```
+
+   This ends every session of that user, `$token` included. Sign in again with the new password.
+
+2. Remove `ADMIN_PASSWORD` (and `ADMIN_EMAIL`) from the environment. Once a user exists the API never reads them again (AC-02.2). Close the window you started the API from, or run:
+
+   ```powershell
+   Remove-Item Env:ADMIN_PASSWORD, Env:ADMIN_EMAIL
+   ```
+
+   If you ever stored them as user variables or in user-secrets, remove them there too:
+
+   ```powershell
+   [Environment]::SetEnvironmentVariable('ADMIN_PASSWORD', $null, 'User')
+   dotnet user-secrets remove ADMIN_PASSWORD --project src/InventoryTracker.Api
+   ```
+
+   `run.ps1` warns on every start while `ADMIN_PASSWORD` is still set.
+
+Never write a real password in a file git tracks. Where this repository shows a password, it is a placeholder such as `<choose-your-own-strong-password>`.
+
+## Keep two active Managers
+
+Keep at least two active Manager accounts (security review SEC-04). Five wrong passwords in a row lock an account for 15 minutes, and anyone who can reach sign-in can keep doing that. A second Manager can reset a locked Manager's password, which also clears the lock. With only one Manager, nobody can. The API itself refuses to remove the Manager role from, or deactivate, the last active Manager.
+
+Create the second Manager right after the first sign-in: [user guide, "Add people and give them roles"](docs/08-user-guide.md#2-add-people-and-give-them-roles).
+
+## Runbook: remove someone's access now
+
+A role change takes effect at the user's **next sign-in** (AC-03.5). A token issued before the change keeps the old roles until it expires, up to 8 hours later. So:
+
+- **To remove someone's access now, deactivate them** (`POST /api/v1/users/{id}/deactivate`). Every token they hold stops working at once, and they cannot sign in.
+- **If they should continue with fewer roles**, set the new roles (`PUT /api/v1/users/{id}/roles`) and then reactivate them (`POST /api/v1/users/{id}/reactivate`). They sign in again and get only the new roles.
+
+Users are never deleted, so their name stays on every record they touched. Examples: [user guide, "Remove someone's access"](docs/08-user-guide.md#remove-someones-access).
+
+## Signing key
+
+`JWT_SIGNING_KEY` signs every sign-in token. Anyone who has it can make a valid token for any user.
+
+- Make it with `scripts\new-signing-key.ps1`: 48 random bytes from Windows' cryptographic generator, 64 characters. Never use a phrase or anything you made up.
+- Use one key per machine and per instance. Never share a key between a test instance and a real one: a token from one would be accepted by the other.
+- Never put it in a file git tracks.
+- Keep it as a variable for your Windows user, so it stays the same across windows and restarts:
+
+  ```powershell
+  [Environment]::SetEnvironmentVariable('JWT_SIGNING_KEY', (powershell -NoProfile -ExecutionPolicy Bypass -File scripts\new-signing-key.ps1), 'User')
+  ```
+
+  Open a new window to see it. User variables are readable by programs running as you.
+- Changing the key signs everyone out. Nothing else is lost; people sign in again.
+
+## Data
+
+- **Where it is.** One SQLite file, `%LOCALAPPDATA%\InventoryTracker\inventory.db` (for example `C:\Users\<you>\AppData\Local\InventoryTracker\inventory.db`), unless `ConnectionStrings__Default` points elsewhere. While the API runs, SQLite also keeps `inventory.db-wal` and `inventory.db-shm` next to it; they are part of the database.
+- **Protect it.** The file and every backup of it hold each user's email and password hash, and the whole stock and order history. The file is not encrypted. Keep it and its backups in your user profile or on a BitLocker-encrypted drive, never in a shared folder, a cloud-synced folder, the repository or `publish\`, and never email them.
+- **Stopped means stopped.** Only "stop the API" (Ctrl+C in its window) counts as stopped. An idle API is still running: after some idle minutes it may let go of the file, but it opens it again on the next request. So never copy, move or replace the file while the API runs, however quiet it is. The backup and restore scripts refuse to run while any copy of the API is running.
+- **One copy at a time.** Only one copy of the API may run at a time. `run.ps1` refuses to start a second one.
+- **Backup and restore**: stop the API, then `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\backup-database.ps1`. Restoring, testing a restore and where backups go: [`docs/07-release.md` section 7](docs/07-release.md#7-data-backup-and-restore).
+
+## Configuration
+
+Settings come from `src/InventoryTracker.Api/appsettings.json`, then `appsettings.Production.json` in Production, then environment variables; later sources win. Secrets come only from environment variables (or, in Development, from `dotnet user-secrets`). [`.env.example`](.env.example) lists every name. The API and the scripts never read a `.env` file.
+
+| Variable | Needed | Purpose |
+|----------|--------|---------|
+| `JWT_SIGNING_KEY` | every start | Signs tokens. At least 32 characters; use `scripts\new-signing-key.ps1`. |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | first start only | The first Manager. Remove them afterwards. |
+| `ConnectionStrings__Default` | no | The SQLite file, with an absolute path, for example `Data Source=D:\InventoryData\inventory.db`. |
+| `Inventory__TolerancePercent` | no | The tolerance, 0 to 100, default 2. Outside that range the API does not start. |
+| `Jwt__TokenLifetimeHours` | no | Token lifetime, default 8. Not range-checked, so check what you type. |
+
+The full list: [`docs/07-release.md` section 3](docs/07-release.md#3-configuration).
+
+## Development
+
+```powershell
+dotnet run --project src/InventoryTracker.Api
 ```
 
-## Tech stack
-ASP.NET Core Web API, Entity Framework Core, SQLite (PostgreSQL later)
+This runs in the **Development** environment through the launch profile, on `http://localhost:5133`. It reads secrets from `dotnet user-secrets` (set them as in [`docs/03-architecture.md` section 8](docs/03-architecture.md#8-running-locally)), uses its own database, `src/InventoryTracker.Api/inventory.db`, and publishes the OpenAPI description at `http://localhost:5133/openapi/v1.json`. Never use it as the real instance: that is what `scripts\run.ps1` is for.
+
+The sample requests in [`src/InventoryTracker.Api/InventoryTracker.Api.http`](src/InventoryTracker.Api/InventoryTracker.Api.http) walk through every endpoint, for VS Code's REST Client or Visual Studio. They read every password from **`src/InventoryTracker.Api/.env`**, next to the `.http` file, not from a `.env` at the repository root. Create that file yourself (git ignores it) with these five lines, replacing each placeholder with a value of your own:
+
+```
+ADMIN_EMAIL=owner@example.com
+ADMIN_PASSWORD=<choose-your-own-strong-password>
+SAMPLE_USER_PASSWORD=<choose-a-password-for-the-sample-user>
+SAMPLE_USER_RESET_PASSWORD=<choose-a-second-password>
+SAMPLE_USER_NEW_PASSWORD=<choose-a-third-password>
+```
+
+`ADMIN_EMAIL` and `ADMIN_PASSWORD` are the first Manager's, the values you stored with `dotnet user-secrets`. The three `SAMPLE_USER_` passwords are for the Warehouse user that section 11 of the walk-through creates, then resets, then changes. Each must pass the password policy, and the three must differ. The names are also in [`.env.example`](.env.example) (decision #135). The API itself never reads this file.
+
+The walk-through creates fixed names and users, and records are never deleted, so run it once against a fresh Development database, never against your real one. Port 5133 is also the port of the Production API that `scripts\run.ps1` starts, so check which one is running before you send anything.
+
+## Tests
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1
+```
+
+It builds in Release with warnings as errors, then runs the whole suite (unit, integration and acceptance tests; 1,721 tests, about 2 minutes on the owner's machine). The tests set their own throwaway secrets and temporary databases, so they never touch your variables, user-secrets or data. If two builds run at once in one working tree, give each its own `-ArtifactsPath` folder ([`docs/07-release.md` section 2](docs/07-release.md#2-commands)).
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) restores, builds with warnings as errors and runs the whole suite on GitHub's Windows machines, on every push and pull request to `main`. It has not run on GitHub yet, so this README shows no status badge.
+
+## Project structure
+
+```
+src/InventoryTracker.Api/     the API: Program.cs, Auth/, Common/, Data/ (EF Core, migrations), Domain/ (rules
+                              and calculations), Features/ (one folder per resource), settings, sample requests
+tests/InventoryTracker.Api.Tests/   Unit/, Integration/, Acceptance/, Infrastructure/ (test helpers)
+scripts/                      PowerShell: build, test, publish, run, new-signing-key, backup and restore
+docs/                         requirements, design, architecture, tests, security, release, user guide
+.github/workflows/ci.yml      CI
+```
+
+Details: [`docs/03-architecture.md` section 2](docs/03-architecture.md#2-project-structure).
+
+## Documents
+
+| Document | What it is |
+|----------|------------|
+| [`docs/01-prd.md`](docs/01-prd.md) | Product requirements: users, roles, every rule and acceptance criterion, the Later list. |
+| [`docs/02-design.md`](docs/02-design.md) | The API design: endpoints, request and response shapes, flows, every error message. |
+| [`docs/03-architecture.md`](docs/03-architecture.md) | Stack, data model, consistency rules, configuration, running locally. |
+| [`docs/04-tasks.md`](docs/04-tasks.md) | The build task board. |
+| [`docs/05-test-plan.md`](docs/05-test-plan.md) | Test plan and results: every acceptance criterion and the tests that prove it. |
+| [`docs/06-security-review.md`](docs/06-security-review.md) | Security review and its release conditions. |
+| [`docs/07-release.md`](docs/07-release.md) | Release guide: commands, configuration, deploying, backup, upgrade, rollback, troubleshooting. |
+| [`docs/07a-cloud-guide.md`](docs/07a-cloud-guide.md) | Cloud tutorial (Azure App Service). **Guidance only**: it needs product changes first, notably moving from SQLite to PostgreSQL, plus HTTPS, HSTS, a rate limit and a new security review. |
+| [`docs/08-user-guide.md`](docs/08-user-guide.md) | User guide: how each role does its daily work through the API. |
+| [`docs/09-release-notes.md`](docs/09-release-notes.md) | Release notes for v1. |
+| [`docs/decisions.md`](docs/decisions.md) | Every decision, numbered (#1, #2, ...). |
+
+`CLAUDE.md`, `company/` and `.claude/` describe the AI company that built this project, not the product.

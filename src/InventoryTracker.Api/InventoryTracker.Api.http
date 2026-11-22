@@ -12,15 +12,24 @@
 # The walk-through creates units, items and users with fixed names, so it runs once against a fresh database.
 # To start again: stop the app and delete src/InventoryTracker.Api/inventory.db*.
 #
-# Signing in needs the first Manager's email and password: the ADMIN_EMAIL and ADMIN_PASSWORD you stored with
-# dotnet user-secrets (architecture section 8). Never type a real password into this file: it is tracked by git.
-# The sign-in request reads them with {{$dotenv ...}} from a file named .env in this folder
-# (src/InventoryTracker.Api/.env), which .gitignore already excludes. Create it with two lines, the same names as
-# the repository's .env.example, holding the values you chose (replace both placeholders):
+# Development only. Port 5133 is also the default port of the Production API started by scripts\run.ps1, so check
+# which one is running before you send anything: the walk-through writes data, and records are never deleted
+# (PRD section 5). Never run it against the real database.
+#
+# Passwords: never type a real password into this file, because it is tracked by git. Every password below is
+# read with {{$dotenv ...}} from a file named .env in this folder (src/InventoryTracker.Api/.env), which .gitignore
+# already excludes, NOT from a .env at the repository root. Create it with these five lines (the names are also in
+# the repository's .env.example), replacing each placeholder with a value of your own:
 #   ADMIN_EMAIL=owner@example.com
 #   ADMIN_PASSWORD=<choose-your-own-strong-password>
-# The app itself never reads .env; the file is only for these sample requests. Both editors support $dotenv.
-# Every other email and password below is a placeholder for users the walk-through creates.
+#   SAMPLE_USER_PASSWORD=<choose-a-password-for-the-sample-user>
+#   SAMPLE_USER_RESET_PASSWORD=<choose-a-second-password>
+#   SAMPLE_USER_NEW_PASSWORD=<choose-a-third-password>
+# ADMIN_EMAIL and ADMIN_PASSWORD are the first Manager's, the values you stored with dotnet user-secrets
+# (architecture section 8). The three SAMPLE_USER_ passwords are for the Warehouse user that section 11 creates,
+# resets and then changes; each must pass the policy (8+ characters, an upper-case letter, a lower-case letter and
+# a digit), and the three must differ. The app itself never reads .env; the file is only for these sample
+# requests. Both editors support $dotenv. Every email below is a placeholder.
 
 @host = http://localhost:5133
 @api = {{host}}/api/v1
@@ -369,7 +378,7 @@ POST {{api}}/users
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-{ "email": "warehouse.user@example.com", "password": "Initial2026", "roles": ["Warehouse"] }
+{ "email": "warehouse.user@example.com", "password": "{{$dotenv SAMPLE_USER_PASSWORD}}", "roles": ["Warehouse"] }
 
 ###
 @userId = {{createUser.response.body.$.id}}
@@ -402,18 +411,18 @@ PUT {{api}}/users/{{userId}}/password
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-{ "newPassword": "Reset-2026a" }
+{ "newPassword": "{{$dotenv SAMPLE_USER_RESET_PASSWORD}}" }
 
 ### Sign in as that user with the new password.
 # @name signInUser
 POST {{api}}/auth/sign-in
 Content-Type: application/json
 
-{ "email": "warehouse.user@example.com", "password": "Reset-2026a" }
+{ "email": "warehouse.user@example.com", "password": "{{$dotenv SAMPLE_USER_RESET_PASSWORD}}" }
 
 ### Change your own password (any role): 204. Done as the new user, so the Manager's token above keeps working.
 POST {{api}}/auth/change-password
 Authorization: Bearer {{signInUser.response.body.$.accessToken}}
 Content-Type: application/json
 
-{ "currentPassword": "Reset-2026a", "newPassword": "Gouda-Wheel-77" }
+{ "currentPassword": "{{$dotenv SAMPLE_USER_RESET_PASSWORD}}", "newPassword": "{{$dotenv SAMPLE_USER_NEW_PASSWORD}}" }

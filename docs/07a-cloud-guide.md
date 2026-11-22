@@ -255,7 +255,7 @@ Finally, create a second Manager account (the README explains why: keep at least
 
 ## 7. Upgrading
 
-1. Merge and test the new version locally (`scripts\test.ps1`).
+1. Merge and test the new version locally: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1`
 2. Note the time (UTC): it is your restore point if the upgrade goes wrong.
 3. Publish, zip and deploy as in step 9. App Service restarts the app; it applies new migrations on start, before it answers requests (`Program.cs`, start-up step 3).
 4. Watch the log stream and check `/health`.

@@ -1,10 +1,12 @@
 # Security review: Production & Inventory Tracker API
 
-Phase 6, `security-reviewer`, 2026-11-21, at commit `14c60fb` (main). **Re-check** of the SEC-01 and SEC-02 fixes, and of the owner decisions, the same day at commit `a3c1d66` (main); see section 6.
+Phase 6, `security-reviewer`, 2026-11-21, at commit `14c60fb` (main). **Re-check** of the SEC-01 and SEC-02 fixes, and of the owner decisions, the same day at commit `a3c1d66` (main); see section 6. **Final check of the phase 7 release** on 2026-11-22, at commit `8dbdbe7` plus the uncommitted working tree listed in section 6.6.
 
 ## Summary
 
-The authentication and authorisation core holds up. Every forged, altered or expired token I tried was refused. The security stamp is checked on every request. The lock-out counts correctly under 40 parallel attempts, and the T-003 timing leak is still closed. All 48 endpoints match PRD 4.2, and no endpoint takes a user id from the request body. All SQL is parameterised. Error bodies and logs reveal nothing secret. No secret is in any tracked file or anywhere in git history. The NuGet audit finds no known vulnerabilities (re-run at `a3c1d66`). Even when flooded by authenticated clients, the stock rules held. The first review found no critical or high findings and four medium ones. **The two code findings are now fixed and re-verified against a live instance.** SEC-01: one request could stall every write and take 3.1 GB of memory. Now the same bodies are refused in 1 to 77 ms with a 0.3 KB answer, other users' writes are not delayed, and the process stayed at about 210 MB. SEC-02: an anonymous flood wrote Error-level stack traces at 2.6 MB/s. Now the same requests get a proper `413`, and each writes one Information line of 198 bytes, with no stack trace. The owner settled the other two mediums for v1: the API runs on localhost only (#119), and the lock-out stays without a rate limit (#120). The 401/403 checks still come before any body is read, and the error responses that are not capped are bounded in size. What remains are deployment and documentation conditions for phase 7 (section 7.2). **Recommendation: clear to release**, on those phase 7 conditions. This replaces the earlier "go-with-conditions".
+**Final check (phase 7, 2026-11-22).** The release scripts, CI workflow, release and cloud guides, README, user guide and release notes meet all nine release conditions of section 7.2. Condition 2 is met for the released build: the published folder bundles runtime 10.0.15. Updating the runtime installed on the machine stays the owner's task, and the documents say so. I started `scripts\run.ps1 -Published` with `ASPNETCORE_URLS`, `DOTNET_URLS`, `URLS` and `ASPNETCORE_ENVIRONMENT=Development` all set to try to redirect it. It still listened only on `127.0.0.1` and `[::1]`, and only in Production (netstat). It refused every Kestrel endpoint variable I tried, and backup, restore and a second start all refused while it ran. With the Production log setting (#130), a 2 MB body got `413` and wrote no log line. The log held none of the throwaway secrets. The signing-key script uses the operating system's cryptographic generator. CI has a read-only token and no secrets, does not use `pull_request_target`, and interpolates no untrusted input. No real secret is in any tracked or new file or in the two new commits. Both SEC-12 places, and every password in the `.http` walk-through, now hold placeholders or `$dotenv` reads. The NuGet audit is clean. I found three new low or info items, none blocking: CI actions are pinned to tags rather than commit SHAs (SEC-19); the cloud guide's `az` commands would print secrets to the terminal (SEC-20, to fix before that guide is used); and policy-passing literals remain in the design document and in git history (SEC-21, Later). **Verdict: release approved from a security standpoint**, for localhost-only v1. One condition: the uncommitted files are committed as reviewed (section 7.1).
+
+**First review and re-check (phase 6).** The authentication and authorisation core holds up. Every forged, altered or expired token I tried was refused. The security stamp is checked on every request. The lock-out counts correctly under 40 parallel attempts, and the T-003 timing leak is still closed. All 48 endpoints match PRD 4.2, and no endpoint takes a user id from the request body. All SQL is parameterised. Error bodies and logs reveal nothing secret. No secret is in any tracked file or anywhere in git history. The NuGet audit finds no known vulnerabilities (re-run at `a3c1d66`). Even when flooded by authenticated clients, the stock rules held. The first review found no critical or high findings and four medium ones. **The two code findings are now fixed and re-verified against a live instance.** SEC-01: one request could stall every write and take 3.1 GB of memory. Now the same bodies are refused in 1 to 77 ms with a 0.3 KB answer, other users' writes are not delayed, and the process stayed at about 210 MB. SEC-02: an anonymous flood wrote Error-level stack traces at 2.6 MB/s. Now the same requests get a proper `413`, and each writes one Information line of 198 bytes, with no stack trace. The owner settled the other two mediums for v1: the API runs on localhost only (#119), and the lock-out stays without a rate limit (#120). The 401/403 checks still come before any body is read, and the error responses that are not capped are bounded in size. What remains are deployment and documentation conditions for phase 7 (section 7.2). **Recommendation: clear to release**, on those phase 7 conditions. This replaces the earlier "go-with-conditions".
 
 ## 1. Scope and method
 
@@ -26,6 +28,14 @@ The authentication and authorisation core holds up. Every forged, altered or exp
 - Probes: `...\scratchpad\recheck\probes\` (`r1_sec01.py`, `r2_sec02.py`, `raw.py`) and `...\scratchpad\recheck\probes-prod\` (`r3_nodbwork.py`, `r4_409.py`, `r5_query.py`). Their outputs are saved next to them as `r1_out.txt` to `r4_out.txt`. `raw.py` writes the body on a separate thread while it reads the answer, so an early `413`, `401` or `403` is seen even while the body is still being sent.
 - Ran the whole test suite: `dotnet test --artifacts-path TestResults/recheck-art`: **1,721 total, 1,721 passed, 0 failed** (4 min 13 s).
 - Re-ran `dotnet list package --vulnerable --include-transitive` and `dotnet sdk check` (section 3.6).
+
+**What I did (final check of the phase 7 release, 2026-11-22).**
+
+- Read decisions #119 to #135, `git log -p 7590787..HEAD` (`43b3934`, `8dbdbe7`) and `git diff` of the working tree. Then I read every script in `scripts/`, `.github/workflows/ci.yml`, `appsettings*.json`, `.gitignore`, `.env.example`, the `.http` file, `docs/07-release.md`, `docs/07a-cloud-guide.md`, `README.md`, `docs/08-user-guide.md` and `docs/09-release-notes.md`. The product code changed only in `appsettings.Production.json` and the `.http` file.
+- Ran the published folder `publish\win-x64` (built at 10:12, after the last change to `src/`; its `appsettings*.json` are identical to the source ones) through `scripts\run.ps1 -Published -Port 5201`. I used throwaway `JWT_SIGNING_KEY`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` values and a scratch database. `APPDATA` and `LOCALAPPDATA` pointed under `...\scratchpad\final-sec\`. I also set redirection attempts (section 6.7). The scripts are `start.ps1` and `probe.ps1` in that folder, and the outputs are in its `logs\`. I stopped the instance (`taskkill /T`) and confirmed that nothing listened on 5200 to 5209 afterwards. The owner's databases and user-secrets were not touched: the scratch `appdata` folder stayed empty.
+- Scanned every tracked and new file for policy-passing password literals and secret patterns (section 6.9), and checked `.gitignore` with `git check-ignore`.
+- Ran `dotnet list InventoryTracker.slnx package --vulnerable --include-transitive` and `dotnet sdk check`.
+- Did not run: the CI workflow (it runs only after a push) and the cloud guide (nothing may be deployed). I also did not test `HTTP_PORTS`/`ASPNETCORE_HTTP_PORTS` live: if it won over `--urls`, it would bind every network interface of the owner's machine (section 6.7).
 
 **Not applicable, and why.**
 
@@ -76,6 +86,8 @@ After the 15 MB request, the API process was holding **3.1 GB** of memory (`task
 
 **Residual (low).** A refused body still writes one Information line of 198 bytes. At the 597 requests per second one local client reached, that is about 0.12 MB/s, or 0.4 GB an hour if sustained. On a localhost-only v1 (#119), only a program already running on the owner's machine can do this. Decision #126 lets phase 7 raise the category `InventoryTracker.Api.Common.Errors.ApiExceptionHandler` to Warning, which drops these lines. I recommend doing that, or adding log rotation, before the API is reachable from any other machine (section 7.2, item 9).
 
+**Residual closed in Production (final check).** `appsettings.Production.json` sets that category to Warning (#130). In the published instance, a 2 MB body got `413` and the log gained no `Request body refused` line. The category's only other messages are a Warning (unique-index conflict, `ApiExceptionHandler.cs:77`) and an Error (unhandled exception, `:112`), and both are kept. No other category changed, so sign-in and user-management logging are unaffected.
+
 ### SEC-03 (medium, required at deployment): plain HTTP in Production; passwords and tokens travel unencrypted
 
 **Owner decision #119 (2026-11-21).** v1 runs on localhost only, on the owner's machine, so plain HTTP is acceptable for v1. The release guide must state that HTTPS and HSTS are required before the API is reachable from any other machine. It is on the PRD Later list (PRD section 3, Later list; PRD row 22). **Accepted for localhost-only v1.** This makes binding to localhost a release condition (section 7.2, item 1).
@@ -119,6 +131,8 @@ Add `app.UseHsts()` in Production. Record the choice in `docs/07-release.md`.
 **Still open (re-checked at `a3c1d66`).** `dotnet sdk check`: `Microsoft.AspNetCore.App 10.0.12`, "Patch 10.0.15 is available"; SDK 10.0.401, "Patch 10.0.404 is available". The app's NuGet packages are 10.0.15, but the web server (Kestrel) and the rest of ASP.NET Core run from the installed shared runtime, 10.0.12. `dotnet list package --vulnerable` does not check the runtime. I did not look up which security fixes 10.0.13 to 10.0.15 contain, so this rating covers the gap I verified, not a specific vulnerability. The runtime 8.0.18 is also installed and out of support; the app does not use it.
 
 **Fix.** Install the latest .NET 10 runtime (or SDK 10.0.404) on every machine that runs the API, then re-run `dotnet sdk check`. Patch monthly. Stay on 10.x (decision #19).
+
+**Final check: mitigated for the released build; the installed runtime is the owner's task.** `scripts\publish.ps1` bundles runtime 10.0.15 (#129). In `publish\win-x64`, `Microsoft.AspNetCore.Server.Kestrel.Core.dll` is 10.0.15 and `System.Private.CoreLib.dll` is `10.0.15-servicing` (verified). `dotnet sdk check` still reports the installed runtime as 10.0.12. `docs/07-release.md` section 1 records this, and the release notes list it. One caveat: `run.ps1` *without* `-Published` runs from source on the installed runtime. Until the owner installs 10.0.15 or later, start the real instance with `-Published` only, as the README quick start and release guide section 6 already do.
 
 ### SEC-07 (low, owner decision taken): removing a role does not end that user's sessions
 
@@ -181,9 +195,11 @@ Add `X-Content-Type-Options: nosniff` (SEC-11) as a cheap safeguard for older br
 - `Referrer-Policy: no-referrer`
 - `ConfigureKestrel(o => o.AddServerHeader = false)`
 
-### SEC-12 (low, required in phase 7 docs): a sample admin password that passes the policy is published in the repository
+### SEC-12 (low, required in phase 7 docs): a sample admin password that passes the policy is published in the repository. **Fixed.**
 
-**Still open (re-checked at `a3c1d66`).** `docs/03-architecture.md:475` (`dotnet user-secrets set ADMIN_PASSWORD "Choose-A-Strong1"`) and `src/InventoryTracker.Api/InventoryTracker.Api.http:21`.
+**Status: fixed (final check, 2026-11-22).** Both places the re-check named now hold the placeholder `<choose-your-own-strong-password>`, which fails the policy (no digit): `docs/03-architecture.md:490` (committed in `43b3934`) and `src/InventoryTracker.Api/InventoryTracker.Api.http:24`, a comment. Beyond the original finding, every password the `.http` walk-through sends is now read with `{{$dotenv ...}}` from the git-ignored `src/InventoryTracker.Api/.env` (lines 52, 381, 414, 421, 428; #135, in the working tree, not yet committed). `.env.example` lists the names with empty values. The README "First password" section tells the owner to change the first password and remove `ADMIN_PASSWORD`, and `run.ps1` warns while it is still set. The former sample value remains in git history, which may not be rewritten (SEC-21). The original finding is kept below as the record.
+
+**As found (re-checked at `a3c1d66`).** `docs/03-architecture.md:475` (`dotnet user-secrets set ADMIN_PASSWORD "..."` with a policy-passing sample) and `src/InventoryTracker.Api/InventoryTracker.Api.http:21`.
 
 **Risk.** The value meets the policy, so if the owner copies the command as written, the first Manager's password is published in the repository's history. AC-02.5 is technically met (it is a sample, not a real credential), and no real value was found (section 3.5).
 
@@ -225,7 +241,7 @@ The product stores, per staff member, an email, a password hash, roles, an activ
 
 ### SEC-17 (info): small items
 
-- `.gitignore` covers `.env`, `.env.*` (except `.env.example`), `*.db`, `*.db-shm`, `*.db-wal` and `*.sqlite`, but not `*.db-journal` (still so at `a3c1d66`). SQLite creates that file briefly during the first migration, before WAL mode is switched on. Add it.
+- `.gitignore` covers `.env`, `.env.*` (except `.env.example`), `*.db`, `*.db-shm`, `*.db-wal` and `*.sqlite`, but not `*.db-journal` (still so at `a3c1d66`). SQLite creates that file briefly during the first migration, before WAL mode is switched on. Add it. **Fixed in `43b3934` (#133):** `.gitignore:493`. Verified with `git check-ignore` (section 6.9).
 - Duplicate JSON keys are accepted, and the last one wins (`{"name":"dupA","name":"dupB"}` gave 201). This is harmless here and noted only for completeness.
 - Users cannot end their own session (there is no sign-out). Changing one's password ends every session at once (stamp check). This is acceptable with 8-hour tokens.
 - The `stamp` claim exposes the user's Identity security stamp to its holder. No token providers are registered (no email or reset tokens), so it cannot be misused. Keep it that way, or switch to a separate session id, if reset-by-email is ever added.
@@ -235,6 +251,41 @@ The product stores, per staff member, an email, a password hash, roles, an activ
 **Where.** `Features/ProductionOrders/SendOrderService.cs:199-216` writes one sentence per Pending return of the order's materials and joins them all into `detail`.
 
 **Why it is only info.** The 500-line cap does not bound this list. It is bounded by how many Pending returns exist, and only a Manager can create them (`ReturnsController`, `[Authorize(Roles = Manager)]`), one request each, each limited by free leftover (AC-22.2). Each sentence is about 100 to 200 bytes, so 10,000 Pending returns would make a 1 to 2 MB answer. That takes 10,000 deliberate requests by the fully trusted role (SEC-15). The list is read with one query inside the write lock. I did not measure this case. **Later:** list the first few returns and add "and N more", like `ValidationErrors`.
+
+### SEC-19 (low, Later; new in the final check): CI actions are pinned to movable tags, not commit SHAs
+
+**Where.** `.github/workflows/ci.yml:39` `actions/checkout@v5` and `:47` `actions/setup-dotnet@v5`.
+
+**Risk.** A major-version tag can be moved to different code by whoever controls the action's repository. If either action were compromised, the next CI run would execute the new code with the job's token and the checked-out source of this private repository. The blast radius is small, and that is why this is low. Both actions are GitHub's own. The token is `contents: read` only (`:16-17`). `persist-credentials: false` (`:42`) keeps the token out of the checkout. The job has no secrets and no cache. The impact would be a copy of the source leaving GitHub, not a change to the repository.
+
+**Fix (`devops-engineer`, Later).** Pin each action to its full commit SHA, with the version in a comment (`uses: actions/checkout@<40-hex-sha> # v5.x.y`). Add a Dependabot `github-actions` entry so the pins are kept current.
+
+### SEC-20 (low; fix before the cloud guide is used; new in the final check): the cloud guide's `az` commands would print secrets to the terminal
+
+**Where.** `docs/07a-cloud-guide.md` step 3 (`:85-90`, `az postgres flexible-server create ... --admin-password $pgPassword`) and step 7 (`:143`, `:148`, `:152`, `az keyvault secret set ... --value ...`).
+
+**Risk.** **Not run** (no Azure account, by design). This rests on the Azure CLI's documented default output, not on a demonstration. `az keyvault secret set` returns the stored secret, `value` included, as JSON on the screen. `az postgres flexible-server create` prints the admin user, password and a connection string. Followed as written, the steps would show the signing key, the first Manager's password and the database password in the terminal and its scrollback. The guide's own care elsewhere (`Read-Host`, `Remove-Variable`, "make sure nobody is watching") shows this is not intended. Two smaller points:
+- `az` on Windows runs through `az.cmd`. The guide already warns (`:166`) that it mangles `;` and parentheses. An admin password containing `&`, `|`, `^`, `%`, `<` or `>` passed as `--value` may be cut short or partly read as a command.
+- `--public-access 0.0.0.0` (`:90`, explained at `:95`) admits connections from any Azure-hosted resource, including other customers'. "Azure services only" is Microsoft's wording, but it reads as narrower than it is. The random database password and enforced TLS still protect the server.
+
+**Fix (`devops-engineer`, `technical-writer`, before anyone follows the cloud guide; not blocking for localhost v1).** Add `-o none` (or `--query id -o tsv`) to each `az keyvault secret set` and to `az postgres flexible-server create`. Pass the admin password with `--file` from a temporary file that is deleted at once, or limit it to letters, digits and `-`. Explain that `0.0.0.0` means all of Azure, and recommend private access, or a firewall rule for the Web App's outbound addresses, as the default. Optional hardening for the re-review: turn off basic-authentication publishing credentials (SCM and FTP) on the Web App. The guide already limits deployment to `az webapp deploy`.
+
+**The rest of the cloud guide is sound.** Section 1 lists the blocking product changes: PostgreSQL first (item 1), HSTS plus HTTPS-only (item 2, step 6), a rate limit (item 3), forwarded headers (item 4), one instance (item 5) and re-opening this review (item 6). Secrets go in Key Vault through Key Vault references and a managed identity, never in plain App Service settings or files (steps 7 and 8). Every chargeable step is marked **[COSTS MONEY]**, account steps are marked **[ACCOUNT]**, and the guide adds a budget alert and a teardown section. At the re-review, check that `ASPNETCORE_FORWARDEDHEADERS_ENABLED` (`:171`) is acceptable: it trusts forwarded headers from any address, which is safe only because App Service's front end is the only route in, and only if the rate limiter uses the address that front end appended.
+
+### SEC-21 (info, Later; new in the final check): policy-passing password literals left in documents, tests and git history
+
+None of these is a real credential. None is in anything the owner is told to run against a real instance: the README, release guide, user guide, cloud guide, scripts, `.env.example` and the `.http` file contain placeholders, `Read-Host` prompts or `$dotenv` reads only (scan in section 6.9). My judgement on each:
+
+| Where | Literals | Judgement |
+|-------|----------|-----------|
+| `docs/02-design.md:367`, `:387`, `:406`, `:410` | `Cheddar2026`, `Gouda-Wheel-77`, `Initial2026`, `Reset-2026a` | **Later** (`ux-designer`). These are API reference examples, not steps to run. "Initial2026" and "Reset-2026a" are realistic choices for a Manager's initial and reset passwords, and a future front end may copy them into fixtures. Replace them with values that fail the policy (`"<initial-password>"`) at the next design edit. |
+| `docs/05-test-plan.md:224`, `docs/bugs/BUG-001-text-limits-count-code-units.md:50` | `Abcdefg1`, an emoji password | **Keep.** They are records of what QA sent to a scratch instance. Changing them would falsify the record. |
+| This report, section 3.1 | `Password1`, `Qwerty123` | **Keep.** They show that common passwords pass the PRD's policy, which is the point being made. |
+| This report, former SEC-12 text and condition 4 | the former architecture sample | **Removed** from this report in the final check. The value is named only as "the former sample". |
+| `tests/` (for example `Initial2026` 23 times, `Reset-2026a` 6 times, `Admin-Test-2026`) | test fixtures | **Keep.** They are used only by `TestApiFactory`'s in-memory instances with temporary SQLite files and the test-only signing key, which is labelled as such. |
+| git history (pushed) | the former architecture sample; the former `.http` values `Initial2026`, `Reset-2026a`, `Gouda-Wheel-77` | **Accept.** The owner's rules forbid rewriting pushed history. Treat these values as public. If the old walk-through was ever run against a database that is kept, change or deactivate the `warehouse.user@example.com` account there. |
+
+The README says (`README.md:117`): "Where this repository shows a password, it is a placeholder". That is true of everything a person runs, but not of the design document or the tests. A wording fix for `technical-writer`: "Every password in a command or sample request here is a placeholder."
 
 ## 3. Checked and found sound
 
@@ -286,12 +337,14 @@ The product stores, per staff member, an email, a password hash, roles, an activ
 - **Tracked files.** `.env.example` has names only. `appsettings*.json` and `launchSettings.json` have no secret, and never had one in any commit. The test-only signing key and passwords in `tests/` are labelled as such and used only by test factories.
 - **History.** I dumped `git log --all -p` (38 commits at the first review) and searched for `KEY=`, `PASSWORD=`, `Password=` in connection strings, `SigningKey = "`, long Base64 strings and real email addresses. I also ran `git grep` across every revision for AWS, GitHub, Slack and OpenAI key patterns and PEM private keys. I found nothing apart from the documented samples (SEC-12) and test-only values. In the re-check I read the five commits since `60ba6e4`. They add no secrets, and no `.db`, `.env` or certificate file.
 - `.gitignore` ignores `src/InventoryTracker.Api/.env` and `inventory.db`. User-secrets live in `%APPDATA%`, outside the repository. `git status --short` was empty after the re-check.
+- **Final check.** The two new commits (`43b3934`, `8dbdbe7`), the working-tree diff and the two new documents contain no long Base64 string, private key, cloud or GitHub token pattern, `AccountKey=` or SAS signature (grep of `git log -p 7590787..HEAD`, `git diff` and the new files). No `.db`, `.env`, `.pfx` or certificate file was added. `appsettings.Production.json` holds only a log level. `git status --ignored` shows `publish/` and build output only, with no `.env` and no database.
 
 ### 3.6 Dependencies
 
 - **Re-check, `a3c1d66`:** `dotnet list package --vulnerable --include-transitive`: "The given project `InventoryTracker.Api` has no vulnerable packages given the current sources." The same holds for `InventoryTracker.Api.Tests`.
 - First review: the transitive packages include Microsoft.IdentityModel 8.19.2, System.IdentityModel.Tokens.Jwt 8.19.2, Microsoft.Data.Sqlite 10.0.15 and SQLitePCLRaw 2.1.13. `dotnet list package --outdated`: all top-level packages are 10.0.15, and 11.0.0 is offered. That is a new major, short-term-support version; stay on 10 (decision #19). The fix commit added no package.
 - Runtime: still 10.0.12, see SEC-06.
+- **Final check, `8dbdbe7`:** `dotnet list InventoryTracker.slnx package --vulnerable --include-transitive`: "no vulnerable packages given the current sources" for both projects. No package was added in phase 7. `dotnet sdk check`: SDK 10.0.401 (10.0.404 available); runtimes 10.0.12 (10.0.15 available) and 8.0.18 (out of support, unused). The published folder bundles 10.0.15 (SEC-06).
 
 ### 3.7 Concurrency and stock integrity under abuse
 
@@ -306,26 +359,31 @@ Then 30 parallel completions of that order: **1** succeeded and 29 got `already-
 
 ## 4. Summary table
 
-| ID | Severity | Finding | Status at `a3c1d66` | Before release? | Owner of the remaining work |
-|----|----------|---------|---------------------|-----------------|-----------------------------|
+Status as of the final check (2026-11-22, `8dbdbe7` plus the working tree).
+
+| ID | Severity | Finding | Status at the final check | Before release? | Owner of the remaining work |
+|----|----------|---------|---------------------------|-----------------|-----------------------------|
 | SEC-01 | medium | Unlimited request lines validated inside the write lock | **fixed** (`0961b35`, #122, #123, #125), re-verified | done | none |
-| SEC-02 | medium | Oversized or broken bodies gave `500` and Error stack traces | **fixed** (`0961b35`, #124), re-verified; low residual: one 198-byte Information line per refused body | done; #126 log level before any non-localhost exposure | devops-engineer (optional for localhost) |
-| SEC-03 | medium | Plain HTTP in Production, no HSTS | **accepted for localhost-only v1** (#119) | bind to localhost **required**; HTTPS + HSTS before any other exposure | devops-engineer, technical-writer |
-| SEC-04 | medium | Lock-out denial of service; lock-out reveals account existence | **accepted** (#120), README: two active Managers | README note **required** | technical-writer |
+| SEC-02 | medium | Oversized or broken bodies gave `500` and Error stack traces | **fixed** (`0961b35`, #124); residual log line **dropped in Production** (#130, verified) | done | none |
+| SEC-03 | medium | Plain HTTP in Production, no HSTS | **accepted for localhost-only v1** (#119); loopback binding **verified** (section 6.7) | done for v1; HTTPS + HSTS before any other exposure | backend-developer, devops-engineer (at exposure) |
+| SEC-04 | medium | Lock-out denial of service; lock-out reveals account existence | **accepted** (#120); README "Keep two active Managers" | done | none for v1 |
 | SEC-05 | low | No rate limit on sign-in | **accepted for v1** (#120), on PRD Later list | before any non-localhost exposure | backend-developer (later) |
-| SEC-06 | low | Runtime 10.0.12, patch 10.0.15 available | open (re-checked) | **required on the deployment machine** | devops-engineer / owner |
-| SEC-07 | low | Removing a role leaves 8-hour sessions with the old rights | **accepted** (#121), README runbook | runbook **required** | technical-writer |
+| SEC-06 | low | Runtime 10.0.12, patch 10.0.15 available | **mitigated**: published folder bundles 10.0.15 (#129, verified); installed runtime still 10.0.12 | release build: done; installed runtime: **owner's task** | owner |
+| SEC-07 | low | Removing a role leaves 8-hour sessions with the old rights | **accepted** (#121); README runbook | done | none |
 | SEC-08 | low | User-management logs lack the acting Manager; failed sign-ins and lock-outs not logged | open | Later | backend-developer |
 | SEC-09 | low | Control, invisible, bidi and look-alike characters accepted in names | open | Later | ux-designer, backend-developer |
 | SEC-10 | low | Raw HTML in stored text: a front-end XSS risk | open | front-end requirement | product-manager, future frontend-developer |
 | SEC-11 | low | No `Cache-Control`, `nosniff`; `Server` header | open | Later | backend-developer |
-| SEC-12 | low | Policy-passing sample admin password in docs and `.http` | open (re-checked: `03-architecture.md:475`, `.http:21`) | **required (phase 7 docs)** | technical-writer |
-| SEC-13 | low | `dotnet run` gives Development; token lifetime unchecked; shared issuer/audience; key strength; `AllowedHosts *` | open | start in Production **required**; key advice in README **required**; the rest Later | devops-engineer, technical-writer, backend-developer |
+| SEC-12 | low | Policy-passing sample admin password in docs and `.http` | **fixed** (placeholder in `03-architecture.md:490` and `.http:24`; walk-through passwords via `$dotenv`, #135) | done (commit the `.http` change) | delivery manager (commit) |
+| SEC-13 | low | `dotnet run` gives Development; token lifetime unchecked; shared issuer/audience; key strength; `AllowedHosts *` | start in Production **met** (verified); key advice **met** (README); the rest open | the rest Later | backend-developer |
 | SEC-14 | info | Parallel-writer tail latency (no errors) | accepted | no | none |
 | SEC-15 | info | Manager is fully trusted | accepted (PRD design) | no | owner (awareness) |
-| SEC-16 | info | Personal data: emails visible to all roles; no erasure path; unencrypted file | open | protect the file and backups **required (phase 7)** | devops-engineer |
-| SEC-17 | info | `*.db-journal` not ignored; duplicate JSON keys; no sign-out; stamp claim | open | no | backend-developer (gitignore line) |
-| SEC-18 | info | `pending-return` 409 lists every Pending return, uncapped (Manager-created data) | new | no (Later) | backend-developer |
+| SEC-16 | info | Personal data: emails visible to all roles; no erasure path; unencrypted file | file and backups protection **met** (release guide 7, README "Data", backup script) | done | none for v1 |
+| SEC-17 | info | `*.db-journal` not ignored; duplicate JSON keys; no sign-out; stamp claim | `.gitignore` line **fixed** (#133); the rest accepted | no | none |
+| SEC-18 | info | `pending-return` 409 lists every Pending return, uncapped (Manager-created data) | open | no (Later) | backend-developer |
+| SEC-19 | low | CI actions pinned to movable tags, not SHAs | **new**, open | no (Later) | devops-engineer |
+| SEC-20 | low | Cloud guide's `az` commands would print secrets; `az.cmd` quoting; `0.0.0.0` wording | **new**, open (not run; documented CLI behaviour) | no for localhost v1; **yes before the cloud guide is followed** | devops-engineer, technical-writer |
+| SEC-21 | info | Policy-passing literals in the design doc, QA records, tests and git history | **new**; judged in the finding | no (design examples: Later) | ux-designer, technical-writer (wording) |
 
 No critical or high findings, and no open medium finding without an owner decision.
 
@@ -338,7 +396,9 @@ No critical or high findings, and no open medium finding without an owner decisi
 - **HTML-like text returned unescaped in `application/json`:** correct for a JSON API and not exploitable in this API. It must be handled by the future front end (SEC-10).
 - **Writes under many parallel clients:** measured, with no errors and seconds of tail latency (SEC-14). The real danger was SEC-01, now fixed.
 
-## 6. Re-check of the SEC-01 and SEC-02 fixes (`a3c1d66`)
+## 6. Re-checks
+
+Sections 6.1 to 6.5 are the re-check of the SEC-01 and SEC-02 fixes at `a3c1d66`. Sections 6.6 to 6.10 are the final check of the phase 7 release.
 
 ### 6.1 SEC-01: fixed
 
@@ -416,24 +476,95 @@ No request without a valid token or the right role caused a body read, a query b
 
 **No code problem found in the fix.**
 
+### 6.6 Final check: what was reviewed
+
+Commits `43b3934` (scripts, CI, `07-release`, `07a`, `appsettings.Production.json`, the `.http` placeholder) and `8dbdbe7` (architecture). The uncommitted working tree as of this check: `README.md` (rewritten), `docs/08-user-guide.md` and `docs/09-release-notes.md` (new), the `.http` walk-through passwords moved to `$dotenv` (#135), `.env.example`, and fixes to `docs/07-release.md`, `docs/07a-cloud-guide.md` and `docs/decisions.md`. The verdict covers these files **as they are now**. They must be committed unchanged, or re-checked if they change.
+
+### 6.7 Scripts
+
+**`run.ps1` binds to loopback only, and the URL and Kestrel variables cannot redirect it.**
+
+- How it works. It always passes `--environment Production --urls http://127.0.0.1:<port>;http://[::1]:<port>` on the command line (`run.ps1:136`). Command-line values are the last configuration source, so they beat `ASPNETCORE_URLS`, `DOTNET_URLS`, `URLS` and `ASPNETCORE_ENVIRONMENT`. Kestrel endpoints configured in settings would beat `--urls`. The script refuses to start if any environment variable matches `^(ASPNETCORE_|DOTNET_)?Kestrel(__|:)`, ignoring case (`:82-85`). The port is validated to 1024 to 65535 (`:45`). `[CmdletBinding()]` refuses unknown parameters, so there is no way to pass another address. Neither `appsettings.json` nor `appsettings.Production.json` has a `Kestrel` or `urls` key, and `Program.cs` configures no listener (`:35` sets only the body limit).
+- **Live** (`final-sec\start.ps1`, `logs\run-out.txt`). Started with `ASPNETCORE_URLS=http://127.0.0.1:5202`, `DOTNET_URLS=http://127.0.0.1:5203`, `URLS=http://127.0.0.1:5205`, `ASPNETCORE_ENVIRONMENT=Development` and `DOTNET_ENVIRONMENT=Development`. The script printed `ASPNETCORE_ENVIRONMENT was 'Development'; this script always runs Production.` The process command line was `InventoryTracker.Api.exe --environment Production --urls http://127.0.0.1:5201;http://[::1]:5201`. The log showed `Hosting environment: Production` and `Now listening on` only for `http://127.0.0.1:5201` and `http://[::1]:5201`. `netstat -ano` for the API's process id showed exactly two listeners, `127.0.0.1:5201` and `[::1]:5201`. Ports 5202, 5203 and 5205 did not answer.
+- **Live refusals** (`probe.ps1`). `KESTREL__ENDPOINTS__X__URL` (upper case) and `ASPNETCORE_Kestrel__EndpointDefaults__Protocols` each gave "Not started: remove these environment variables, ..." with exit code 1. The developer's own run covers the `DOTNET_`, `:` and lower-case forms (`07-release.md` section 11).
+- **Not tested live:** `HTTP_PORTS`/`ASPNETCORE_HTTP_PORTS`. ASP.NET Core uses them only when no `urls` value is set, and `run.ps1` always sets one. If that ever failed, they would bind all interfaces, so I did not try it on the owner's machine. Out of scope: `DOTNET_STARTUP_HOOKS` and hosting-startup variables. They inject code, which needs the same control over the owner's environment as running any program.
+- Also verified live on that instance: sign-in `200` (Manager, 8 hours); `/openapi/v1.json` `401`; `GET /api/v1/users` `401` without a token and `200` with one; a 2 MB body `413`.
+
+**`new-signing-key.ps1` uses a cryptographic generator.** `[System.Security.Cryptography.RandomNumberGenerator]::Create()` fills 48 bytes (`:29-36`), giving 64 Base64 characters. `Get-Random` is not called anywhere in `scripts/`; it appears only in the comment explaining why it is not used.
+
+**No script prints a secret.** `new-signing-key.ps1` writes the key to its output by design. Every documented use captures it straight into a variable (README step 3, release guide section 3, cloud guide step 7). `run.ps1` checks `JWT_SIGNING_KEY`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` for presence and length only, and names variables, never values (`:90-95`, `:115-127`). `Invoke-Checked` echoes only `dotnet` build, test and publish arguments. The live run's output (1,949 bytes) contained **0** occurrences of the throwaway key, password or email, **0** `eyJ`, **0** `fail:` and **0** `crit:`. One small item (info, Later): `common.ps1:127` and `:134` repeat the whole `ConnectionStrings__Default` value in an error message. For SQLite that holds no secret. If the scripts are reused for a connection string with a password, print only the path.
+
+**Backup and restore refuse while the API runs.** Live, with the instance running on the same scratch database: `backup-database.ps1` stopped with "The API is running: InventoryTracker.Api.exe (process id 76780)", exit code 1, and created no backup folder. `restore-database.ps1`, given a backup folder that exists, stopped with the same message and moved nothing; the database, `-wal` and `-shm` files were still in place. A second `run.ps1` also refused. The check is by process (`common.ps1:33-51`), plus the file lock (`:139-157`), so the idle-API case the code review found is covered.
+
+**`appsettings.Production.json` does not weaken security logging.** See the SEC-02 residual. It changes one category, `ApiExceptionHandler`, from Information to Warning. That drops only the refused-body line (`ApiExceptionHandler.cs:104`), and its Warning and Error lines stay. The sign-in line (`User ... signed in.`) still appeared in the live Production log.
+
+### 6.8 CI (`.github/workflows/ci.yml`)
+
+| Check | Result |
+|-------|--------|
+| Least privilege | `permissions: contents: read` at workflow level (`:16-17`); no job widens it. `persist-credentials: false` on checkout (`:42`). |
+| No secrets | No `secrets.` reference; the tests set their own throwaway values (`TestApiFactory`). |
+| Triggers | `push` and `pull_request` to `main` only (`:9-13`). **No `pull_request_target`**, no `workflow_run`, no `issue_comment`. |
+| Untrusted input | No `${{ github.event.* }}` or other user-controlled expression in any `run:` step. The only expressions are `github.ref` and `github.event_name` in `concurrency` (`:22-23`), which are not run as shell. |
+| Pinned actions | Pinned to major tags `@v5`, not commit SHAs: **SEC-19** (low, Later). |
+| Other | `timeout-minutes: 25`; no cache (so no cache poisoning); no artefact upload; no deployment. |
+
+Not run on GitHub: it runs only after a push.
+
+### 6.9 Secrets in the repository
+
+- **`.gitignore`** (`git check-ignore -v`): `.env` (root and `src/InventoryTracker.Api/.env`), `.env.local` and `inventory.db` are ignored. So are `inventory.db-wal`, `-shm` and `-journal` (`:486-494`), `*.sqlite`, and any database under `publish/` (`:188`). `.env.example` is not ignored, as intended.
+- **No real secret** in the two new commits, the working-tree diff or the new documents (section 3.5).
+- **Policy-passing literals.** I scanned all 1,921 tracked and new files with a script that finds quoted strings of 8 or more characters with an upper-case letter, a lower-case letter and a digit, on lines mentioning a password, secret or key. I also grepped for unquoted `PASSWORD=`, `_KEY=` and `Password=` assignments. Outside `tests/`, the only hits are those judged in SEC-21: `docs/02-design.md`, the QA records, and this report. The README, `docs/07-release.md`, `07a`, `08`, `09`, `scripts/`, `.env.example` and the `.http` file have none. **Nothing must change before release.** The design examples go on the Later list (SEC-21).
+
+### 6.10 Cloud guide (`docs/07a-cloud-guide.md`)
+
+| Requirement | Where | Result |
+|-------------|-------|--------|
+| HTTPS-only and HSTS required | Section 1 item 2; step 6 (`--https-only true`, TLS 1.2 minimum, FTPS disabled); HSTS header to be checked after deployment | met |
+| Secrets in App Service settings or Key Vault | Steps 7 and 8: Key Vault, RBAC, managed identity, `@Microsoft.KeyVault(...)` references; the settings file holds references only and is deleted; first-Manager secret and settings deleted after first sign-in | met |
+| PostgreSQL first | Section 1 item 1; section 2 explains why SQLite is unsafe on App Service | met |
+| Re-open the security review | Section 1 item 6; section 12's last line; README and release guide section 9 | met |
+| Steps that cost money marked | **[COSTS MONEY]** on steps 3, 4 and 7, the custom domain, Application Insights and restores; **[ACCOUNT]** on account and identity steps; a budget alert (step 1); teardown (section 11) | met |
+| Does not lead into an insecure deployment | Section 1 is a "Stop" list of blocking changes before any step goes live; one instance only (step 5) | met, with **SEC-20** to fix before the guide is used |
+
 ## 7. Release recommendation
 
 ### 7.1 Verdict
 
-**Clear to release. Phase 6 can close.** This replaces "go-with-conditions". No critical or high finding is open. Both required code fixes (SEC-01, SEC-02) are done and verified against a live instance, and all 1,721 tests pass. The two remaining medium findings (SEC-03, SEC-04) are owner-accepted for a localhost-only v1 (#119, #120). What remains are deployment and documentation conditions that phase 7 must meet. None of them needs a product-code change.
+**Final check (2026-11-22): release approved from a security standpoint**, for v1 on localhost only. All nine conditions of section 7.2 are met. The installed-runtime half of condition 2 is recorded as the owner's task. No critical or high finding is open. The two medium findings still open (SEC-03, SEC-04) are owner-accepted for localhost-only v1, and the binding they depend on is verified live (section 6.7). The three new items (SEC-19, SEC-20, SEC-21) are low or info, and none blocks a localhost release.
 
-If the API is ever made reachable from another machine, this verdict no longer holds. SEC-03 (HTTPS and HSTS) and SEC-05 (rate limit) then become blocking, SEC-04 and the SEC-02 residual must be revisited, and this review should be re-opened.
+This approval holds on these terms:
+
+1. **The uncommitted files are committed as reviewed** (section 6.6). Conditions 4 to 8 depend on the rewritten README, the `.http` `$dotenv` change (#135) and the release-guide fixes. If any of them changes before the commit, it needs another look.
+2. **The owner's own tasks:** install the latest .NET 10 runtime or SDK on this machine, then record `dotnet sdk check` in `docs/07-release.md` section 1. Until then, start the real instance with `run.ps1 -Published` only (SEC-06). After the first start, change the first password and remove `ADMIN_PASSWORD` (README "First password"). Create a second Manager.
+3. **SEC-20 is fixed before anyone follows the cloud guide.** That point is already behind the re-review that section 1 of the cloud guide requires.
+
+If the API is ever made reachable from another machine, this verdict no longer holds. SEC-03 (HTTPS and HSTS) and SEC-05 (rate limit) then become blocking, SEC-04 must be revisited, and this review must be re-opened. The release guide (section 9), the README ("Localhost only"), the release notes and the cloud guide (section 1) all say so.
+
+**History.** At the re-check (`a3c1d66`), the verdict was "clear to release, on the phase 7 conditions". That replaced the first review's "go-with-conditions".
 
 ### 7.2 Release conditions for phase 7
 
-1. **SEC-03, #119: localhost only.** The run scripts and the release guide bind the API to `http://127.0.0.1:<port>` or `http://localhost:<port>` explicitly, never `0.0.0.0`, `*` or `+`. The release guide states that HTTPS and HSTS (and SEC-05's rate limit) are required before the API is reachable from any other machine. (`devops-engineer`, `technical-writer`)
-2. **SEC-06: latest .NET 10 runtime.** Install ASP.NET Core runtime 10.0.15 or later (this machine has 10.0.12, re-checked today) on the machine that runs the API, re-run `dotnet sdk check`, and record the result in `docs/07-release.md`. (`devops-engineer`; installing software on the owner's machine is the owner's call)
-3. **SEC-13: start in Production.** Run the published DLL, or `dotnet run --no-launch-profile`, with `ASPNETCORE_ENVIRONMENT=Production`. Do not use the launch profile, which sets Development. (`devops-engineer`)
-4. **SEC-12: no usable sample password.** Replace `Choose-A-Strong1` in `docs/03-architecture.md:475` and `src/InventoryTracker.Api/InventoryTracker.Api.http:21` with a placeholder that fails the policy. The README tells the owner to change the first Manager's password after the first sign-in, and to remove `ADMIN_PASSWORD` from the environment and user-secrets once the first Manager exists. (`technical-writer`)
-5. **SEC-04, #120:** the README says to keep at least two active Manager accounts. (`technical-writer`)
-6. **SEC-07, #121:** the README runbook says: to remove someone's access now, deactivate them, then reactivate them with the new roles if they should continue. (`technical-writer`)
-7. **SEC-13, signing key:** the README insists on a random key per machine (the architecture section 8 command), never a phrase, and never shared between a test and a real instance. (`technical-writer`)
-8. **SEC-16:** the release guide says the SQLite file and its backups hold password hashes and must be protected like the machine itself. (`technical-writer`, `devops-engineer`)
-9. **SEC-02 residual, #126 (optional for localhost-only):** set `Logging:LogLevel:InventoryTracker.Api.Common.Errors.ApiExceptionHandler` to `Warning` in the release configuration, or rotate the log. This becomes required together with item 1's HTTPS before any non-localhost exposure. (`devops-engineer`)
+Each condition below was set at the re-check and is marked as found in the final check.
 
-Everything else (SEC-05, SEC-08 to SEC-11, the rest of SEC-13, SEC-17, SEC-18) belongs on the PRD's Later list. SEC-10 is a requirement for the future front end.
+1. **SEC-03, #119: localhost only.** The run scripts and the release guide bind the API to `http://127.0.0.1:<port>` or `http://localhost:<port>` explicitly, never `0.0.0.0`, `*` or `+`. The release guide states that HTTPS and HSTS (and SEC-05's rate limit) are required before the API is reachable from any other machine. (`devops-engineer`, `technical-writer`)
+   **Met.** `scripts/run.ps1:87` and `:136` bind `127.0.0.1` and `[::1]` only, and `:82-85` refuses Kestrel endpoint variables. Verified live: netstat showed only the two loopback listeners, and the `ASPNETCORE_URLS`, `DOTNET_URLS` and `URLS` redirections were ignored (section 6.7). The requirements are stated in `docs/07-release.md` (top note, section 9), `README.md` "Localhost only", `docs/09-release-notes.md` "Known issues" and `docs/07a-cloud-guide.md` section 1.
+2. **SEC-06: latest .NET 10 runtime.** Install ASP.NET Core runtime 10.0.15 or later (this machine has 10.0.12, re-checked today) on the machine that runs the API, re-run `dotnet sdk check`, and record the result in `docs/07-release.md`. (`devops-engineer`; installing software on the owner's machine is the owner's call)
+   **Met for the released build; the installed runtime is the owner's task, clearly stated.** `scripts/publish.ps1` bundles 10.0.15 and refuses anything older (`:49-51`). Verified in `publish\win-x64`: Kestrel 10.0.15, CoreLib `10.0.15-servicing`. `docs/07-release.md` section 1 records `dotnet sdk check` (10.0.12 installed, not yet updated) as the owner's call. `README.md` (Prerequisites) and `docs/09-release-notes.md` (Known issues, Security notes) say the same. Today's `dotnet sdk check` still shows 10.0.12.
+3. **SEC-13: start in Production.** Run the published DLL, or `dotnet run --no-launch-profile`, with `ASPNETCORE_ENVIRONMENT=Production`. Do not use the launch profile, which sets Development. (`devops-engineer`)
+   **Met.** `scripts/run.ps1:64` and `:136` always pass `--environment Production`; `:151` uses `--no-launch-profile` from source. Verified live: with `ASPNETCORE_ENVIRONMENT=Development` and `DOTNET_ENVIRONMENT=Development` set, the instance logged `Hosting environment: Production`, `/openapi/v1.json` answered `401`, and the scratch `APPDATA` stayed empty, so no user-secrets were read.
+4. **SEC-12: no usable sample password.** Replace the former policy-passing sample in `docs/03-architecture.md` and `src/InventoryTracker.Api/InventoryTracker.Api.http` with a placeholder that fails the policy. The README tells the owner to change the first Manager's password after the first sign-in, and to remove `ADMIN_PASSWORD` from the environment and user-secrets once the first Manager exists. (`technical-writer`)
+   **Met** (the `.http` part is uncommitted). The placeholder `<choose-your-own-strong-password>` is at `docs/03-architecture.md:490` and `InventoryTracker.Api.http:24`. Every walk-through password is read via `$dotenv` (#135). The steps are in `README.md` "First password" and `docs/07-release.md` section 6, steps 6 and 7, and `run.ps1:125-127` warns while `ADMIN_PASSWORD` is set. The remaining literals are judged in SEC-21: none must change before release.
+5. **SEC-04, #120:** the README says to keep at least two active Manager accounts. (`technical-writer`)
+   **Met.** `README.md` "Keep two active Managers" (`:119-123`). Also in `docs/07-release.md` section 6, step 8, `docs/08-user-guide.md` section 2, the cloud guide step 10 and the release notes.
+6. **SEC-07, #121:** the README runbook says: to remove someone's access now, deactivate them, then reactivate them with the new roles if they should continue. (`technical-writer`)
+   **Met.** `README.md` "Runbook: remove someone's access now" (`:125-132`), with examples in `docs/08-user-guide.md` section 13.
+7. **SEC-13, signing key:** the README insists on a random key per machine (the architecture section 8 command), never a phrase, and never shared between a test and a real instance. (`technical-writer`)
+   **Met.** `README.md` "Signing key" (`:134-148`): `new-signing-key.ps1` (cryptographic generator, verified, section 6.7), one key per machine and instance, never a phrase, never shared, never in a tracked file. The same advice is in `docs/07-release.md` section 3, `.env.example:22-24` and the cloud guide section 8.
+8. **SEC-16:** the release guide says the SQLite file and its backups hold password hashes and must be protected like the machine itself. (`technical-writer`, `devops-engineer`)
+   **Met.** `docs/07-release.md` section 7, "Protect it"; `README.md` "Data"; `scripts/backup-database.ps1:9-11` and its closing message. The default location is the user's profile (`common.ps1:93-104`), outside the repository and `publish\`, and `publish.ps1:63-68` refuses to publish over a folder holding database files.
+9. **SEC-02 residual, #126 (optional for localhost-only):** set `Logging:LogLevel:InventoryTracker.Api.Common.Errors.ApiExceptionHandler` to `Warning` in the release configuration, or rotate the log. This becomes required together with item 1's HTTPS before any non-localhost exposure. (`devops-engineer`)
+   **Met.** `src/InventoryTracker.Api/appsettings.Production.json:4` (#130), included in `publish\win-x64` (identical file). Verified live: a 2 MB body gave `413` and no log line.
+
+Everything else belongs on the PRD's Later list: SEC-05, SEC-08 to SEC-11, the rest of SEC-13, SEC-17's remaining points, SEC-18, SEC-19 and SEC-21's design examples. SEC-10 is a requirement for the future front end. SEC-20 must be fixed before the cloud guide is used.

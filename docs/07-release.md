@@ -172,11 +172,11 @@ Later starts: open a PowerShell window and run step 4. Stop with Ctrl+C.
 
 At start-up, `Program.cs` (1) checks the tolerance and the signing key, (2) applies any migrations the database has not seen yet (`MigrateDatabaseAsync`, which uses EF Core's `MigrateAsync`), and (3) creates any missing role, all before it listens. There is no separate database step.
 
-1. Run the tests on the new code (`scripts\test.ps1`).
+1. Run the tests on the new code: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1`
 2. Stop the API (Ctrl+C).
-3. Back up the database (`scripts\backup-database.ps1`, section 7). This backup is your way back: migrations only go forward.
-4. Publish the new version into a **new** folder, so the old one stays as your rollback: `scripts\publish.ps1 -Output publish\win-x64-2026-12-01`.
-5. Start it: `scripts\run.ps1 -Published -PublishFolder publish\win-x64-2026-12-01`. The log shows `Applying migration '...'` for each new migration.
+3. Back up the database (section 7): `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\backup-database.ps1`. This backup is your way back: migrations only go forward.
+4. Publish the new version into a **new** folder, so the old one stays as your rollback: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish.ps1 -Output publish\win-x64-2026-12-01`
+5. Start it: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run.ps1 -Published -PublishFolder publish\win-x64-2026-12-01`. The log shows `Applying migration '...'` for each new migration.
 6. Check `/health` and sign in.
 
 If start-up stops during a migration, nothing else happens: the API does not listen. Restore the backup from step 3, run the old folder (section 8) and report the log to the developers.
@@ -211,7 +211,7 @@ Nothing is deleted. The current database and its side files are moved into `befo
 
 ## 8. Rolling back
 
-- **Code only (no new migrations in the new version):** stop the API and start the previous folder: `scripts\run.ps1 -Published -PublishFolder publish\win-x64-<previous>`. If you no longer have it, check out the previous version with git and run `scripts\publish.ps1` again.
+- **Code only (no new migrations in the new version):** stop the API and start the previous folder: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run.ps1 -Published -PublishFolder publish\win-x64-<previous>`. If you no longer have it, check out the previous version with git and publish it again: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish.ps1`
 - **Code and data (the new version applied migrations):** the old version may not understand the newer schema. Stop the API, restore the backup taken just before the upgrade (section 7), then start the previous folder. Anything recorded since that backup is lost, so note it first and enter it again.
 
 ## 9. Before the API is reachable from any other machine
@@ -235,7 +235,7 @@ Version 1 is cleared for release **on localhost only** (`docs/06-security-review
 | `Not started: remove these environment variables, which could make the API listen on other addresses: ...` (names starting `Kestrel`, `ASPNETCORE_Kestrel` or `DOTNET_Kestrel`) | Remove them; v1 listens on this machine only (section 9). |
 | `Not started: The API is running: InventoryTracker.Api.exe (process id ...)` | A copy of the API is already running, perhaps in another window, even if it has been idle for a long time. Stop it (Ctrl+C in its window; `Stop-Process -Id <id>` only as a last resort). |
 | `Not started: The database ... is open in another program.` | Another program (a database browser, for example) has the file open. Close it. |
-| `Not started: no published API at ...` | Run `scripts\publish.ps1` first, or pass the right `-PublishFolder`. |
+| `Not started: no published API at ...` | Publish first (`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish.ps1`), or pass the right `-PublishFolder`. |
 | `crit: ... Start-up stopped: ADMIN_PASSWORD does not meet the password policy...` | Choose a password with 8+ characters, an upper-case letter, a lower-case letter and a digit. |
 | `crit: ... Start-up stopped: ADMIN_EMAIL is not a valid email address.` | Fix `ADMIN_EMAIL`. |
 | `crit: ... Start-up stopped: ADMIN_EMAIL is not set.` on a start after a failed first start | The failed first start already created the (empty) database file, so `run.ps1` no longer treats it as a first start, but the API still has no user. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` and start again. |
@@ -252,7 +252,7 @@ Version 1 is cleared for release **on localhost only** (`docs/06-security-review
 
 ## 11. Verified from a clean copy
 
-Run on 2026-11-22 on the owner's machine (Windows 11, Windows PowerShell 5.1, .NET SDK 10.0.401, installed runtime 10.0.12) by `devops-engineer`.
+Run on 2026-11-22 on the owner's machine (Windows 11, Windows PowerShell 5.1, .NET SDK 10.0.401, installed runtime 10.0.12) by `devops-engineer`. To keep the tables short, `scripts\x.ps1 ...` below stands for `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\x.ps1 ...`, the form every script was actually run in.
 
 **Clean copy.** The files a fresh clone would hold (every tracked file plus the new phase 7 files; nothing git ignores, so no `bin\`, `obj\`, database, `.env` or `publish\`) were copied into an empty temporary folder. There, with an **empty NuGet package cache** (`NUGET_PACKAGES` pointed at a new folder, so every package and both 10.0.15 runtime packs were downloaded from nuget.org):
 
@@ -297,7 +297,7 @@ Not verified: the CI workflow on GitHub, the cloud guide (nothing was deployed, 
 | 1 | SEC-03, #119: bind to localhost only; state HTTPS, HSTS and the rate limit are required before exposure | Met: `run.ps1` binds `127.0.0.1` and `[::1]` only and refuses Kestrel endpoint variables under every prefix (`Kestrel`, `ASPNETCORE_Kestrel`, `DOTNET_Kestrel`, written with `__` or `:`); sections 9 and the cloud guide state the requirements. |
 | 2 | SEC-06: runtime 10.0.15 or later, `dotnet sdk check` recorded | Partly met: the published folder bundles 10.0.15. The machine's installed runtime is still 10.0.12 (recorded in section 1); installing is the owner's call. |
 | 3 | SEC-13: start in Production, not through the launch profile | Met: `run.ps1` passes `--environment Production` and runs the published exe or `dotnet run --no-launch-profile`. |
-| 4 | SEC-12: no usable sample password | Met in `InventoryTracker.Api.http`, which now holds a placeholder. Still open in `docs/03-architecture.md` (line 475), routed to the delivery manager. First-password steps: section 6, steps 6 and 7. |
+| 4 | SEC-12: no usable sample password | Met. `docs/03-architecture.md` (section 8, about line 490) and `InventoryTracker.Api.http` (header, line 24) hold the placeholder `<choose-your-own-strong-password>`. Every password the `.http` walk-through sends, including the sample Warehouse user's three, is read with `{{$dotenv ...}}` from the git-ignored `src/InventoryTracker.Api/.env` (decision #135); `.env.example` lists the names. No password literal that passes the policy is left in `src/`, `scripts/`, the README or this guide. Remaining literals are in test code against throwaway databases, and in the design, test-plan, bug and security-review documents (reported to the delivery manager). First-password steps: section 6, steps 6 and 7. |
 | 5 | SEC-04, #120: keep at least two active Managers | For the README (`technical-writer`); referenced in section 6, step 8. |
 | 6 | SEC-07, #121: runbook "deactivate to remove access now" | For the README (`technical-writer`). |
 | 7 | SEC-13: random signing key per machine | Met here (`new-signing-key.ps1`, section 3); the README must repeat it. |
