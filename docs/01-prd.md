@@ -54,6 +54,7 @@ Later:
 - A web front end.
 - A rate limit on sign-in. Version 1 keeps only the 15-minute lock-out of AC-01.4 (decision #120).
 - Access from other machines. HTTPS (with HSTS) is required before the API is reachable from anywhere but the owner's machine; version 1 runs on localhost only (decision #119, row 22 in section 6).
+- Continuous delivery (CD) to Azure App Service (decision #137). After CI passes on `main`, a GitHub Actions job publishes the API to Azure; each deploy waits for a manual approval, not fully automatic deployment. It comes only after the cloud prerequisites: the PostgreSQL database (port: `docs/03-architecture.md` section 5.2), HTTPS with HSTS and the sign-in rate limit above, the other changes in `docs/07a-cloud-guide.md` section 1, a re-opened security review, and Azure resources the owner creates and pays for. Deployment credentials are kept in GitHub secrets or OIDC federation, never in the repository.
 
 ## 4. User stories and acceptance criteria
 
