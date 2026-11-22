@@ -24,7 +24,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Waiting on the owner
 
-- SEC-06: install the .NET 10.0.15 runtime (or later) on this machine; it runs 10.0.12. Owner's call.
+- nothing
 
 ## Next step
 
@@ -77,6 +77,7 @@ v1 is complete. Next work comes from the PRD Later list when the owner chooses (
 - 2026-11-22 `technical-writer`: README rewritten, user guide (08) and release notes (09) (#134); .http sample passwords moved to .env (#135). Final security check: release approved for localhost-only v1, all nine conditions met; SEC-19 and SEC-20 fixed and re-checked. Committed locally; waiting on owner approval to push.
 - 2026-11-22 Owner approved the release; design-taste-frontend skill untracked (#136). Pushed to main.
 - 2026-11-22 First CI run on GitHub passed (about 7 min). Owner merged Dependabot PRs #1 (checkout 7.0.1) and #2 (setup-dotnet 6.1.0); both passed CI. v1 complete.
+- 2026-11-22 Owner's first real start done (first password changed, first backup made). Owner installed SDK 10.0.404 with runtime 10.0.15: SEC-06 met on this machine. CD added to the PRD Later list (#137).
 
 ## Follow-ups to route
 
