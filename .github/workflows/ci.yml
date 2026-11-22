@@ -1,0 +1,58 @@
+# Continuous integration: on every push to main and every pull request into main, a fresh GitHub-hosted machine
+# restores, builds with warnings as errors and runs the whole test suite. The same steps as scripts\build.ps1 and
+# scripts\test.ps1, so a green local run predicts a green CI run.
+#
+# No secrets are needed: the tests set their own throwaway JWT_SIGNING_KEY, ADMIN_EMAIL and ADMIN_PASSWORD in code
+# (tests/InventoryTracker.Api.Tests/Infrastructure/TestApiFactory.cs) and use temporary SQLite files.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# The workflow only reads the code; it cannot change the repository.
+permissions:
+  contents: read
+
+# A newer push to the same pull request cancels the run still going for an older one, which saves runner minutes.
+# Pushes to main are never cancelled, so every commit on main gets its own result.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-and-test:
+    # Windows, like the owner's machine, so CI tests what the owner runs. Windows minutes count double against the
+    # free allowance of a private repository (docs/07-release.md, section 4).
+    runs-on: windows-latest
+    # A normal run takes about 6 to 10 minutes; this stops a hung run from using up the allowance.
+    timeout-minutes: 25
+
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v5
+        with:
+          # Do not leave the job's GitHub token in the checked-out repository's git settings; nothing here pushes.
+          persist-credentials: false
+
+      # Installs the SDK that global.json asks for. Its rollForward "latestFeature" makes this the newest 10.0 SDK,
+      # which also brings the newest 10.0 runtime for the tests.
+      - name: Install the .NET SDK from global.json
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore InventoryTracker.slnx
+
+      - name: Build (warnings are errors)
+        run: dotnet build InventoryTracker.slnx --no-restore --configuration Release -warnaserror
+
+      - name: Test
+        run: dotnet test --solution InventoryTracker.slnx --no-build --configuration Release

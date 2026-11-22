@@ -16,9 +16,9 @@
 # dotnet user-secrets (architecture section 8). Never type a real password into this file: it is tracked by git.
 # The sign-in request reads them with {{$dotenv ...}} from a file named .env in this folder
 # (src/InventoryTracker.Api/.env), which .gitignore already excludes. Create it with two lines, the same names as
-# the repository's .env.example, for example with architecture section 8's sample values:
+# the repository's .env.example, holding the values you chose (replace both placeholders):
 #   ADMIN_EMAIL=owner@example.com
-#   ADMIN_PASSWORD=Choose-A-Strong1
+#   ADMIN_PASSWORD=<choose-your-own-strong-password>
 # The app itself never reads .env; the file is only for these sample requests. Both editors support $dotenv.
 # Every other email and password below is a placeholder for users the walk-through creates.
 
