@@ -330,9 +330,10 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
     /// <summary>
     /// AC-07.3 and AC-07.4, with every reference architecture 3.2 counts as "in use": a movement, a recipe line, the item's
-    /// own recipe, an order line, a production order for it, a complementary-order line and a return. For each one:
-    /// name and description still change (<c>200</c>); a type or unit change is <c>409</c> with the PRD message; a delete
-    /// is <c>409</c>; and the item keeps its type and unit.
+    /// own recipe, an order line, a production order for it, a complementary-order line, a return and (v1.1, AC-28.5) a
+    /// sales order line, here on a Cancelled sales order to show "whatever the sales order's status". For each one: name
+    /// and description still change (<c>200</c>); a type or unit change is <c>409</c> with the PRD message; a delete is
+    /// <c>409</c> with the design 7.2 message; and the item keeps its type and unit.
     /// </summary>
     [Theory]
     [InlineData("movement", ItemType.RawMaterial)]
@@ -342,6 +343,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [InlineData("production order", ItemType.FinishedProduct)]
     [InlineData("complementary order line", ItemType.RawMaterial)]
     [InlineData("return", ItemType.RawMaterial)]
+    [InlineData("sales order line", ItemType.FinishedProduct)]
     public async Task Item_in_use_keeps_its_type_and_unit_and_cannot_be_deleted(string reference, ItemType type)
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
@@ -366,10 +368,10 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             new { name = newName, type = type.ToString(), unitId = otherUnit.Id }, Cancel);
         await ApiAssert.ProblemAsync(unitChange, HttpStatusCode.Conflict, "item-in-use", TypeAndUnitLockedMessage);
 
-        // AC-07.4.
+        // AC-07.4, (v1.1) AC-28.5: the design 7.2 message names sales order lines too.
         var delete = await manager.DeleteAsync(path, Cancel);
         await ApiAssert.ProblemAsync(delete, HttpStatusCode.Conflict, "item-in-use",
-            $"{newName} has movements, recipe lines or order lines and cannot be deleted.");
+            $"{newName} has movements, recipe lines, order lines or sales order lines and cannot be deleted.");
 
         var stored = await LoadItemAsync(item.Id);
         Assert.NotNull(stored);
@@ -379,7 +381,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     }
 
     /// <summary>
-    /// AC-07.3, AC-07.4: <c>ItemService.IsInUseAsync</c> checks a hand-written list of seven references. This test reads
+    /// AC-07.3, AC-07.4, (v1.1) AC-28.5: <c>ItemService.IsInUseAsync</c> checks a hand-written list of eight references. This test reads
     /// every foreign key that points at <see cref="Item"/> from the EF Core model and requires exactly that list, so a
     /// foreign key added later fails here until the service (and the theory above) check it too. Otherwise the new
     /// reference would let type and unit change under it, and a delete would hit the Restrict foreign key and answer
@@ -399,7 +401,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             .Order(StringComparer.Ordinal)
             .ToList();
 
-        // Exactly the seven references ItemService.IsInUseAsync checks, sorted here by name.
+        // Exactly the eight references ItemService.IsInUseAsync checks, sorted here by name.
         Assert.Equal(
             [
                 "ComplementaryOrderLine.RawMaterialId",
@@ -409,6 +411,7 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
                 "ProductionOrderLine.RawMaterialId",
                 "Recipe.FinishedProductId",
                 "RecipeLine.RawMaterialId",
+                "SalesOrderLine.ItemId",
             ],
             references);
     }
@@ -678,6 +681,30 @@ public class ItemsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
                     RequestedAt = now,
                     RequestedById = user.Id,
                     Lines = [new ComplementaryOrderLine { LineNo = 1, RawMaterialId = itemId, RequestedAmount = 20m }],
+                });
+                break;
+            }
+
+            case "sales order line":
+            {
+                // (v1.1) AC-28.5: a line on a Cancelled sales order still counts, so no status makes the item free again.
+                // Inserted through the DbContext because the sales order endpoints come in later tasks (T-024, T-025).
+                var customerName = Seed.UniqueName("Customer");
+                db.SalesOrders.Add(new SalesOrder
+                {
+                    Customer = new Customer
+                    {
+                        Name = customerName, NameNormalized = NameNormalizer.Normalize(customerName), CreatedAt = now,
+                        CreatedById = user.Id,
+                    },
+                    Status = SalesOrderStatus.Cancelled,
+                    CreatedAt = now,
+                    CreatedById = user.Id,
+                    CancelledAt = now,
+                    CancelledById = user.Id,
+                    CancellationReason = "Customer changed the order",
+                    StatusChangedAt = now,
+                    Lines = [new SalesOrderLine { LineNo = 1, ItemId = itemId, Quantity = 600m }],
                 });
                 break;
             }

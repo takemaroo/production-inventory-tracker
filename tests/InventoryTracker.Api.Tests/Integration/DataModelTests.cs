@@ -15,7 +15,8 @@ using Microsoft.Extensions.Logging;
 namespace InventoryTracker.Api.Tests.Integration;
 
 /// <summary>
-/// T-002: the database schema, the domain migration and the write transaction (architecture 3 and 5.2).
+/// T-002: the database schema, the domain migration and the write transaction (architecture 3 and 5.2). (v1.1) T-022:
+/// the sales order tables, the <c>SalesOrders</c> migration and their database rules.
 /// </summary>
 /// <remarks>
 /// These tests talk to the database directly through <see cref="AppDbContext"/>, not over HTTP, because no
@@ -33,6 +34,7 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     /// <summary>
     /// T-002, T-011: on an empty database, start-up applies InitialIdentity, the single DomainModel migration, and then
     /// T-011's NotificationMessageUnbounded (decision #63) and PercentagePrecision (decision #82), in that order.
+    /// (v1.1) T-022, decision #154: and last the one v1.1 migration, SalesOrders, which creates the three sales tables.
     /// </summary>
     [Fact]
     public async Task Startup_on_an_empty_database_applies_the_domain_migration()
@@ -41,11 +43,12 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         var db = Db(scope);
 
         var applied = db.Database.GetAppliedMigrations().ToList();
-        Assert.Equal(4, applied.Count);
+        Assert.Equal(5, applied.Count);
         Assert.EndsWith("_InitialIdentity", applied[0]);
         Assert.EndsWith("_DomainModel", applied[1]);
         Assert.EndsWith("_NotificationMessageUnbounded", applied[2]);
         Assert.EndsWith("_PercentagePrecision", applied[3]);
+        Assert.EndsWith("_SalesOrders", applied[4]);
         Assert.Empty(await db.Database.GetPendingMigrationsAsync(Cancel));
 
         var tables = await db.Database
@@ -55,6 +58,7 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         [
             "Units", "Items", "Recipes", "RecipeLines", "Movements", "ProductionOrders", "ProductionOrderLines",
             "ComplementaryOrders", "ComplementaryOrderLines", "Returns", "Notifications", "NotificationReads",
+            "Customers", "SalesOrders", "SalesOrderLines",
         ];
         Assert.All(domainTables, table => Assert.Contains(table, tables));
     }
@@ -161,7 +165,8 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     /// T-011, decisions #63 and #82: both the model the app runs with and the migration snapshot (the model as of the
     /// last migration, which a PostgreSQL port would build its schema from) give the three stored percentages
     /// precision (28, 6), keep amounts per unit at (18, 6), and give Notification.Message no maximum length. And the
-    /// migrations are complete: the model has no change that no migration records.
+    /// migrations are complete: the model has no change that no migration records ((v1.1) T-022: including the sales
+    /// tables, so the hand edit of the SalesOrders migration left the snapshot exactly as generated).
     /// </summary>
     [Fact]
     public async Task Model_and_snapshot_have_wide_percentages_and_unbounded_messages()
@@ -216,7 +221,10 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         Assert.DoesNotContain(logs.Entries, entry => entry.Message.Contains("IEntityTypeConfiguration"));
     }
 
-    /// <summary>Architecture 2 and T-002: every domain entity has its own IEntityTypeConfiguration class.</summary>
+    /// <summary>
+    /// Architecture 2, T-002 and (v1.1) T-022: every domain entity has its own IEntityTypeConfiguration class. Twelve
+    /// from version 1, plus Customer, SalesOrder and SalesOrderLine.
+    /// </summary>
     [Fact]
     public void Every_domain_entity_has_its_own_configuration_class()
     {
@@ -227,13 +235,16 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
             .Select(i => i.GetGenericArguments()[0])
             .ToHashSet();
 
-        Assert.Equal(12, DomainEntityTypes().Count);
+        Assert.Equal(15, DomainEntityTypes().Count);
         Assert.All(DomainEntityTypes(), entity => Assert.Contains(entity.ClrType, configuredTypes));
     }
 
     // ---- Enums, decimals, foreign keys --------------------------------------------------------------------
 
-    /// <summary>T-002: enum names match design 2.3 exactly (these are the strings stored in the tables).</summary>
+    /// <summary>
+    /// T-002: enum names match design 2.3 exactly (these are the strings stored in the tables). (v1.1) T-022:
+    /// SalesOrderStatus is Created, Shipped, Cancelled; MovementType is unchanged here (T-026 adds ShippedToCustomer).
+    /// </summary>
     [Fact]
     public void Enum_names_match_design_section_2_3()
     {
@@ -247,6 +258,7 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
             new[] { "PendingApproval", "Approved", "Rejected", "Sent", "Cancelled" },
             Enum.GetNames<ComplementaryOrderStatus>());
         Assert.Equal(new[] { "Pending", "Received", "Cancelled" }, Enum.GetNames<ReturnStatus>());
+        Assert.Equal(new[] { "Created", "Shipped", "Cancelled" }, Enum.GetNames<SalesOrderStatus>());
         Assert.Equal(
             new[] { "UsageVariance", "OutputVariance", "LeftoverAtCompletion", "ComplementaryAwaitingApproval", "OrderCancelledWithMaterial" },
             Enum.GetNames<NotificationType>());
@@ -263,7 +275,8 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
             .SelectMany(entity => entity.GetProperties())
             .Where(property => (Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType).IsEnum)
             .ToList();
-        Assert.Equal(6, enumProperties.Count); // Item, Movement, ProductionOrder, ComplementaryOrder, Return, Notification
+        // Item, Movement, ProductionOrder, ComplementaryOrder, Return, Notification and (v1.1) SalesOrder.
+        Assert.Equal(7, enumProperties.Count);
         Assert.All(enumProperties, property =>
         {
             // The type mapping is how EF Core will actually read and write the column.
@@ -284,6 +297,13 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
             .SingleAsync(Cancel);
         Assert.Equal("FinishedProduct", storedType);
         Assert.Equal("Completed", storedStatus);
+
+        // (v1.1) The new enum column too.
+        var salesOrder = await AddSalesOrderAsync(db, await AddCustomerAsync(db, user), user, SalesOrderStatus.Shipped, product.Id);
+        var storedSalesStatus = await db.Database
+            .SqlQuery<string>($"SELECT \"Status\" AS Value FROM \"SalesOrders\" WHERE \"Number\" = {salesOrder.Number}")
+            .SingleAsync(Cancel);
+        Assert.Equal("Shipped", storedSalesStatus);
     }
 
     /// <summary>
@@ -460,6 +480,190 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
 
         var error = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(Cancel));
         Assert.Contains("UNIQUE constraint failed: Items.NameNormalized", error.InnerException?.Message);
+    }
+
+    // ---- (v1.1) Sales order tables: the database backstops -------------------------------------------------
+
+    /// <summary>T-022, AC-29.2: two customers whose names differ only in case cannot both be saved (unique NameNormalized).</summary>
+    [Fact]
+    public async Task Customer_names_differing_only_in_case_cannot_both_be_saved()
+    {
+        await using var scope = CreateScope();
+        var db = Db(scope);
+        var user = await AddUserAsync(db);
+        var first = await AddCustomerAsync(db, user);
+
+        db.Customers.Add(NewCustomer($" {first.Name.ToUpperInvariant()} ", user));
+
+        var error = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(Cancel));
+        Assert.Contains("UNIQUE constraint failed: Customers.NameNormalized", error.InnerException?.Message);
+    }
+
+    /// <summary>
+    /// T-022, AC-24.3, decision #162: a second line for the same item on one sales order is refused by the database,
+    /// while the same item on another sales order is fine.
+    /// </summary>
+    [Fact]
+    public async Task Second_line_for_the_same_item_on_a_sales_order_is_refused()
+    {
+        await using var scope = CreateScope();
+        var db = Db(scope);
+        var user = await AddUserAsync(db);
+        var customer = await AddCustomerAsync(db, user);
+        var item = await AddItemAsync(db, ItemType.FinishedProduct);
+
+        // The same item on two different sales orders is allowed.
+        await AddSalesOrderAsync(db, customer, user, SalesOrderStatus.Created, item.Id);
+        await AddSalesOrderAsync(db, customer, user, SalesOrderStatus.Created, item.Id);
+
+        var error = await Assert.ThrowsAsync<DbUpdateException>(
+            () => AddSalesOrderAsync(db, customer, user, SalesOrderStatus.Created, item.Id, item.Id));
+        Assert.Contains("UNIQUE constraint failed: SalesOrderLines.SalesOrderNumber, SalesOrderLines.ItemId", error.InnerException?.Message);
+    }
+
+    /// <summary>
+    /// T-022, AC-29.5 and AC-29.8 backstop: deleting a customer that a sales order names is refused by the database
+    /// (Restrict), even when the sales order is Cancelled; the customer is still there afterwards.
+    /// </summary>
+    [Fact]
+    public async Task Database_refuses_to_delete_a_customer_that_a_sales_order_names()
+    {
+        int customerId;
+        await using (var writeScope = CreateScope())
+        {
+            var db = Db(writeScope);
+            var user = await AddUserAsync(db);
+            var customer = await AddCustomerAsync(db, user);
+            await AddSalesOrderAsync(db, customer, user, SalesOrderStatus.Cancelled, (await AddItemAsync(db, ItemType.RawMaterial)).Id);
+            customerId = customer.Id;
+        }
+
+        // A new DbContext that has loaded only the customer, so the delete reaches the database and its foreign key
+        // decides (with the sales order loaded too, EF Core would refuse it in memory first).
+        await using (var scope = CreateScope())
+        {
+            var db = Db(scope);
+            db.Customers.Remove(await db.Customers.SingleAsync(c => c.Id == customerId, Cancel));
+
+            var error = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(Cancel));
+            Assert.Contains("FOREIGN KEY constraint failed", error.InnerException?.Message);
+        }
+
+        await using var readScope = CreateScope();
+        Assert.True(await Db(readScope).Customers.AnyAsync(c => c.Id == customerId, Cancel));
+    }
+
+    /// <summary>
+    /// T-022, AC-28.1, decision #157: a movement naming a sales order number that does not exist is refused by the
+    /// foreign key, and nothing is saved.
+    /// </summary>
+    [Fact]
+    public async Task Movement_naming_an_unknown_sales_order_is_refused()
+    {
+        await using var scope = CreateScope();
+        var db = Db(scope);
+        var user = await AddUserAsync(db);
+        var item = await AddItemAsync(db, ItemType.FinishedProduct);
+
+        db.Movements.Add(NewSalesOrderMovement(item.Id, user.Id, salesOrderNumber: 999_999));
+
+        var error = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(Cancel));
+        Assert.Contains("FOREIGN KEY constraint failed", error.InnerException?.Message);
+
+        await using var readScope = CreateScope();
+        Assert.False(await Db(readScope).Movements.AnyAsync(m => m.ItemId == item.Id, Cancel));
+    }
+
+    /// <summary>
+    /// T-022, AC-26.10 backstop, decision #157: two movements with the same SalesOrderNumber and ItemId are refused by
+    /// <c>IX_Movements_OneShipmentPerLine</c>. The index is filtered, so two movements of the same item with a null
+    /// SalesOrderNumber are fine, and so is a movement for another item on the same sales order (another line).
+    /// </summary>
+    [Fact]
+    public async Task Second_movement_for_the_same_sales_order_and_item_is_refused()
+    {
+        await using var scope = CreateScope();
+        var db = Db(scope);
+        var user = await AddUserAsync(db);
+        var cheese = await AddItemAsync(db, ItemType.RawMaterial);
+        var bread = await AddItemAsync(db, ItemType.FinishedProduct);
+        var salesOrder = await AddSalesOrderAsync(
+            db, await AddCustomerAsync(db, user), user, SalesOrderStatus.Shipped, cheese.Id, bread.Id);
+
+        // Outside the index: any number of movements without a sales order number.
+        db.Movements.Add(NewSalesOrderMovement(cheese.Id, user.Id, salesOrderNumber: null));
+        db.Movements.Add(NewSalesOrderMovement(cheese.Id, user.Id, salesOrderNumber: null));
+        await db.SaveChangesAsync(Cancel);
+
+        // One movement per line of the sales order is fine.
+        db.Movements.Add(NewSalesOrderMovement(cheese.Id, user.Id, salesOrder.Number));
+        db.Movements.Add(NewSalesOrderMovement(bread.Id, user.Id, salesOrder.Number));
+        await db.SaveChangesAsync(Cancel);
+
+        db.Movements.Add(NewSalesOrderMovement(cheese.Id, user.Id, salesOrder.Number));
+        var error = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(Cancel));
+        Assert.Contains("UNIQUE constraint failed: Movements.SalesOrderNumber, Movements.ItemId", error.InnerException?.Message);
+
+        await using var readScope = CreateScope();
+        Assert.Equal(3, await Db(readScope).Movements.CountAsync(m => m.ItemId == cheese.Id, Cancel));
+    }
+
+    /// <summary>
+    /// T-022, D-10: sales orders have their own number sequence, so the first sales order is number 1 even when
+    /// production orders exist, and the next one is 2. Uses a database of its own, so "first" really is the first.
+    /// </summary>
+    [Fact]
+    public async Task First_sales_order_is_number_1_even_when_production_orders_exist()
+    {
+        await using var freshFactory = new TestApiFactory();
+        freshFactory.CreateClient(); // starts the app, which creates and migrates the database
+        await using var scope = freshFactory.Services.CreateAsyncScope();
+        var db = Db(scope);
+        var user = await AddUserAsync(db);
+        var product = await AddItemAsync(db, ItemType.FinishedProduct);
+
+        var productionOrders = new List<int>();
+        for (var i = 0; i < 3; i++)
+        {
+            productionOrders.Add((await AddOrderAsync(db, product, user, OrderStatus.Completed)).Number);
+        }
+
+        var customer = await AddCustomerAsync(db, user);
+        var first = await AddSalesOrderAsync(db, customer, user, SalesOrderStatus.Created, product.Id);
+        var second = await AddSalesOrderAsync(db, customer, user, SalesOrderStatus.Created, product.Id);
+
+        Assert.Equal([1, 2, 3], productionOrders);
+        Assert.Equal(1, first.Number);
+        Assert.Equal(2, second.Number);
+    }
+
+    /// <summary>
+    /// T-022, AC-29.5, decision #162: after a customer is deleted, the next customer does not get its id. The deleted one
+    /// is the newest (highest id), which is exactly the case where SQLite without AUTOINCREMENT would hand the same id out
+    /// again (it would take the largest id in the table plus one). With AUTOINCREMENT, the deleted id stays unused.
+    /// </summary>
+    [Fact]
+    public async Task Deleted_customer_id_is_never_reused()
+    {
+        int deletedId;
+        await using (var scope = CreateScope())
+        {
+            var db = Db(scope);
+            var user = await AddUserAsync(db);
+            await AddCustomerAsync(db, user);
+            var newest = await AddCustomerAsync(db, user);
+            deletedId = newest.Id;
+
+            db.Customers.Remove(newest);
+            await db.SaveChangesAsync(Cancel);
+            Assert.Equal(deletedId - 1, await db.Customers.MaxAsync(c => c.Id, Cancel)); // the deleted id is now above every row
+
+            var next = await AddCustomerAsync(db, user);
+            Assert.True(next.Id > deletedId, $"The next customer got id {next.Id}; the deleted one had {deletedId}.");
+        }
+
+        await using var readScope = CreateScope();
+        Assert.False(await Db(readScope).Customers.AnyAsync(c => c.Id == deletedId, Cancel));
     }
 
     /// <summary>Architecture 3.1: the normalized name is trimmed and upper-cased with the invariant culture.</summary>
@@ -781,4 +985,67 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         await db.SaveChangesAsync(Cancel);
         return order;
     }
+
+    private static Customer NewCustomer(string name, AppUser user) => new()
+    {
+        Name = name.Trim(),
+        NameNormalized = NameNormalizer.Normalize(name),
+        CreatedAt = SampleTime,
+        CreatedById = user.Id,
+    };
+
+    private static async Task<Customer> AddCustomerAsync(AppDbContext db, AppUser user)
+    {
+        var customer = NewCustomer(Seed.UniqueName("Customer"), user);
+        db.Customers.Add(customer);
+        await db.SaveChangesAsync(Cancel);
+        return customer;
+    }
+
+    /// <summary>
+    /// Saves a sales order in <paramref name="status"/> with one line of 600 per item in <paramref name="itemIds"/>, in
+    /// that order. The who-and-when pair of a Shipped or Cancelled status is filled in too (AC-05.3).
+    /// </summary>
+    private static async Task<SalesOrder> AddSalesOrderAsync(
+        AppDbContext db, Customer customer, AppUser user, SalesOrderStatus status, params int[] itemIds)
+    {
+        var salesOrder = new SalesOrder
+        {
+            CustomerId = customer.Id,
+            Status = status,
+            CreatedAt = SampleTime,
+            CreatedById = user.Id,
+            StatusChangedAt = SampleTime,
+            Lines = itemIds.Select((itemId, index) => new SalesOrderLine { LineNo = index + 1, ItemId = itemId, Quantity = 600m }).ToList(),
+        };
+        if (status == SalesOrderStatus.Shipped)
+        {
+            (salesOrder.ShippedAt, salesOrder.ShippedById) = (SampleTime, user.Id);
+        }
+        else if (status == SalesOrderStatus.Cancelled)
+        {
+            (salesOrder.CancelledAt, salesOrder.CancelledById, salesOrder.CancellationReason) = (SampleTime, user.Id, "Customer changed the order");
+        }
+
+        db.SalesOrders.Add(salesOrder);
+        await db.SaveChangesAsync(Cancel);
+        return salesOrder;
+    }
+
+    /// <summary>
+    /// A Warehouse decrease of 1 that names <paramref name="salesOrderNumber"/>, for the database rules on the new column.
+    /// Its type is Adjustment only because <c>ShippedToCustomer</c> arrives in T-026: the foreign key and the filtered
+    /// index look at the sales order number and the item, never at the type. Added straight through the DbContext,
+    /// not through <c>StockLedger</c>, to reach the database's own checks (tests only, decision #112).
+    /// </summary>
+    private static Movement NewSalesOrderMovement(int itemId, string userId, int? salesOrderNumber) => new()
+    {
+        Type = MovementType.Adjustment,
+        ItemId = itemId,
+        WarehouseChange = -1m,
+        OccurredAt = SampleTime,
+        UserId = userId,
+        Reason = "Database rule test",
+        SalesOrderNumber = salesOrderNumber,
+    };
 }

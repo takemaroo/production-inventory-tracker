@@ -29,7 +29,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.1 part) |
 | 2 | Design | done | `docs/02-design.md` |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` |
-| 4 | Build | in progress | code (tasks done: 0 of 11, T-022 to T-032) |
+| 4 | Build | in progress | code (tasks done: 1 of 11, T-022 to T-032) |
 | 5 | QA | not started | `docs/05-test-plan.md` |
 | 6 | Security | not started | `docs/06-security-review.md` |
 | 7 | Release | not started | `docs/09-release-notes.md`, README |
@@ -96,6 +96,7 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - 2026-11-23 `ux-designer` finished the v1.1 design (62 endpoints, role-based reads, flows, messages; #152-#153). Started v1.1 phase 3 with `tech-lead`.
 - 2026-11-24 `tech-lead` finished v1.1 architecture and tasks T-022 to T-032 (#154-#164), checked against a prototype (migration on a 100,000-movement v1 database in 180 ms, one transaction; reports 1-90 ms at PRD volume). Existing suite 1,721/1,721. Waiting on owner approval.
 - 2026-11-24 Owner approved v1.1 phase 3. Started T-022.
+- 2026-11-24 T-022 approved by `code-reviewer` (hand-edited one-transaction migration verified; comment fixes), committed and pushed. Architecture 3.1 corrected (rolled-back inserts reuse a number on SQLite). Started T-023.
 
 ## Follow-ups to route
 
@@ -113,4 +114,5 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - Optional comment nits (later, from the comment-tidy review): CheckLineCount remarks also cite #123; RequestTimeoutMessage and UnreadableBodyMessage cite #124; RequestBodyLimitTests comment says TestOutputHelper (not TestContext.Current) is null outside a test; TooManyRolesMessage points to design 7.2.
 - Optional script nits (later): Test-FileInUse description says the lock check fails "exactly when the API is running" (not true when idle); 07-release section 10 row could mention a running build of the API project matching the process check.
 - backend-developer (Later, SEC-22): move the signing-key rule into the API's start-up checks (StartupChecks.CheckSettings): characters A-Z a-z 0-9 + / = - _, at least 43 characters, at least 10 different; keep run.ps1's check in step; tests for the banner, a repeated letter and a generated key.
+- technical-writer / T-032 (v1.1): docs/08-user-guide.md:158 and InventoryTracker.Api.http:154 still use the v1 item-in-use wording; the message now includes "sales order lines".
 - Test tidy (later, not v1): third copy of the 100,000-movement volume seed in Acceptance/PerformanceAcceptanceTests; private AdjustAsync in StockZeroForms/NotificationEvents acceptance tests duplicates ScenarioApi.AdjustAsync; fold into OrderFlow/Seed (BUG-001 review).

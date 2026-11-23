@@ -80,4 +80,15 @@ public class Movement
 
     /// <summary>The reason for an adjustment or write-off, up to 500 characters (Adjustment only, US-12).</summary>
     public string? Reason { get; init; }
+
+    /// <summary>
+    /// (v1.1) AC-28.1: the sales order a shipment belongs to. Required on a shipment and allowed on no other movement
+    /// (decision #157; the ledger enforces that from T-026). A <c>Restrict</c> foreign key, so it can only name a sales
+    /// order that exists. A unique index on (sales order, item) lets the database refuse a second shipment movement for
+    /// the same line (AC-26.10).
+    /// </summary>
+    public int? SalesOrderNumber { get; init; }
+
+    /// <summary>The sales order, when loaded.</summary>
+    public SalesOrder? SalesOrder { get; init; }
 }

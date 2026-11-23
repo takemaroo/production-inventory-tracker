@@ -197,6 +197,48 @@ namespace InventoryTracker.Api.Data.Migrations
                     b.ToTable("ComplementaryOrderLines", (string)null);
                 });
 
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Customer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedById")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NameNormalized")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("NameNormalized")
+                        .IsUnique();
+
+                    b.ToTable("Customers", (string)null);
+                });
+
             modelBuilder.Entity("InventoryTracker.Api.Domain.Item", b =>
                 {
                     b.Property<int>("Id")
@@ -336,6 +378,9 @@ namespace InventoryTracker.Api.Data.Migrations
                     b.Property<int?>("ReturnNumber")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("SalesOrderNumber")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -364,6 +409,10 @@ namespace InventoryTracker.Api.Data.Migrations
                     b.HasIndex("Type");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex(new[] { "SalesOrderNumber", "ItemId" }, "IX_Movements_OneShipmentPerLine")
+                        .IsUnique()
+                        .HasFilter("\"SalesOrderNumber\" IS NOT NULL");
 
                     b.ToTable("Movements", (string)null);
                 });
@@ -642,6 +691,100 @@ namespace InventoryTracker.Api.Data.Migrations
                     b.ToTable("RecipeLines", (string)null);
                 });
 
+            modelBuilder.Entity("InventoryTracker.Api.Domain.SalesOrder", b =>
+                {
+                    b.Property<int>("Number")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CancelledById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedById")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CustomerReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ShipmentNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ShippedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ShippedById")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StatusChangedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Number");
+
+                    b.HasIndex("CancelledById");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("ShippedById");
+
+                    b.HasIndex("Status", "ShippedAt");
+
+                    b.ToTable("SalesOrders", (string)null);
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.SalesOrderLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ItemId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LineNo")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SalesOrderNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("SalesOrderNumber", "ItemId")
+                        .IsUnique();
+
+                    b.ToTable("SalesOrderLines", (string)null);
+                });
+
             modelBuilder.Entity("InventoryTracker.Api.Domain.UnitOfMeasure", b =>
                 {
                     b.Property<int>("Id")
@@ -860,6 +1003,17 @@ namespace InventoryTracker.Api.Data.Migrations
                     b.Navigation("RawMaterial");
                 });
 
+            modelBuilder.Entity("InventoryTracker.Api.Domain.Customer", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedBy");
+                });
+
             modelBuilder.Entity("InventoryTracker.Api.Domain.Item", b =>
                 {
                     b.HasOne("InventoryTracker.Api.Domain.UnitOfMeasure", "Unit")
@@ -934,6 +1088,11 @@ namespace InventoryTracker.Api.Data.Migrations
                         .HasForeignKey("ReturnNumber")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("InventoryTracker.Api.Domain.SalesOrder", "SalesOrder")
+                        .WithMany()
+                        .HasForeignKey("SalesOrderNumber")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("InventoryTracker.Api.Auth.AppUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -947,6 +1106,8 @@ namespace InventoryTracker.Api.Data.Migrations
                     b.Navigation("ProductionOrder");
 
                     b.Navigation("Return");
+
+                    b.Navigation("SalesOrder");
 
                     b.Navigation("User");
                 });
@@ -1085,6 +1246,58 @@ namespace InventoryTracker.Api.Data.Migrations
                     b.Navigation("Recipe");
                 });
 
+            modelBuilder.Entity("InventoryTracker.Api.Domain.SalesOrder", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "CancelledBy")
+                        .WithMany()
+                        .HasForeignKey("CancelledById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Domain.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Auth.AppUser", "ShippedBy")
+                        .WithMany()
+                        .HasForeignKey("ShippedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CancelledBy");
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("ShippedBy");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.SalesOrderLine", b =>
+                {
+                    b.HasOne("InventoryTracker.Api.Domain.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InventoryTracker.Api.Domain.SalesOrder", "SalesOrder")
+                        .WithMany("Lines")
+                        .HasForeignKey("SalesOrderNumber")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Item");
+
+                    b.Navigation("SalesOrder");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -1152,6 +1365,11 @@ namespace InventoryTracker.Api.Data.Migrations
                 });
 
             modelBuilder.Entity("InventoryTracker.Api.Domain.Recipe", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("InventoryTracker.Api.Domain.SalesOrder", b =>
                 {
                     b.Navigation("Lines");
                 });

@@ -67,6 +67,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     /// <summary>Which Manager has read which notification.</summary>
     public DbSet<NotificationRead> NotificationReads => Set<NotificationRead>();
 
+    /// <summary>(v1.1) Customers that sales orders are for (US-29).</summary>
+    public DbSet<Customer> Customers => Set<Customer>();
+
+    /// <summary>(v1.1) Sales orders (US-24). Never deleted (PRD section 5).</summary>
+    public DbSet<SalesOrder> SalesOrders => Set<SalesOrder>();
+
+    /// <summary>(v1.1) Sales order lines. An item on any of them is in use (AC-28.5).</summary>
+    public DbSet<SalesOrderLine> SalesOrderLines => Set<SalesOrderLine>();
+
     /// <summary>Builds the database model: Identity's tables first, then every configuration class in this assembly.</summary>
     protected override void OnModelCreating(ModelBuilder builder)
     {

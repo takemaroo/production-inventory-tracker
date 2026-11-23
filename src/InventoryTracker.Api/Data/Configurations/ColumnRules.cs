@@ -14,7 +14,16 @@ public static class ColumnRules
     /// <summary>Item names: 1 to 100 characters (design 2.6).</summary>
     public const int ItemNameLength = 100;
 
-    /// <summary>Reasons, notes and item descriptions: up to 500 characters (PRD, design 2.6).</summary>
+    /// <summary>(v1.1) Customer names: 1 to 100 characters (AC-29.2, architecture 3.1).</summary>
+    public const int CustomerNameLength = 100;
+
+    /// <summary>(v1.1) A sales order's customer reference, such as the customer's purchase order number: up to 100 characters (AC-24.1).</summary>
+    public const int CustomerReferenceLength = 100;
+
+    /// <summary>
+    /// Reasons, notes and item descriptions: up to 500 characters (PRD, design 2.6). (v1.1) Also customer notes, the
+    /// shipment note and a sales order's cancellation reason.
+    /// </summary>
     public const int TextLength = 500;
 
     /// <summary>Automatic cancellation notes such as "Parent order completed".</summary>

@@ -148,10 +148,11 @@ public sealed class ItemService(AppDbContext db, Clock clock)
             var item = await db.Items.FindAsync([id], cancellationToken) ?? throw NotFound(id);
 
             // AC-07.4. Checked and deleted in one write transaction, so nothing can start using the item in between.
+            // (v1.1) AC-28.5, design 7.2: the message names sales order lines too, the fourth kind of use a user can see.
             if (await IsInUseAsync(id, cancellationToken))
             {
                 throw new ConflictException(ItemInUseCode,
-                    $"{item.Name} has movements, recipe lines or order lines and cannot be deleted.");
+                    $"{item.Name} has movements, recipe lines, order lines or sales order lines and cannot be deleted.");
             }
 
             db.Items.Remove(item);
@@ -160,13 +161,15 @@ public sealed class ItemService(AppDbContext db, Clock clock)
     /// <summary>
     /// AC-07.3, AC-07.4: true when anything refers to the item. Architecture 3.2 (Item) lists every reference: a
     /// movement, a recipe line naming it as a raw material, its own recipe as a finished product, a production order
-    /// line, a production order for it as the finished product, a complementary-order line, or a return.
+    /// line, a production order for it as the finished product, a complementary-order line, a return, or (v1.1) a sales
+    /// order line in any status (AC-28.5).
     /// </summary>
     /// <remarks>
-    /// The PRD's short form is "movements, recipe lines or order lines"; the other references count too, because each
-    /// one would be left pointing at a different kind of item (or, for a delete, at nothing). Each check is a quick
-    /// <c>EXISTS</c> query, and the first one that finds a row ends the search. A new foreign key to <c>Items</c> must be
-    /// added here too; <c>ItemsTests.Item_in_use_check_covers_every_foreign_key_to_items</c> fails until it is.
+    /// The PRD's short form (AC-07.4) is "movements, recipe lines, order lines or sales order lines"; the other references
+    /// count too, because each one would be left pointing at a different kind of item (or, for a delete, at nothing).
+    /// Each check is a quick <c>EXISTS</c> query, and the first one that finds a row ends the search. A new foreign key
+    /// to <c>Items</c> must be added here too; <c>ItemsTests.Item_in_use_check_covers_every_foreign_key_to_items</c>
+    /// fails until it is.
     /// </remarks>
     private async Task<bool> IsInUseAsync(int itemId, CancellationToken cancellationToken) =>
         await db.Movements.AnyAsync(movement => movement.ItemId == itemId, cancellationToken)
@@ -175,7 +178,10 @@ public sealed class ItemService(AppDbContext db, Clock clock)
         || await db.ProductionOrderLines.AnyAsync(line => line.RawMaterialId == itemId, cancellationToken)
         || await db.ProductionOrders.AnyAsync(order => order.FinishedProductId == itemId, cancellationToken)
         || await db.ComplementaryOrderLines.AnyAsync(line => line.RawMaterialId == itemId, cancellationToken)
-        || await db.Returns.AnyAsync(leftoverReturn => leftoverReturn.ItemId == itemId, cancellationToken);
+        || await db.Returns.AnyAsync(leftoverReturn => leftoverReturn.ItemId == itemId, cancellationToken)
+        // AC-28.5: whatever the sales order's status, so no status filter. A Cancelled sales order still shows the item
+        // with its unit, so the unit must not change under it. Uses the SalesOrderLines.ItemId index.
+        || await db.SalesOrderLines.AnyAsync(line => line.ItemId == itemId, cancellationToken);
 
     /// <summary>
     /// Design 2.2 step 4 for an item body: checks every field and reports all problems in one <c>400</c>

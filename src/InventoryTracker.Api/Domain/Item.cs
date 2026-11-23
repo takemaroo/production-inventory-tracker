@@ -5,8 +5,8 @@ namespace InventoryTracker.Api.Domain;
 /// </summary>
 /// <remarks>
 /// An item can be deleted only while it is not "in use" (AC-07.3, AC-07.4): no movement, recipe line, order line,
-/// production order, complementary-order line or return refers to it. The foreign keys from those tables use
-/// <c>Restrict</c>, so the database also refuses to delete an item that is still referenced.
+/// production order, complementary-order line, return or (v1.1) sales order line refers to it (AC-28.5). The foreign
+/// keys from those tables use <c>Restrict</c>, so the database also refuses to delete an item that is still referenced.
 /// </remarks>
 public class Item
 {

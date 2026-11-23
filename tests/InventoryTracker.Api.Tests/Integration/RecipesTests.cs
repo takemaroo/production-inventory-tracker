@@ -605,9 +605,9 @@ public class RecipesTests(TestApiFactory factory) : IClassFixture<TestApiFactory
         await ApiAssert.ProblemAsync(materialUnitChange, HttpStatusCode.Conflict, "item-in-use", locked);
         await ApiAssert.ProblemAsync(productUnitChange, HttpStatusCode.Conflict, "item-in-use", locked);
         await ApiAssert.ProblemAsync(materialDelete, HttpStatusCode.Conflict, "item-in-use",
-            $"{cheese.Name} has movements, recipe lines or order lines and cannot be deleted.");
+            $"{cheese.Name} has movements, recipe lines, order lines or sales order lines and cannot be deleted.");
         await ApiAssert.ProblemAsync(productDelete, HttpStatusCode.Conflict, "item-in-use",
-            $"{product.Name} has movements, recipe lines or order lines and cannot be deleted.");
+            $"{product.Name} has movements, recipe lines, order lines or sales order lines and cannot be deleted.");
     }
 
     // ---- AC-01.5 and AC-05.1: access -------------------------------------------------------------------------
