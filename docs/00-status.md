@@ -28,8 +28,8 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 |---|-------|--------|--------|
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.1 part) |
 | 2 | Design | done | `docs/02-design.md` |
-| 3 | Architecture | in progress | `docs/03-architecture.md`, `docs/04-tasks.md` |
-| 4 | Build | not started | code |
+| 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` |
+| 4 | Build | in progress | code (tasks done: 0 of 11, T-022 to T-032) |
 | 5 | QA | not started | `docs/05-test-plan.md` |
 | 6 | Security | not started | `docs/06-security-review.md` |
 | 7 | Release | not started | `docs/09-release-notes.md`, README |
@@ -40,7 +40,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-Version 1.1 phase 3: `tech-lead` updates the architecture and adds v1.1 tasks to the board; owner approves before the build.
+v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-developer`, then `code-reviewer`, commit, push; then T-023.
 
 ## Log
 
@@ -94,6 +94,8 @@ Version 1.1 phase 3: `tech-lead` updates the architecture and adds v1.1 tasks to
 - 2026-11-23 Owner walked through the production cycle (user guide sections 3-10). Owner chose the Later-list order: sales orders (v1.1), then a web front end, then the cloud path. Started v1.1 phase 1 with `product-manager`.
 - 2026-11-23 Owner answered Q50-Q57 (#138-#145) and settled the rest in a grilling session (Q58-Q81, #146-#151). Owner approved the v1.1 PRD. Started v1.1 phase 2 with `ux-designer`.
 - 2026-11-23 `ux-designer` finished the v1.1 design (62 endpoints, role-based reads, flows, messages; #152-#153). Started v1.1 phase 3 with `tech-lead`.
+- 2026-11-24 `tech-lead` finished v1.1 architecture and tasks T-022 to T-032 (#154-#164), checked against a prototype (migration on a 100,000-movement v1 database in 180 ms, one transaction; reports 1-90 ms at PRD volume). Existing suite 1,721/1,721. Waiting on owner approval.
+- 2026-11-24 Owner approved v1.1 phase 3. Started T-022.
 
 ## Follow-ups to route
 
