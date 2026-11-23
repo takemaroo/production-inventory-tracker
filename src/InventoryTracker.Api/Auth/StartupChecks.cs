@@ -11,7 +11,7 @@ namespace InventoryTracker.Api.Auth;
 /// <summary>
 /// The start-up sequence of architecture 6 ("First Manager and start-up checks"), run by Program.cs before the
 /// app listens: (1) tolerance 0–100, (2) <c>JWT_SIGNING_KEY</c>, (3) migrations (in <see cref="DatabaseSetup"/>),
-/// (4) the three roles, (5) the first Manager from <c>ADMIN_EMAIL</c> / <c>ADMIN_PASSWORD</c>.
+/// (4) the four roles of <see cref="Roles.All"/>, (5) the first Manager from <c>ADMIN_EMAIL</c> / <c>ADMIN_PASSWORD</c>.
 /// </summary>
 /// <remarks>
 /// A failed check throws <see cref="StartupException"/> with the design 7.4 message. Checking at start-up, rather
@@ -129,7 +129,15 @@ public static class StartupChecks
         }
     }
 
-    /// <summary>Architecture 3.2: the roles Warehouse, Production and Manager always exist.</summary>
+    /// <summary>
+    /// Architecture 3.2 and 6: the roles of <see cref="Roles.All"/> (Warehouse, Production, Manager, Seller) always exist.
+    /// </summary>
+    /// <remarks>
+    /// Only a missing role is created; an existing one is left exactly as it is. That makes this step safe to run on
+    /// every start: a version 1 database gains the one Seller row on its first v1.1 start, no user is given it, and later
+    /// starts change nothing (AC-30.3, decision #155). Roles are data, not schema, so they are seeded here rather than in
+    /// a migration.
+    /// </remarks>
     private static async Task EnsureRolesAsync(RoleManager<IdentityRole> roleManager)
     {
         foreach (var role in Roles.All)

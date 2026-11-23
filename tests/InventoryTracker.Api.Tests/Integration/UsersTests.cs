@@ -76,7 +76,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
     /// <summary>
     /// AC-03.9: a user without the Manager role gets 403 on every user-management endpoint, including a user holding
-    /// both other roles, and nothing changes.
+    /// both other v1 roles, and nothing changes. (v1.1) AC-30.1: a Seller-only user too.
     /// </summary>
     [Theory]
     [MemberData(nameof(UserEndpoints))]
@@ -85,7 +85,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var target = await factory.CreateUserAsync(Seed.UniqueEmail("users"), Roles.Warehouse);
         var stampBefore = await StampAsync(factory, target.Id);
 
-        foreach (var roles in new[] { new[] { Roles.Warehouse }, [Roles.Production], [Roles.Warehouse, Roles.Production] })
+        foreach (var roles in new[] { new[] { Roles.Warehouse }, [Roles.Production], [Roles.Warehouse, Roles.Production], [Roles.Seller] })
         {
             using var client = await factory.CreateClientAsAsync(roles);
             var response = await SendAsync(client, method, path.Replace("{id}", target.Id), body);
@@ -133,12 +133,13 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
     /// <summary>
     /// PRD 4.2: every role may change its own password, so this endpoint has no role that gets 403. Each role on its
-    /// own gets 204 (the role-check counterpart of the 403 tests).
+    /// own gets 204 (the role-check counterpart of the 403 tests); (v1.1) AC-30.7: Seller included.
     /// </summary>
     [Theory]
     [InlineData(Roles.Warehouse)]
     [InlineData(Roles.Production)]
     [InlineData(Roles.Manager)]
+    [InlineData(Roles.Seller)]
     public async Task Every_role_may_change_its_own_password(string role)
     {
         var email = Seed.UniqueEmail("users");
@@ -259,7 +260,8 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [InlineData("""{ "password": "Initial2026", "roles": ["Warehouse"] }""", "email", "Email is required.")]
     [InlineData("""{ "email": "{email}", "password": "Initial2026", "roles": [] }""", "roles", "At least one role is required.")]
     [InlineData("""{ "email": "{email}", "password": "Initial2026" }""", "roles", "At least one role is required.")]
-    [InlineData("""{ "email": "{email}", "password": "Initial2026", "roles": ["Warehouse", "Admin"] }""", "roles[1]", "Unknown role 'Admin'. Roles are Warehouse, Production and Manager.")]
+    [InlineData("""{ "email": "{email}", "password": "Initial2026", "roles": ["Warehouse", "Admin"] }""", "roles[1]", "Unknown role 'Admin'. " + ExpectedMessages.RolesAre)]
+    [InlineData("""{ "email": "{email}", "password": "Initial2026", "roles": ["Driver"] }""", "roles[0]", "Unknown role 'Driver'. " + ExpectedMessages.RolesAre)]
     [InlineData("""{ "email": "{email}", "roles": ["Warehouse"] }""", "password", "Password is required.")]
     public async Task Invalid_create_input_gives_400_validation(string json, string path, string message)
     {
@@ -360,7 +362,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             new { email, password = "Initial2026", roles = new[] { "Nobody" } }, Cancel);
 
         await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation",
-            "Unknown role 'Nobody'. Roles are Warehouse, Production and Manager.");
+            "Unknown role 'Nobody'. " + ExpectedMessages.RolesAre);
     }
 
     // ---- AC-03.4: listing and reading users ------------------------------------------------------------------
@@ -568,7 +570,7 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [Theory]
     [InlineData("""{ "roles": [] }""", "roles", "At least one role is required.")]
     [InlineData("""{ }""", "roles", "At least one role is required.")]
-    [InlineData("""{ "roles": ["Boss"] }""", "roles[0]", "Unknown role 'Boss'. Roles are Warehouse, Production and Manager.")]
+    [InlineData("""{ "roles": ["Boss"] }""", "roles[0]", "Unknown role 'Boss'. " + ExpectedMessages.RolesAre)]
     public async Task Invalid_role_change_gives_400_and_changes_nothing(string json, string path, string message)
     {
         using var manager = await factory.CreateClientAsAsync(Roles.Manager);
@@ -579,6 +581,59 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var body = await ApiAssert.ProblemAsync(response, HttpStatusCode.BadRequest, "validation", message);
         Assert.True(body.GetProperty("errors").TryGetProperty(path, out _));
         Assert.Equal([Roles.Warehouse], await RolesInDatabaseAsync(factory, user.Id));
+    }
+
+    // ---- (v1.1) AC-30.1: the Seller role ----------------------------------------------------------------------
+
+    /// <summary>
+    /// AC-30.1: a Manager gives the Seller role when creating a user, alone or with another role, in any letter case.
+    /// <c>["seller"]</c> gives <c>201</c> with <c>"roles": ["Seller"]</c>; <c>["Seller", "Warehouse"]</c> gives
+    /// <c>["Warehouse", "Seller"]</c> (role order, decision #56). The database holds exactly those roles, and the user
+    /// signs in with them (AC-30.2).
+    /// </summary>
+    [Fact]
+    public async Task Manager_creates_users_with_the_Seller_role()
+    {
+        using var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var sellerEmail = Seed.UniqueEmail("users");
+        var mixedEmail = Seed.UniqueEmail("users");
+
+        var seller = await manager.PostAsJsonAsync(UsersPath,
+            new { email = sellerEmail, password = "Initial2026", roles = new[] { "seller" } }, Cancel);
+        var mixed = await manager.PostAsJsonAsync(UsersPath,
+            new { email = mixedEmail, password = "Initial2026", roles = new[] { "Seller", "Warehouse" } }, Cancel);
+
+        Assert.Equal(HttpStatusCode.Created, seller.StatusCode);
+        var sellerBody = await ApiJson.ReadAsync(seller);
+        Assert.Equal(["Seller"], RoleNames(sellerBody));
+        Assert.Equal([Roles.Seller], await RolesInDatabaseAsync(factory, sellerBody.GetProperty("id").GetString()!));
+
+        Assert.Equal(HttpStatusCode.Created, mixed.StatusCode);
+        var mixedBody = await ApiJson.ReadAsync(mixed);
+        Assert.Equal(["Warehouse", "Seller"], RoleNames(mixedBody));
+        Assert.Equal([Roles.Seller, Roles.Warehouse],
+            (await RolesInDatabaseAsync(factory, mixedBody.GetProperty("id").GetString()!)).Order());
+
+        var (status, signIn) = await SignInRawAsync(sellerEmail, "Initial2026");
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(["Seller"], RoleNames(signIn));
+    }
+
+    /// <summary>
+    /// AC-30.1 with AC-03.5: a Manager changes a user's roles to <c>["SELLER"]</c> (any letter case): <c>200</c> with
+    /// <c>"roles": ["Seller"]</c>, and the database now holds Seller only.
+    /// </summary>
+    [Fact]
+    public async Task Manager_changes_a_users_roles_to_Seller()
+    {
+        using var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var user = await factory.CreateUserAsync(Seed.UniqueEmail("users"), Roles.Warehouse);
+
+        var response = await manager.PutAsJsonAsync($"{UsersPath}/{user.Id}/roles", new { roles = new[] { "SELLER" } }, Cancel);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(["Seller"], RoleNames(await ApiJson.ReadAsync(response)));
+        Assert.Equal([Roles.Seller], await RolesInDatabaseAsync(factory, user.Id));
     }
 
     // ---- AC-03.6: deactivation and reactivation --------------------------------------------------------------
@@ -734,6 +789,34 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         // Changing an inactive Manager's roles is allowed: it does not reduce the number of active Managers.
         var removeFromInactive = await admin.PutAsJsonAsync($"{UsersPath}/{second.Id}/roles", new { roles = new[] { "Warehouse" } }, Cancel);
         Assert.Equal(HttpStatusCode.OK, removeFromInactive.StatusCode);
+    }
+
+    /// <summary>
+    /// (v1.1) AC-30.5: the last-Manager rule is unchanged and Seller does not count as a Manager. The only active
+    /// Manager also holds Seller; an active Seller-only user exists. Removing Manager (keeping Seller) and deactivating
+    /// the Manager are both <c>409</c> <c>last-manager</c>, and the Manager keeps both roles. Adding Seller to the last
+    /// Manager, which keeps Manager, is allowed.
+    /// </summary>
+    [Fact]
+    public async Task Seller_does_not_count_as_a_Manager()
+    {
+        await using var app = new TestApiFactory();
+        using var admin = app.CreateClientWithToken(await app.SignInAsync(TestApiFactory.AdminEmail, TestApiFactory.AdminPassword));
+        var adminId = await UserIdAsync(app, TestApiFactory.AdminEmail);
+        await app.CreateUserAsync("seller-only@inventory.test", Roles.Seller);
+
+        var addSeller = await admin.PutAsJsonAsync($"{UsersPath}/{adminId}/roles", new { roles = new[] { "Manager", "Seller" } }, Cancel);
+        Assert.Equal(HttpStatusCode.OK, addSeller.StatusCode);
+        Assert.Equal(["Manager", "Seller"], RoleNames(await ApiJson.ReadAsync(addSeller)));
+
+        var removeManager = await admin.PutAsJsonAsync($"{UsersPath}/{adminId}/roles", new { roles = new[] { "Seller" } }, Cancel);
+        var deactivate = await admin.PostAsync($"{UsersPath}/{adminId}/deactivate", null, Cancel);
+
+        await ApiAssert.ProblemAsync(removeManager, HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
+        await ApiAssert.ProblemAsync(deactivate, HttpStatusCode.Conflict, "last-manager", "At least one active Manager is required.");
+        Assert.Equal([Roles.Manager, Roles.Seller], (await RolesInDatabaseAsync(app, adminId)).Order());
+        Assert.True((await LoadUserAsync(app, adminId)).IsActive);
+        Assert.Equal(1, await CountActiveManagersAsync(app));
     }
 
     /// <summary>

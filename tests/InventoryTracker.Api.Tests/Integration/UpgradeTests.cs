@@ -27,8 +27,9 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// </para>
 /// <para>
 /// The fixture records the database before and right after the start, before any test runs, so a test that signs in
-/// (and so may touch a user row) cannot disturb what another test compares. T-023 extends this class with the Seller
-/// role checks; at that point <c>AspNetRoles</c> gains one row on purpose.
+/// (and so may touch a user row) cannot disturb what another test compares. (v1.1) T-023 adds the Seller role checks
+/// (AC-30.3, decision #155): the first start creates the Seller role, so <c>AspNetRoles</c> gains exactly one row on
+/// purpose, and a second start on the same file must change nothing at all.
 /// </para>
 /// </remarks>
 public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : IClassFixture<UpgradeTests.UpgradedV1Database>
@@ -71,8 +72,9 @@ public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : ICl
     /// not of two empty tables.
     /// </summary>
     /// <remarks>
-    /// From T-023 (decision #155) the first start also seeds the Seller role. This test must then expect
-    /// <c>AspNetRoles</c> as before plus exactly one Seller row, and every other table still identical.
+    /// (v1.1) T-023, decision #155: the first start also seeds the Seller role, so <c>AspNetRoles</c> is expected to be
+    /// the three version 1 rows, unchanged and in their place, plus exactly one new Seller row at the end. Every other
+    /// table is still identical.
     /// </remarks>
     [Fact]
     public void Every_v1_table_keeps_its_rows_and_values()
@@ -93,11 +95,66 @@ public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : ICl
         Assert.Single(before["Returns"]);
         Assert.Single(before["Notifications"]);
 
-        Assert.All(before, table =>
+        // AC-30.3: the one intended change. Rows are read in rowid order, so the new role is the last row.
+        Assert.Equal(before["AspNetRoles"].Count + 1, after["AspNetRoles"].Count);
+        Assert.Equal(before["AspNetRoles"], after["AspNetRoles"].Take(before["AspNetRoles"].Count));
+        Assert.Contains("| Name=Seller | NormalizedName=SELLER", after["AspNetRoles"][^1]);
+
+        Assert.All(before.Where(table => table.Key != "AspNetRoles"), table =>
         {
             Assert.Equal(table.Value.Count, after[table.Key].Count);
             Assert.Equal(table.Value, after[table.Key]); // row by row, column by column
         });
+    }
+
+    /// <summary>
+    /// (v1.1) AC-30.3, decision #155: after the first v1.1 start the Seller role exists, every version 1 user has
+    /// exactly the roles they had, and no user holds Seller (only a Manager gives it, AC-30.1).
+    /// </summary>
+    [Fact]
+    public async Task Seller_role_exists_and_no_user_was_given_it()
+    {
+        await using var connection = await upgraded.OpenAsync();
+
+        var roles = await ReadStringsAsync(connection, "SELECT \"Name\" || '/' || \"NormalizedName\" FROM \"AspNetRoles\" ORDER BY \"Name\"");
+        Assert.Equal(["Manager/MANAGER", "Production/PRODUCTION", "Seller/SELLER", "Warehouse/WAREHOUSE"], roles);
+
+        // Each user's roles, typed out from what the fixture inserted (one Manager, one Warehouse, one Production plus
+        // Warehouse), so this does not just compare the database with itself.
+        var userRoles = await ReadStringsAsync(connection, """
+            SELECT u."Email" || ': ' || r."Name"
+            FROM "AspNetUserRoles" ur
+            JOIN "AspNetUsers" u ON u."Id" = ur."UserId"
+            JOIN "AspNetRoles" r ON r."Id" = ur."RoleId"
+            ORDER BY u."Email", r."Name"
+            """);
+        Assert.Equal(
+            ["manager@v1.test: Manager", "production@v1.test: Production", "production@v1.test: Warehouse", "warehouse@v1.test: Warehouse"],
+            userRoles);
+
+        var sellers = await ReadStringsAsync(connection, """
+            SELECT CAST(COUNT(*) AS TEXT) FROM "AspNetUserRoles" ur JOIN "AspNetRoles" r ON r."Id" = ur."RoleId"
+            WHERE r."Name" = 'Seller'
+            """);
+        Assert.Equal(["0"], sellers);
+    }
+
+    /// <summary>
+    /// (v1.1) AC-30.3, decision #155: seeding is safe to repeat. A second start on the same, already upgraded, file
+    /// (recorded by the fixture before any test ran) changes nothing: every table, Seller's role row included, every
+    /// applied migration and every <c>sqlite_sequence</c> value is exactly as the first start left it.
+    /// </summary>
+    [Fact]
+    public void A_second_start_changes_nothing()
+    {
+        var first = upgraded.AfterFirstStartAll;
+        var second = upgraded.AfterRestart;
+
+        Assert.Equal(4, second.Tables["AspNetRoles"].Count); // still one Seller, not a second one
+        Assert.Equal(first.Tables.Keys.Order(StringComparer.Ordinal), second.Tables.Keys.Order(StringComparer.Ordinal));
+        Assert.All(first.Tables, table => Assert.Equal(table.Value, second.Tables[table.Key]));
+        Assert.Equal(first.AppliedMigrations, second.AppliedMigrations);
+        Assert.Equal(first.Sequences, second.Sequences);
     }
 
     /// <summary>
@@ -390,6 +447,22 @@ public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : ICl
         /// <summary>The same database right after the first v1.1 start, before any test ran.</summary>
         public DatabaseState After { get; private set; } = null!;
 
+        /// <summary>
+        /// (v1.1) Every table of the database right after the first v1.1 start (the new tables included, unlike
+        /// <see cref="After"/>, which reads the version 1 tables only).
+        /// </summary>
+        public DatabaseState AfterFirstStartAll { get; private set; } = null!;
+
+        /// <summary>(v1.1) Every table again, after a second app started on the same file (AC-30.3: seeding twice).</summary>
+        public DatabaseState AfterRestart { get; private set; } = null!;
+
+        /// <summary>
+        /// The second app, started on <see cref="App"/>'s file once the first start is recorded. As in
+        /// <c>StartupTests</c>, a second app on the same file stands in for a restart. Kept until the fixture is
+        /// disposed, because disposing a <see cref="TestApiFactory"/> deletes its database file.
+        /// </summary>
+        private TestApiFactory? _restarted;
+
         /// <summary>A new connection to the database file, with foreign keys enforced, as the app's own connections are.</summary>
         public async Task<SqliteConnection> OpenAsync()
         {
@@ -419,11 +492,30 @@ public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : ICl
             await using (var connection = await OpenAsync())
             {
                 After = await DatabaseState.ReadAsync(connection, Before.Tables.Keys);
+                AfterFirstStartAll = await DatabaseState.ReadAsync(connection);
+            }
+
+            // AC-30.3: start again on the same file. Migrations have nothing to do and every role exists already, so
+            // nothing may change.
+            _restarted = new TestApiFactory { DatabasePath = App.DatabasePath };
+            _restarted.CreateClient().Dispose();
+
+            await using (var connection = await OpenAsync())
+            {
+                AfterRestart = await DatabaseState.ReadAsync(connection);
             }
         }
 
-        /// <summary>Stops the app and deletes the temporary database.</summary>
-        public ValueTask DisposeAsync() => App.DisposeAsync();
+        /// <summary>Stops both apps and deletes the temporary database.</summary>
+        public async ValueTask DisposeAsync()
+        {
+            if (_restarted is not null)
+            {
+                await _restarted.DisposeAsync();
+            }
+
+            await App.DisposeAsync();
+        }
 
         /// <summary>
         /// Creates the file with exactly the version 1 schema: every migration up to and including

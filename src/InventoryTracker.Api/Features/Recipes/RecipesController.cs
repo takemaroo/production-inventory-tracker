@@ -6,8 +6,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace InventoryTracker.Api.Features.Recipes;
 
 /// <summary>
-/// The recipe of a finished product, <c>/api/v1/items/{id}/recipe</c> (US-08, design 4 and 5.4). Any signed-in user
-/// may read it; only a Manager may set it (PRD 4.2, "Manage units, items, recipes").
+/// The recipe of a finished product, <c>/api/v1/items/{id}/recipe</c> (US-08, design 4 and 5.4). Warehouse, Production
+/// and Manager may read it ((v1.1) a Seller may not, AC-30.6); only a Manager may set it (PRD 4.2, "Manage units, items,
+/// recipes").
 /// </summary>
 /// <remarks>
 /// The recipe is a single sub-resource of its item (design 2.1): there is one per finished product, so it has no id
@@ -23,8 +24,13 @@ public sealed class RecipesController(RecipeService recipes) : ControllerBase
     /// found." for an unknown item; <c>404</c> "{item} has no recipe." for a finished product without one or for a raw
     /// material (design 5.4).
     /// </summary>
-    /// <remarks>No <c>[Authorize]</c>: the fallback "signed in" policy is exactly "All" in design 4.</remarks>
+    /// <remarks>
+    /// (v1.1) PRD 4.2, "View recipes, ...": Warehouse, Production or Manager. A Seller-only user gets <c>403</c>
+    /// (AC-30.6, decision #147). The attribute is on the action, not the class, because a class attribute and an action
+    /// attribute would both have to pass (they combine with AND), and <c>PUT</c> is Manager only (decision #156).
+    /// </remarks>
     [HttpGet]
+    [Authorize(Roles = Roles.WarehouseProductionOrManager)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<RecipeResponse> Get(int id, CancellationToken cancellationToken) =>
         recipes.GetAsync(id, cancellationToken);

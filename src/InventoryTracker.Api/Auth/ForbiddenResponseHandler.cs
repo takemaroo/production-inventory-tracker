@@ -56,7 +56,8 @@ public sealed class ForbiddenResponseHandler : IAuthorizationMiddlewareResultHan
 
     /// <summary>
     /// Design 7.1: "Your roles do not allow this action. It needs the Manager role." With two roles:
-    /// "It needs the Warehouse or Manager role."
+    /// "It needs the Warehouse or Manager role." (v1.1) With three: "It needs the Warehouse, Production or Manager
+    /// role." The roles are named in the order given, joined with ", " and the last two with " or ".
     /// </summary>
     public static string Message(IReadOnlyList<string> allowedRoles)
     {

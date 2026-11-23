@@ -58,7 +58,7 @@ public static class RequestLimits
     /// The most roles one <c>POST /users</c> or <c>PUT /users/{id}/roles</c> body may list (decision #125).
     /// </summary>
     /// <remarks>
-    /// There are only three roles (Warehouse, Production, Manager), so a real request lists at most three. Repeats are
+    /// There are only four roles (Warehouse, Production, Manager, Seller), so a real request lists at most four. Repeats are
     /// allowed and ignored (AC-03.3), so 10 leaves room for a client that repeats a name by mistake. Without a cap, 1 MB
     /// of <c>null</c> roles was checked one by one inside the write transaction of a role change, and made other users'
     /// saves wait up to 1.3 seconds (found after SEC-01).

@@ -136,7 +136,7 @@ try
     // (3) Creates the SQLite file on first run and applies any new migrations.
     await app.Services.MigrateDatabaseAsync();
 
-    // (4) the three roles and (5) the first Manager from ADMIN_EMAIL / ADMIN_PASSWORD, when there are no users.
+    // (4) the four roles of Roles.All and (5) the first Manager from ADMIN_EMAIL / ADMIN_PASSWORD, when there are no users.
     await StartupChecks.SeedRolesAndFirstManagerAsync(app.Services, app.Configuration);
 }
 catch (StartupException exception)

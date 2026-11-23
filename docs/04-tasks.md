@@ -30,9 +30,9 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-019 | Leftover returns | backend-developer | T-010 | done |
 | T-020 | End-to-end scenarios, role matrix, concurrency | backend-developer | T-012 to T-019 | done |
 | T-021 | OpenAPI completeness and sample requests | backend-developer | T-012 to T-019 | done |
-| T-022 | (v1.1) Data model, `SalesOrders` migration, sales order lines count as use | backend-developer | none | todo |
-| T-023 | (v1.1) Seller role and role-based reads | backend-developer | T-022 | todo |
-| T-024 | (v1.1) Customers | backend-developer | T-023 | todo |
+| T-022 | (v1.1) Data model, `SalesOrders` migration, sales order lines count as use | backend-developer | none | done |
+| T-023 | (v1.1) Seller role and role-based reads | backend-developer | T-022 | done |
+| T-024 | (v1.1) Customers | backend-developer | T-023 | in progress |
 | T-025 | (v1.1) Create and view sales orders | backend-developer | T-024 | todo |
 | T-026 | (v1.1) Shipment movements: ledger rule, movement link and filter | backend-developer | T-025 | todo |
 | T-027 | (v1.1) Ship a sales order | backend-developer | T-026 | todo |

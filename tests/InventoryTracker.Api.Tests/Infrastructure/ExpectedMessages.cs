@@ -2,8 +2,8 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 
 /// <summary>
 /// The exact message texts that tests of many endpoints check: the sign-in and role refusals (<c>401</c> and
-/// <c>403</c>, design 7.1) and the input maximums (design 7.2, decision #80). Kept in one place so every endpoint's
-/// tests compare against the same wording.
+/// <c>403</c>, design 7.1), the list of known roles (design 7.2) and the input maximums (design 7.2, decision #80).
+/// Kept in one place so every endpoint's tests compare against the same wording.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -31,6 +31,32 @@ public static class ExpectedMessages
 
     /// <summary>AC-05.1: <c>403</c> <c>forbidden</c> on an action for the Production or Manager role.</summary>
     public const string ProductionOrManager = "Your roles do not allow this action. It needs the Production or Manager role.";
+
+    /// <summary>
+    /// (v1.1) Design 7.1, AC-30.6: <c>403</c> <c>forbidden</c> on a read for Warehouse, Production or Manager (recipes,
+    /// movements, production orders, complementary orders, returns), for example to a Seller-only user.
+    /// </summary>
+    public const string WarehouseProductionOrManager =
+        "Your roles do not allow this action. It needs the Warehouse, Production or Manager role.";
+
+    /// <summary>
+    /// (v1.1) Design 7.1, AC-29.7, AC-25.4: <c>403</c> <c>forbidden</c> on a read for Warehouse, Manager or Seller
+    /// (customers, sales orders, the shipped-totals reports), for example to a Production-only user.
+    /// </summary>
+    public const string WarehouseManagerOrSeller =
+        "Your roles do not allow this action. It needs the Warehouse, Manager or Seller role.";
+
+    /// <summary>
+    /// (v1.1) Design 7.1, AC-29.7: <c>403</c> <c>forbidden</c> on a customer change or a sales order create or cancel,
+    /// for example to a Warehouse-only user.
+    /// </summary>
+    public const string ManagerOrSeller = "Your roles do not allow this action. It needs the Manager or Seller role.";
+
+    /// <summary>
+    /// (v1.1) AC-30.1, design 7.2: the end of the <c>400</c> message for an unknown role name, which now lists four
+    /// roles. The whole message is "Unknown role '{name}'. " followed by this.
+    /// </summary>
+    public const string RolesAre = "Roles are Warehouse, Production, Manager and Seller.";
 
     /// <summary>
     /// Decision #80, design 7.2: <c>400</c> <c>validation</c> for a field labelled "Quantity" (receipts, sends,

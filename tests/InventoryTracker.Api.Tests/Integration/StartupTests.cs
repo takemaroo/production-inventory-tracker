@@ -33,7 +33,8 @@ public class StartupTests
 
     /// <summary>
     /// AC-02.1: an empty database plus ADMIN_EMAIL and ADMIN_PASSWORD gives exactly one active user with that email and
-    /// the Manager role only, who can sign in. Architecture 3.2: the three roles exist.
+    /// the Manager role only, who can sign in. Architecture 3.2: the roles exist, (v1.1) Seller included (AC-30.3: on an
+    /// empty database the first user is still a Manager only).
     /// </summary>
     [Fact]
     public async Task Empty_database_gets_one_active_manager_who_can_sign_in()
@@ -56,7 +57,7 @@ public class StartupTests
             .Join(db.Roles, link => link.RoleId, role => role.Id, (_, role) => role.Name)
             .ToListAsync(Cancel);
         Assert.Equal(["Manager"], roleNames);
-        Assert.Equal(["Manager", "Production", "Warehouse"], (await db.Roles.Select(role => role.Name).ToListAsync(Cancel)).Order());
+        Assert.Equal(["Manager", "Production", "Seller", "Warehouse"], (await db.Roles.Select(role => role.Name).ToListAsync(Cancel)).Order());
     }
 
     /// <summary>Architecture 6, Logging: start-up never writes the admin password or the signing key to the log.</summary>

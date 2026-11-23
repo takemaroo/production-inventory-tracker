@@ -40,7 +40,7 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
 
     /// <summary>
     /// AC-01.1: sign-in returns 200 with accessToken, tokenType "Bearer", expiresAt = now + 8 h in UTC, the stored email
-    /// and the roles (in the order Warehouse, Production, Manager). Design 5.1: the email's letter case does not matter.
+    /// and the roles (in the order Warehouse, Production, Manager, Seller). Design 5.1: the email's letter case does not matter.
     /// </summary>
     [Fact]
     public async Task Sign_in_returns_token_expiry_email_and_roles()
@@ -58,6 +58,27 @@ public class AuthTests(ProbeApiFactory factory) : IClassFixture<ProbeApiFactory>
         Assert.Equal(email, body.GetProperty("email").GetString());
         Assert.Equal(["Warehouse", "Production"], body.GetProperty("roles").EnumerateArray().Select(role => role.GetString()));
         Assert.Equal(5, body.EnumerateObject().Count());
+    }
+
+    /// <summary>
+    /// (v1.1) AC-30.2, AC-01.1, decision #56: a user holding all four roles (given in a scrambled order) signs in and
+    /// gets <c>"roles": ["Warehouse", "Production", "Manager", "Seller"]</c>, in that order, and the token carries one
+    /// <c>role</c> claim per role in the same order.
+    /// </summary>
+    [Fact]
+    public async Task Sign_in_returns_all_four_roles_in_role_order()
+    {
+        var email = Seed.UniqueEmail("auth");
+        await factory.CreateUserAsync(email, Roles.Seller, Roles.Manager, Roles.Warehouse, Roles.Production);
+
+        var (response, body) = await SignInAsync(factory, email, TestApiFactory.UserPassword);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(["Warehouse", "Production", "Manager", "Seller"],
+            body.GetProperty("roles").EnumerateArray().Select(role => role.GetString()));
+        var token = new JsonWebToken(body.GetProperty("accessToken").GetString()!);
+        Assert.Equal(["Warehouse", "Production", "Manager", "Seller"],
+            token.Claims.Where(claim => claim.Type == "role").Select(claim => claim.Value));
     }
 
     /// <summary>AC-01.1: the token works: a signed-in endpoint sees the user's email and roles from it.</summary>

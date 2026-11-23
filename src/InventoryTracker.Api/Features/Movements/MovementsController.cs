@@ -1,5 +1,7 @@
+using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Common.Paging;
 using InventoryTracker.Api.Features.Stock;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace InventoryTracker.Api.Features.Movements;
@@ -10,9 +12,15 @@ namespace InventoryTracker.Api.Features.Movements;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Built the same way as <c>UnitsController</c>, which explains the request flow. There is no
-/// <c>[Authorize(Roles = ...)]</c>: AC-11.1 lets any signed-in user list movements, and the fallback policy still
-/// answers <c>401</c> without a token.
+/// Built the same way as <c>UnitsController</c>, which explains the request flow. (v1.1) Both reads are for Warehouse,
+/// Production and Manager (PRD 4.2, "View ... movement history"); a Seller-only user gets <c>403</c> (AC-11.1,
+/// AC-28.7, AC-30.6, decision #147). Each action carries its own <c>[Authorize(Roles = ...)]</c>, the house rule of
+/// decision #156: a class-level attribute would combine with any action's own attribute with AND.
+/// </para>
+/// <para>
+/// The role check runs in the authorization middleware, before model binding and before the action, so a Seller's
+/// <c>GET /movements?type=Nope</c> is <c>403</c>, not <c>400</c>, and a Seller's <c>GET /movements/99999</c> is
+/// <c>403</c>, not <c>404</c> (design 2.2): a refused caller learns nothing about the data.
 /// </para>
 /// <para>
 /// AC-11.3: there are only two <c>GET</c> actions. With no <c>PUT</c>, <c>PATCH</c>, <c>DELETE</c> or <c>POST</c>
@@ -38,6 +46,7 @@ public sealed class MovementsController(MovementService movements) : ControllerB
     /// </param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
     [HttpGet]
+    [Authorize(Roles = Roles.WarehouseProductionOrManager)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<MovementResponse>> List(
         [FromQuery] PageQuery paging, [FromQuery] MovementFilter filter, CancellationToken cancellationToken) =>
@@ -47,7 +56,9 @@ public sealed class MovementsController(MovementService movements) : ControllerB
     /// <c>GET /api/v1/movements/{id}</c>: one movement (AC-11.1, design 5.6), or <c>404</c> "Movement {id} not found.".
     /// A receipt's or adjustment's <c>Location</c> header points here.
     /// </summary>
+    /// <remarks>(v1.1) Warehouse, Production or Manager, like the list (AC-30.6).</remarks>
     [HttpGet("{id:int}")]
+    [Authorize(Roles = Roles.WarehouseProductionOrManager)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<MovementResponse> Get(int id, CancellationToken cancellationToken) =>
         movements.GetAsync(id, cancellationToken);

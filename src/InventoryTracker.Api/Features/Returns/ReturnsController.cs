@@ -8,13 +8,15 @@ namespace InventoryTracker.Api.Features.Returns;
 
 /// <summary>
 /// The leftover return endpoints (US-22, design 3.9, 4 and 5.9): a Manager instructs or cancels a return, the warehouse
-/// (or a Manager) records receiving it, and any signed-in user may list and view them (PRD 4.2).
+/// (or a Manager) records receiving it, and Warehouse, Production and Manager may list and view them (PRD 4.2; (v1.1) a
+/// Seller may not, AC-22.6, AC-30.6).
 /// </summary>
 /// <remarks>
 /// Built the same way as <c>UnitsController</c>, which explains the request flow, model binding, <c>[Authorize]</c> and
 /// <c>CreatedAtAction</c>. All rules are in <see cref="InstructReturnService"/>, <see cref="ReceiveReturnService"/> and
 /// <see cref="ReturnService"/>. There is no <c>PUT</c> or <c>DELETE</c>: returns are never edited or deleted (PRD section
-/// 5); a wrong one is cancelled and a new one instructed (decision #18).
+/// 5); a wrong one is cancelled and a new one instructed (decision #18). (v1.1) Each action names its own roles; the
+/// class names none, because a class attribute and an action attribute would both have to pass (decision #156).
 /// </remarks>
 [ApiController]
 [Route("api/v1/returns")]
@@ -53,8 +55,12 @@ public sealed class ReturnsController(
     /// <param name="status">Optional status filter. Received as text so the error uses the design's wording.</param>
     /// <param name="itemId">Optional material filter; an id that matches nothing gives an empty page (design 2.5).</param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
-    /// <remarks>PRD 4.2, "View ... returns": every role, so only the fallback "signed in" policy applies.</remarks>
+    /// <remarks>
+    /// (v1.1) PRD 4.2, "View ... returns": Warehouse, Production or Manager. A Seller-only user gets <c>403</c> (AC-22.6,
+    /// AC-30.6).
+    /// </remarks>
     [HttpGet]
+    [Authorize(Roles = Roles.WarehouseProductionOrManager)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<ReturnResponse>> List(
         [FromQuery] PageQuery paging,
@@ -66,8 +72,9 @@ public sealed class ReturnsController(
     /// <summary>
     /// <c>GET /api/v1/returns/{number}</c>: one return (design 5.9), or <c>404</c> "Return #{number} not found.".
     /// </summary>
-    /// <remarks>PRD 4.2: every role.</remarks>
+    /// <remarks>(v1.1) Warehouse, Production or Manager, like the list (AC-22.6, AC-30.6).</remarks>
     [HttpGet("{number:int}")]
+    [Authorize(Roles = Roles.WarehouseProductionOrManager)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<ReturnResponse> Get(int number, CancellationToken cancellationToken) =>
         returns.GetAsync(number, cancellationToken);

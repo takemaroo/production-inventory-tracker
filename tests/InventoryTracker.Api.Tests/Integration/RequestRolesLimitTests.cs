@@ -85,7 +85,7 @@ public class RequestRolesLimitTests(TestApiFactory app) : IClassFixture<TestApiF
 
         var names = Enumerable.Repeat("Production", RequestLimits.MaxRoles - 1).Append("Driver").ToArray();
         var unknown = await SendAsync(manager, "PUT", path, JsonSerializer.Serialize(new { roles = names }));
-        await ApiAssert.ValidationAsync(unknown, "roles[9]", "Unknown role 'Driver'. Roles are Warehouse, Production and Manager.");
+        await ApiAssert.ValidationAsync(unknown, "roles[9]", "Unknown role 'Driver'. " + ExpectedMessages.RolesAre);
     }
 
     /// <summary>

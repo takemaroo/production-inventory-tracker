@@ -50,18 +50,18 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
     // ---- Every endpoint is listed ------------------------------------------------------------------------------------
 
     /// <summary>
-    /// PRD section 5, T-021 AC 1: in Development, <c>/openapi/v1.json</c> lists exactly the 48 method and path pairs of
-    /// design section 4, no more and no fewer.
+    /// PRD section 5, T-021 AC 1: in Development, <c>/openapi/v1.json</c> lists exactly the method and path pairs of
+    /// design section 4 that exist so far (<see cref="RoleMatrixTests.DesignEndpointCount"/>), no more and no fewer.
     /// </summary>
     [Fact]
-    public async Task Document_lists_exactly_the_48_endpoints_of_design_section_4()
+    public async Task Document_lists_exactly_the_endpoints_of_design_section_4()
     {
         using var document = await FetchDocumentAsync();
 
         var documented = Operations(document).Select(operation => operation.Key).Order(StringComparer.Ordinal).ToList();
         var expected = RoleMatrixTests.Endpoints.Select(row => row.Key).Order(StringComparer.Ordinal).ToList();
 
-        Assert.Equal(48, expected.Count);
+        Assert.Equal(RoleMatrixTests.DesignEndpointCount, expected.Count);
         Assert.Equal(expected, documented);
     }
 

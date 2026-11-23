@@ -14,7 +14,7 @@ public sealed record SignInRequest(string? Email, string? Password);
 /// <param name="TokenType">Always <c>Bearer</c>.</param>
 /// <param name="ExpiresAt">When the token stops working: sign-in time plus 8 hours, UTC (AC-01.2).</param>
 /// <param name="Email">The user's email as stored.</param>
-/// <param name="Roles">The roles the user holds, in the order Warehouse, Production, Manager.</param>
+/// <param name="Roles">The roles the user holds, in the order Warehouse, Production, Manager, Seller.</param>
 public sealed record SignInResponse(
     string AccessToken,
     string TokenType,

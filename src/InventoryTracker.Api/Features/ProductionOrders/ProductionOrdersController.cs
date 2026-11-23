@@ -7,10 +7,10 @@ using Microsoft.AspNetCore.Mvc;
 namespace InventoryTracker.Api.Features.ProductionOrders;
 
 /// <summary>
-/// The <c>/api/v1/production-orders</c> endpoints (US-13, US-14, design 4 and 5.7). Any signed-in user may list and view
-/// orders (PRD 4.2, AC-14.1); only a Manager may create one (AC-13.7); a Warehouse user or a Manager sends the
-/// materials (AC-15.1, AC-15.12); a Production user or a Manager completes the order (AC-19.1, AC-19.8); only a Manager
-/// cancels it (AC-21.1, AC-21.6).
+/// The <c>/api/v1/production-orders</c> endpoints (US-13, US-14, design 4 and 5.7). Warehouse, Production and Manager may
+/// list and view orders (PRD 4.2, AC-14.1; (v1.1) a Seller may not, AC-30.6); only a Manager may create one (AC-13.7);
+/// a Warehouse user or a Manager sends the materials (AC-15.1, AC-15.12); a Production user or a Manager completes the
+/// order (AC-19.1, AC-19.8); only a Manager cancels it (AC-21.1, AC-21.6).
 /// </summary>
 /// <remarks>
 /// Built the same way as <c>UnitsController</c>, which explains the request flow, model binding, <c>[Authorize]</c> and
@@ -19,6 +19,12 @@ namespace InventoryTracker.Api.Features.ProductionOrders;
 /// methods get the framework's <c>405</c>. All rules are in <see cref="ProductionOrderService"/> and, for the send, the
 /// completion and the cancellation, <see cref="SendOrderService"/>, <see cref="CompleteOrderService"/> and
 /// <see cref="CancelOrderService"/>.
+/// <para>
+/// (v1.1) Every action carries its own <c>[Authorize(Roles = ...)]</c> and the class has none (decision #156). If the
+/// class said "Warehouse, Production or Manager" and the cancel said "Manager", ASP.NET Core would require both (the
+/// attributes combine with AND): the result would still be "Managers only", but a Seller's <c>403</c> would name the
+/// wrong roles.
+/// </para>
 /// </remarks>
 [ApiController]
 [Route("api/v1/production-orders")]
@@ -36,7 +42,12 @@ public sealed class ProductionOrdersController(
     /// <param name="paging">The <c>page</c> and <c>pageSize</c> query parameters (see <c>UnitsController.List</c> for the name).</param>
     /// <param name="status">Optional status filter, any letter case. Received as text so the error uses the design's wording.</param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
+    /// <remarks>
+    /// (v1.1) PRD 4.2, "View ... orders": Warehouse, Production or Manager; a Seller-only user gets <c>403</c> (AC-14.1,
+    /// AC-30.6), even with an unknown status, because the role check comes before the query is read (design 2.2).
+    /// </remarks>
     [HttpGet]
+    [Authorize(Roles = Roles.WarehouseProductionOrManager)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<ProductionOrderSummaryResponse>> List(
         [FromQuery] PageQuery paging, [FromQuery(Name = "status")] string? status, CancellationToken cancellationToken) =>
@@ -46,7 +57,13 @@ public sealed class ProductionOrdersController(
     /// <c>GET /api/v1/production-orders/{number}</c>: the full order (AC-14.2), with a fresh leftover estimate per line
     /// while it is Created (AC-13.2). <c>404</c> "Order #{number} not found." (AC-14.3).
     /// </summary>
+    /// <remarks>
+    /// (v1.1) Warehouse, Production or Manager (AC-30.6). A Seller sees an order's number on the stock view
+    /// (<c>committedOrderNumber</c>) but gets <c>403</c> here (AC-30.7), and <c>403</c>, not <c>404</c>, for a number that
+    /// does not exist (design 2.2).
+    /// </remarks>
     [HttpGet("{number:int}")]
+    [Authorize(Roles = Roles.WarehouseProductionOrManager)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<ProductionOrderResponse> Get(int number, CancellationToken cancellationToken) =>
         orders.GetAsync(number, cancellationToken);

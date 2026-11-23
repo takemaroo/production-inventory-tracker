@@ -9,15 +9,22 @@ namespace InventoryTracker.Api.Features.ComplementaryOrders;
 
 /// <summary>
 /// The complementary order endpoints (US-16, US-17, US-18, design 3.7, 4 and 5.8): request one for a running order, list
-/// and view them, approve or reject them, and send an approved one. Any signed-in user may list and view them (PRD 4.2);
-/// a Production user or a Manager requests one (AC-16.1, AC-16.6); only a Manager approves or rejects (AC-17.1, AC-17.2,
-/// AC-17.4); a Warehouse user or a Manager sends (AC-18.1, AC-18.5).
+/// and view them, approve or reject them, and send an approved one. Warehouse, Production and Manager may list and view
+/// them (PRD 4.2; (v1.1) a Seller may not, AC-30.6); a Production user or a Manager requests one (AC-16.1, AC-16.6);
+/// only a Manager approves or rejects (AC-17.1, AC-17.2, AC-17.4); a Warehouse user or a Manager sends (AC-18.1,
+/// AC-18.5).
 /// </summary>
 /// <remarks>
 /// <para>
 /// Built the same way as <c>UnitsController</c>, which explains the request flow, model binding, <c>[Authorize]</c> and
 /// <c>CreatedAtAction</c>. All rules are in <see cref="RequestComplementaryOrderService"/>,
 /// <see cref="ComplementaryOrderService"/> and <see cref="ComplementarySendService"/>.
+/// </para>
+/// <para>
+/// (v1.1) Each action names its own roles and the class names none (decision #156). Several <c>[Authorize]</c>
+/// attributes on one endpoint combine with AND, so a class-level "Warehouse, Production or Manager" plus approve's
+/// "Manager" would still admit only Managers to approve, but a Seller's <c>403</c> there would name the roles of both
+/// failed requirements instead of design 7.1's "It needs the Manager role."
 /// </para>
 /// <para>
 /// <b>Two URL shapes</b> (design 2.1). A complementary order cannot exist without its parent, so it is created under it:
@@ -70,7 +77,9 @@ public sealed class ComplementaryOrdersController(
     /// <param name="status">Optional status filter. Received as text so the error uses the design's wording.</param>
     /// <param name="orderNumber">Optional parent order filter; a number that matches nothing gives an empty page (design 2.5).</param>
     /// <param name="cancellationToken">Fires when the client disconnects.</param>
+    /// <remarks>(v1.1) PRD 4.2, "View ... complementary orders": Warehouse, Production or Manager (AC-30.6).</remarks>
     [HttpGet]
+    [Authorize(Roles = Roles.WarehouseProductionOrManager)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<PagedResult<ComplementaryOrderResponse>> List(
         [FromQuery] PageQuery paging,
@@ -83,7 +92,9 @@ public sealed class ComplementaryOrdersController(
     /// <c>GET /api/v1/complementary-orders/{number}</c>: one complementary order (design 5.8), or <c>404</c>
     /// "Complementary order #{number} not found.".
     /// </summary>
+    /// <remarks>(v1.1) Warehouse, Production or Manager, like the list (AC-30.6).</remarks>
     [HttpGet("{number:int}")]
+    [Authorize(Roles = Roles.WarehouseProductionOrManager)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<ComplementaryOrderResponse> Get(int number, CancellationToken cancellationToken) =>
         complementaryOrders.GetAsync(number, cancellationToken);

@@ -17,7 +17,7 @@ namespace InventoryTracker.Api.Features.Users;
 /// <remarks>
 /// <para>
 /// <b>How roles are stored.</b> ASP.NET Core Identity keeps roles in two tables. <c>AspNetRoles</c> has one row per
-/// role (Warehouse, Production, Manager; created at start-up by <see cref="StartupChecks"/>). <c>AspNetUserRoles</c>
+/// role (Warehouse, Production, Manager, Seller; created at start-up by <see cref="StartupChecks"/>). <c>AspNetUserRoles</c>
 /// has one row per (user, role) pair, so a user with two roles has two rows (decision #8). <c>UserManager</c>'s
 /// <c>AddToRolesAsync</c>, <c>RemoveFromRolesAsync</c> and <c>GetRolesAsync</c> read and write those rows.
 /// </para>
@@ -313,7 +313,7 @@ public sealed class UserService(
 
     /// <summary>
     /// AC-03.3 and design 2.3: reads the role names in any letter case. An empty list and each unknown name add the
-    /// design 7.2 message. Returns the valid roles without repeats, in the order Warehouse, Production, Manager.
+    /// design 7.2 message. Returns the valid roles without repeats, in the order Warehouse, Production, Manager, Seller.
     /// </summary>
     private static IReadOnlyList<string> ParseRoles(IReadOnlyList<string?>? values, ValidationErrors errors)
     {
@@ -329,7 +329,9 @@ public sealed class UserService(
             var match = Roles.All.FirstOrDefault(role => string.Equals(role, values[index], StringComparison.OrdinalIgnoreCase));
             if (match is null)
             {
-                errors.Add($"roles[{index}]", $"Unknown role '{values[index]}'. Roles are Warehouse, Production and Manager.");
+                // AC-30.1, design 7.2: the message lists all four roles. It is typed out rather than built from
+                // Roles.All, so the sentence reads exactly as the design writes it ("... Manager and Seller.").
+                errors.Add($"roles[{index}]", $"Unknown role '{values[index]}'. Roles are Warehouse, Production, Manager and Seller.");
             }
             else
             {
@@ -347,6 +349,7 @@ public sealed class UserService(
     /// </summary>
     private async Task ThrowIfLastActiveManagerAsync(AppUser user)
     {
+        // AC-30.5: only the Manager role counts. A Seller (or a user with any other role but Manager) is not a Manager.
         var anotherActiveManager = await (
                 from userRole in db.UserRoles
                 join role in db.Roles on userRole.RoleId equals role.Id
