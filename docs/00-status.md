@@ -27,8 +27,8 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | # | Phase | Status | Output |
 |---|-------|--------|--------|
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.1 part) |
-| 2 | Design | in progress | `docs/02-design.md` |
-| 3 | Architecture | not started | `docs/03-architecture.md`, `docs/04-tasks.md` |
+| 2 | Design | done | `docs/02-design.md` |
+| 3 | Architecture | in progress | `docs/03-architecture.md`, `docs/04-tasks.md` |
 | 4 | Build | not started | code |
 | 5 | QA | not started | `docs/05-test-plan.md` |
 | 6 | Security | not started | `docs/06-security-review.md` |
@@ -40,7 +40,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-Version 1.1 phase 2: `ux-designer` adds sales orders, customers, the Seller role and the reports to `docs/02-design.md`.
+Version 1.1 phase 3: `tech-lead` updates the architecture and adds v1.1 tasks to the board; owner approves before the build.
 
 ## Log
 
@@ -93,6 +93,7 @@ Version 1.1 phase 2: `ux-designer` adds sales orders, customers, the Seller role
 - 2026-11-22 Small fixes from the first start: run.ps1 explains a saved-but-not-loaded key; new-signing-key.ps1 -SaveForUser replaces the unsafe capture form (it could save PowerShell's banner as the key); keys with spaces refused; sign-in and change-password snippets show the API's message. Approved by `code-reviewer` after two rounds; security re-check OK (SEC-22 Later, SEC-23 done). Committed and pushed.
 - 2026-11-23 Owner walked through the production cycle (user guide sections 3-10). Owner chose the Later-list order: sales orders (v1.1), then a web front end, then the cloud path. Started v1.1 phase 1 with `product-manager`.
 - 2026-11-23 Owner answered Q50-Q57 (#138-#145) and settled the rest in a grilling session (Q58-Q81, #146-#151). Owner approved the v1.1 PRD. Started v1.1 phase 2 with `ux-designer`.
+- 2026-11-23 `ux-designer` finished the v1.1 design (62 endpoints, role-based reads, flows, messages; #152-#153). Started v1.1 phase 3 with `tech-lead`.
 
 ## Follow-ups to route
 
