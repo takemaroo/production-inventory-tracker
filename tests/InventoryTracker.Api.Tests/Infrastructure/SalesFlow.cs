@@ -13,8 +13,9 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 /// (v1.1) The steps of a sales order's life that many integration tests need as set-up (architecture 7, "Shared helpers";
 /// decision #101): a customer to sell to, a sales order created, read (T-025), shipped (T-027) and cancelled (T-028)
 /// through the API, a sales order written straight to the database in a status no endpoint produces in one step, and
-/// (T-028) items with Warehouse stock, the stock and shipment-movement reads and the stored sales order, and (T-030) a
-/// sales order created and shipped in one step and the two shipped-totals report reads. One shared copy,
+/// (T-028) items with Warehouse stock, the stock and shipment-movement reads and the stored sales order, (T-030) a
+/// sales order created and shipped in one step and the two shipped-totals report reads, and (T-031) the open-demand
+/// read. One shared copy,
 /// so the customer, sales order, shipment and report tests (T-024 to T-031) all set up and check their records the same
 /// way, and a fix here reaches every one of them.
 /// </summary>
@@ -242,6 +243,17 @@ public static class SalesFlow
     /// <summary>The item's Warehouse stock through <c>GET /stock/{itemId}</c>.</summary>
     public static async Task<decimal> WarehouseAsync(HttpClient client, int itemId) =>
         (await OrderFlow.StockAsync(client, itemId)).GetProperty("warehouse").GetDecimal();
+
+    /// <summary>
+    /// (T-031) AC-31.1, D-12: the item's open demand through <c>GET /stock/{itemId}</c>, checked to be a number (design
+    /// 5.5: never <c>null</c>, 0 when no Created sales order has the item).
+    /// </summary>
+    public static async Task<decimal> OpenDemandAsync(HttpClient client, int itemId)
+    {
+        var value = (await OrderFlow.StockAsync(client, itemId)).GetProperty("openDemand");
+        Assert.Equal(JsonValueKind.Number, value.ValueKind);
+        return value.GetDecimal();
+    }
 
     /// <summary>Checks that the item's Warehouse and production storage stock through <c>GET /stock/{itemId}</c> are these.</summary>
     public static async Task AssertStockAsync(HttpClient client, int itemId, decimal warehouse, decimal productionStorage)

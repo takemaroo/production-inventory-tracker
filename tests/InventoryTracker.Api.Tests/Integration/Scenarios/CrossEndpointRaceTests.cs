@@ -11,7 +11,9 @@ namespace InventoryTracker.Api.Tests.Integration.Scenarios;
 /// goes below zero"), architecture 5.2: races between two different endpoints that take the same Warehouse stock. A
 /// send for an order (AC-15.7) or for an approved complementary order (AC-18.4) and a negative Warehouse adjustment
 /// (AC-12.3) that together need more than the Warehouse holds: exactly one succeeds, the other gets <c>409</c>
-/// <c>insufficient-stock</c> naming what is left, and stock never goes below zero.
+/// <c>insufficient-stock</c> naming what is left, and stock never goes below zero. (v1.1, T-031) The same for a sales
+/// order shipment (AC-26.1) against a write-off, a production send and a complementary send (AC-26.10, fourth and fifth
+/// bullets).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -23,8 +25,10 @@ namespace InventoryTracker.Api.Tests.Integration.Scenarios;
 /// Each pair is run three ways. Two tests force the order with <see cref="ForcedOrder"/>: the first request takes
 /// SQLite's single write lock (<c>BEGIN IMMEDIATE</c>), and when it first reads the <c>Movements</c> table (both
 /// endpoints sum the Warehouse stock from it) the second request is started and shown to be waiting. So each branch is
-/// proven to run, with exact figures. One more test fires both at the same moment for five rounds and checks only what
-/// must hold whichever wins.
+/// proven to run, with exact figures. One more test fires both at the same moment for several rounds and checks only
+/// what must hold whichever wins. (v1.1) The three shipment pairs are each forced both ways (a theory with
+/// <c>shipFirst</c> true and false); the simultaneous rounds are run for the ship against the write-off, the pair
+/// AC-26.10's fourth bullet names.
 /// </para>
 /// <para>
 /// The set-up is the shared <see cref="OrderFlow.RaceSceneAsync"/> of the earlier race tests (decision #101), which
@@ -167,7 +171,208 @@ public class CrossEndpointRaceTests
         await AssertWarehouseAsync(scene, expected: 10m, adjustments: 1);
     }
 
+    // ---- (v1.1) T-031: a shipment against a write-off, a production send and a complementary send ---------------------
+    //
+    // AC-26.10, fourth and fifth bullets, architecture 5.2: the ship checks and takes Warehouse stock through the ledger
+    // in its own serialized transaction, like the three v1 writes it races here. Each pair together needs more than the
+    // Warehouse holds. Both orderings are forced with ForcedOrder("Movements"): every one of these requests sums the
+    // material's movements inside its write transaction, so the first one holds the write lock when the second starts.
+    // The sales orders are created by the scene's Manager (who may create them, AC-24.1), for a customer of their own.
+
+    /// <summary>
+    /// AC-26.10 fourth bullet, AC-26.1, AC-12.3: 1,000 in the Warehouse; a ship of a 600 sales order and a −500
+    /// Warehouse adjustment of the same item. Ship first: <c>200</c>, Warehouse 400, and the adjustment gets <c>409</c>
+    /// "... has 400 ...". Adjustment first: <c>201</c>, Warehouse 500, and the ship gets <c>409</c> "... has 500 ...;
+    /// sales order #n needs 600 ...", with no shipment movement and the sales order still Created. The Warehouse never
+    /// goes below zero.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Ship_and_write_off_of_the_same_item_never_both_succeed(bool shipFirst)
+    {
+        await using var race = new ForcedOrder("Movements");
+        var scene = await RaceSceneAsync(race.App, send: false);
+        var number = await SalesOrderAsync(scene, 600m);
+        Func<Task<HttpResponseMessage>> ship = () => SalesFlow.ShipAsync(scene.Warehouse, number);
+        Func<Task<HttpResponseMessage>> writeOff = () => WriteOffAsync(scene.Manager, scene.Cheese.Id, 500m);
+
+        var (shipped, wroteOff) = await RunInOrderAsync(race, shipFirst, ship, writeOff);
+
+        if (shipFirst)
+        {
+            Assert.Equal(HttpStatusCode.OK, shipped.StatusCode);
+            await ApiAssert.ProblemAsync(wroteOff, HttpStatusCode.Conflict, "insufficient-stock",
+                $"Not enough stock: {scene.Cheese.Name} in Warehouse has 400 {scene.Cheese.UnitName}.");
+            await AssertWarehouseAsync(scene, expected: 400m, adjustments: 0);
+            Assert.Single(await SalesFlow.ShipmentMovementsAsync(scene.Manager, number));
+        }
+        else
+        {
+            Assert.Equal(HttpStatusCode.Created, wroteOff.StatusCode);
+            await AssertShipRefusedAsync(scene, shipped, number, available: 500m, needs: 600m);
+            await AssertWarehouseAsync(scene, expected: 500m, adjustments: 1);
+        }
+    }
+
+    /// <summary>
+    /// AC-26.10 fifth bullet, AC-26.6, AC-15.7: 1,000 of a raw material in the Warehouse; a ship of a 100 sales order of
+    /// it and the production send of 1,000 for the Created order that uses it. Ship first: <c>200</c>, Warehouse 900, and
+    /// the send gets <c>409</c> "... has 900 ...", the order stays Created with no movement (AC-26.12's shape). Send
+    /// first: InProduction, Warehouse 0, and the ship gets <c>409</c> "... has 0 ...; sales order #n needs 100 ...".
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Ship_and_production_send_of_the_same_material_never_both_succeed(bool shipFirst)
+    {
+        await using var race = new ForcedOrder("Movements");
+        var scene = await RaceSceneAsync(race.App, send: false);
+        var number = await SalesOrderAsync(scene, 100m);
+        Func<Task<HttpResponseMessage>> ship = () => SalesFlow.ShipAsync(scene.Manager, number);
+        Func<Task<HttpResponseMessage>> send = () => SendAsync(scene.Warehouse, scene.Number, (scene.Cheese.Id, 1000m));
+
+        var (shipped, sent) = await RunInOrderAsync(race, shipFirst, ship, send);
+
+        if (shipFirst)
+        {
+            Assert.Equal(HttpStatusCode.OK, shipped.StatusCode);
+            await ApiAssert.ProblemAsync(sent, HttpStatusCode.Conflict, "insufficient-stock",
+                $"Not enough stock: {scene.Cheese.Name} in Warehouse has 900 {scene.Cheese.UnitName}.");
+            Assert.Equal("Created", (await ReadOrderAsync(scene.Manager, scene.Number)).GetProperty("status").GetString());
+            Assert.Empty(await OrderMovementsAsync(scene.Manager, scene.Number));
+            await AssertWarehouseAsync(scene, expected: 900m, adjustments: 0);
+        }
+        else
+        {
+            Assert.Equal(HttpStatusCode.OK, sent.StatusCode);
+            Assert.Equal("InProduction", (await ApiJson.ReadAsync(sent)).GetProperty("status").GetString());
+            await AssertShipRefusedAsync(scene, shipped, number, available: 0m, needs: 100m);
+            await AssertWarehouseAsync(scene, expected: 0m, adjustments: 0);
+        }
+    }
+
+    /// <summary>
+    /// AC-26.10 fifth bullet, AC-26.6, AC-18.4: the order is InProduction and 100 more of its material is in the
+    /// Warehouse; a ship of a 90 sales order of the material and the send of an approved complementary order of 20.
+    /// Shipping while the order is InProduction is allowed (AC-26.6). Ship first: <c>200</c>, Warehouse 10, and the
+    /// complementary send gets <c>409</c> "... has 10 ...", stays Approved, and the parent line's complementary sends
+    /// stay 0. Complementary send first: Sent, Warehouse 80, and the ship gets <c>409</c> "... has 80 ...; sales order #n
+    /// needs 90 ...".
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Ship_and_complementary_send_of_the_same_material_never_both_succeed(bool shipFirst)
+    {
+        await using var race = new ForcedOrder("Movements");
+        var (scene, complementary) = await ApprovedComplementarySceneAsync(race.App);
+        var number = await SalesOrderAsync(scene, 90m);
+        Func<Task<HttpResponseMessage>> ship = () => SalesFlow.ShipAsync(scene.Manager, number);
+        Func<Task<HttpResponseMessage>> send = () => SendComplementaryAsync(scene.Warehouse, complementary, (scene.Cheese.Id, 20m));
+
+        var (shipped, sent) = await RunInOrderAsync(race, shipFirst, ship, send);
+
+        if (shipFirst)
+        {
+            Assert.Equal(HttpStatusCode.OK, shipped.StatusCode);
+            await ApiAssert.ProblemAsync(sent, HttpStatusCode.Conflict, "insufficient-stock",
+                $"Not enough stock: {scene.Cheese.Name} in Warehouse has 10 {scene.Cheese.UnitName}.");
+            Assert.Equal("Approved", (await ReadComplementaryAsync(scene.Manager, complementary)).GetProperty("status").GetString());
+            Assert.Equal(0m, Line(await ReadOrderAsync(scene.Manager, scene.Number), scene.Cheese.Id).GetProperty("complementarySends").GetDecimal());
+            await AssertWarehouseAsync(scene, expected: 10m, adjustments: 0);
+        }
+        else
+        {
+            Assert.Equal(HttpStatusCode.OK, sent.StatusCode);
+            Assert.Equal("Sent", (await ApiJson.ReadAsync(sent)).GetProperty("status").GetString());
+            await AssertShipRefusedAsync(scene, shipped, number, available: 80m, needs: 90m);
+            await AssertWarehouseAsync(scene, expected: 80m, adjustments: 0);
+        }
+    }
+
+    /// <summary>
+    /// AC-26.10 fourth bullet, PRD section 5: the ship of 600 and the −500 Warehouse adjustment really arrive at the same
+    /// moment, three rounds, each on its own material. Exactly one succeeds; the loser gets <c>409</c>
+    /// <c>insufficient-stock</c> naming what the winner left (400 or 500); the Warehouse never goes below zero and its
+    /// movements add up to it (AC-11.4, AC-28.3).
+    /// </summary>
+    [Fact]
+    public async Task Simultaneous_ship_and_write_off_never_both_succeed()
+    {
+        await using var app = new TestApiFactory();
+
+        for (var round = 0; round < 3; round++)
+        {
+            var scene = await RaceSceneAsync(app, send: false);
+            var number = await SalesOrderAsync(scene, 600m);
+
+            var shipTask = SalesFlow.ShipAsync(scene.Warehouse, number);
+            var writeOffTask = WriteOffAsync(scene.Manager, scene.Cheese.Id, 500m);
+            await Task.WhenAll(shipTask, writeOffTask);
+            var (ship, writeOff) = (await shipTask, await writeOffTask);
+
+            var shipped = ship.StatusCode == HttpStatusCode.OK;
+            Assert.True(shipped != (writeOff.StatusCode == HttpStatusCode.Created),
+                $"Round {round}: ship {(int)ship.StatusCode}, write-off {(int)writeOff.StatusCode}; exactly one must succeed.");
+            if (shipped)
+            {
+                await ApiAssert.ProblemAsync(writeOff, HttpStatusCode.Conflict, "insufficient-stock",
+                    $"Not enough stock: {scene.Cheese.Name} in Warehouse has 400 {scene.Cheese.UnitName}.");
+            }
+            else
+            {
+                await AssertShipRefusedAsync(scene, ship, number, available: 500m, needs: 600m);
+            }
+
+            await AssertWarehouseAsync(scene, expected: shipped ? 400m : 500m, adjustments: shipped ? 0 : 1);
+        }
+
+        Assert.True(await AssertMovementsAddUpToStockAsync(await StartUpManagerAsync(app)) > 0);
+    }
+
     // ---- Helpers ----------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// (v1.1) A Created sales order of <paramref name="quantity"/> of the scene's material, for a new customer, both made
+    /// by the scene's Manager through the API (T-024, T-025). Returns its number.
+    /// </summary>
+    private static async Task<int> SalesOrderAsync(RaceScene scene, decimal quantity)
+    {
+        var customer = await SalesFlow.CreateCustomerAsync(scene.Manager);
+        return await SalesFlow.CreateSalesOrderAsync(scene.Manager, customer.Id, (scene.Cheese.Id, quantity));
+    }
+
+    /// <summary>
+    /// (v1.1) Runs the pair through <see cref="ForcedOrder.RunAsync"/> with <paramref name="ship"/> first or second, and
+    /// returns the two responses as (ship, other) whatever the order, so the test reads the same either way.
+    /// </summary>
+    private static async Task<(HttpResponseMessage Ship, HttpResponseMessage Other)> RunInOrderAsync(
+        ForcedOrder race, bool shipFirst, Func<Task<HttpResponseMessage>> ship, Func<Task<HttpResponseMessage>> other)
+    {
+        if (shipFirst)
+        {
+            return await race.RunAsync(ship, other);
+        }
+
+        var (first, second) = await race.RunAsync(other, ship);
+        return (second, first);
+    }
+
+    /// <summary>
+    /// (v1.1) AC-26.3, design 7.2: the ship lost: <c>409</c> <c>insufficient-stock</c> "Not enough stock: {item} in
+    /// Warehouse has {available} {unit}; sales order #{number} needs {needs} {unit}.", no shipment movement, and the
+    /// sales order still Created.
+    /// </summary>
+    private static async Task AssertShipRefusedAsync(
+        RaceScene scene, HttpResponseMessage ship, int number, decimal available, decimal needs)
+    {
+        await ApiAssert.ProblemAsync(ship, HttpStatusCode.Conflict, "insufficient-stock",
+            $"Not enough stock: {scene.Cheese.Name} in Warehouse has {available:0} {scene.Cheese.UnitName}; "
+            + $"sales order #{number} needs {needs:0} {scene.Cheese.UnitName}.");
+        Assert.Empty(await SalesFlow.ShipmentMovementsAsync(scene.Manager, number));
+        Assert.Equal("Created", (await SalesFlow.ReadSalesOrderAsync(scene.Manager, number)).GetProperty("status").GetString());
+    }
 
     /// <summary>
     /// <see cref="OrderFlow.RaceSceneAsync"/> with the order sent (1,000, so the Warehouse is empty), then 100 more

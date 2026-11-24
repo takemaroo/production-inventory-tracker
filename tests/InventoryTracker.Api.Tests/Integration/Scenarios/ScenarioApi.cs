@@ -7,10 +7,10 @@ using InventoryTracker.Api.Tests.Infrastructure;
 namespace InventoryTracker.Api.Tests.Integration.Scenarios;
 
 /// <summary>
-/// Helpers for the T-020 scenario tests that go through HTTP only: the start-up Manager's sign-in, staff created through
-/// <c>POST /users</c>, adjustments, every page of a list, an order's notifications as a Manager reads them, and two
-/// checks run at the end of every scenario: AC-05.3 (every change names a user and a UTC time) and AC-11.4 (the
-/// movements add up to the stock, which is never below zero).
+/// Helpers for the T-020 and (v1.1) T-031 scenario tests that go through HTTP only: the start-up Manager's sign-in,
+/// staff created through <c>POST /users</c>, adjustments, every page of a list, an order's notifications as a Manager
+/// reads them, and two checks run at the end of every scenario: AC-05.3 (every change names a user and a UTC time) and
+/// AC-11.4 (the movements add up to the stock, which is never below zero).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -160,10 +160,12 @@ public static class ScenarioApi
     }
 
     /// <summary>
-    /// AC-05.3: every movement, every order and complementary order status change, and every return status change names
-    /// the user who made it (<c>id</c> and <c>email</c>) and a UTC time (design 2.3). Reads every movement, and every
-    /// order, complementary order and return in full (their detail's <c>history</c>, design 5.7 to 5.9). Each history
-    /// also ends at the record's current status. Returns the number of records checked of each kind.
+    /// AC-05.3: every movement, every order and complementary order status change, every return status change and
+    /// (v1.1, T-031) every sales order status change names the user who made it (<c>id</c> and <c>email</c>) and a UTC
+    /// time (design 2.3). Reads every movement, and every order, complementary order, return and sales order in full
+    /// (their detail's <c>history</c>, design 5.7 to 5.9 and 5.12). Each history also ends at the record's current
+    /// status. Returns the number of records checked of each kind. <paramref name="reader"/> must be a Manager, the one
+    /// role that can read all five lists.
     /// </summary>
     public static async Task<AuditCounts> AssertEveryChangeIsAttributedAsync(HttpClient reader)
     {
@@ -177,14 +179,15 @@ public static class ScenarioApi
         var orders = await AssertHistoriesAsync(reader, "production-orders");
         var complementaryOrders = await AssertHistoriesAsync(reader, "complementary-orders");
         var returns = await AssertHistoriesAsync(reader, "returns");
-        return new AuditCounts(movements.Count, orders, complementaryOrders, returns);
+        var salesOrders = await AssertHistoriesAsync(reader, "sales-orders");
+        return new AuditCounts(movements.Count, orders, complementaryOrders, returns, salesOrders);
     }
 
     /// <summary>
-    /// Reads every record of a numbered resource (<c>production-orders</c>, <c>complementary-orders</c>, <c>returns</c>)
-    /// by its number and checks its <c>history</c>: the statuses are exactly a legal path from the starting status to the
-    /// record's current one (<see cref="LegalPaths"/>), so no step is missing, and each entry has a UTC <c>at</c> and a
-    /// <c>by</c> person. Returns how many records it read.
+    /// Reads every record of a numbered resource (<c>production-orders</c>, <c>complementary-orders</c>, <c>returns</c>,
+    /// (v1.1) <c>sales-orders</c>) by its number and checks its <c>history</c>: the statuses are exactly a legal path
+    /// from the starting status to the record's current one (<see cref="LegalPaths"/>), so no step is missing, and each
+    /// entry has a UTC <c>at</c> and a <c>by</c> person. Returns how many records it read.
     /// </summary>
     private static async Task<int> AssertHistoriesAsync(HttpClient reader, string resource)
     {
@@ -210,8 +213,8 @@ public static class ScenarioApi
 
     /// <summary>
     /// The status paths a record in its current status may show in <c>history</c>, written <c>A&gt;B&gt;C</c>, from the
-    /// lifecycles in design 3.1 and the history rules of design 5.7 to 5.9 (each status reached is listed once, oldest
-    /// first, starting with the creation status). Usually there is one path. A Cancelled production order was cancelled
+    /// lifecycles in design 3.1 and the history rules of design 5.7 to 5.9 and 5.12 (each status reached is listed once,
+    /// oldest first, starting with the creation status). Usually there is one path. A Cancelled production order was cancelled
     /// either while Created or after its send; it was sent exactly when its lines carry a fixed <c>leftoverApplied</c>
     /// (design 5.7: set at send and kept after cancellation), so it too has one exact path. A Cancelled complementary
     /// order may have been Approved first, and its response carries no other sign of that, so either path is allowed.
@@ -236,6 +239,11 @@ public static class ScenarioApi
             ("returns", "Pending") => ["Pending"],
             ("returns", "Received") => ["Pending>Received"],
             ("returns", "Cancelled") => ["Pending>Cancelled"],
+
+            // (v1.1) Design 3.1 and 5.12: Created, then Shipped or Cancelled, both final (D-10).
+            ("sales-orders", "Created") => ["Created"],
+            ("sales-orders", "Shipped") => ["Created>Shipped"],
+            ("sales-orders", "Cancelled") => ["Created>Cancelled"],
             _ => throw new InvalidOperationException($"No lifecycle known for {resource} in status {status}."),
         };
     }
@@ -255,4 +263,4 @@ public static class ScenarioApi
 public sealed record Staff(HttpClient Client, string Id, string Email);
 
 /// <summary>How many records <see cref="ScenarioApi.AssertEveryChangeIsAttributedAsync"/> checked, by kind.</summary>
-public sealed record AuditCounts(int Movements, int Orders, int ComplementaryOrders, int Returns);
+public sealed record AuditCounts(int Movements, int Orders, int ComplementaryOrders, int Returns, int SalesOrders);

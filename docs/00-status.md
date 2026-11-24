@@ -29,7 +29,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.1 part) |
 | 2 | Design | done | `docs/02-design.md` |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` |
-| 4 | Build | in progress | code (tasks done: 9 of 11, T-022 to T-032) |
+| 4 | Build | in progress | code (tasks done: 10 of 11, T-022 to T-032) |
 | 5 | QA | not started | `docs/05-test-plan.md` |
 | 6 | Security | not started | `docs/06-security-review.md` |
 | 7 | Release | not started | `docs/09-release-notes.md`, README |
@@ -105,6 +105,7 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - 2026-11-24 T-028 approved by `code-reviewer` after two rounds (cancel; ship-vs-cancel race forced both ways; shared sales test helpers #166; #165), committed and pushed. Started T-029.
 - 2026-11-24 T-029 approved by `code-reviewer` (open demand in the stock snapshot; mutation-checked), committed and pushed. Started T-030.
 - 2026-11-24 T-030 approved by `code-reviewer` after two rounds (shipped-totals reports; expression-tree helper reverted to plain copies, #167), committed and pushed. Started T-031.
+- 2026-11-24 T-031 approved by `code-reviewer` (HTTP-only sales chain, Seller's day, 7 races, performance at v1.1 volume: slowest p95 ~0.1 s; #168), committed and pushed. Review confirmed a performance issue: the sales order detail and ship loads scan every sales order line (fix before release, AsSplitQuery). Started that fix.
 
 ## Follow-ups to route
 
@@ -125,4 +126,6 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - technical-writer / T-032 (v1.1): docs/08-user-guide.md:158 and InventoryTracker.Api.http:154 still use the v1 item-in-use wording; the message now includes "sales order lines".
 - After v1.1 (owner, 2026-11-24): prepare the repo for going public: full-history secret scan (security-reviewer), LICENSE (owner to choose; suggested "all rights reserved", view for evaluation only), README "About this project" (AI-team approach, stated honestly), and GitHub's private-email setting. The owner changes visibility.
 - Later tidy (T-027 review nit): the stem "Not enough stock: {item} in {location} has {n} {unit}" exists in both StockLedger.InsufficientStockMessage and ShipSalesOrderService; a shared stem helper in StockLedger would give one source.
+- Test chore (later): the performance timing loop exists in four test files (MovementsTests, StockTests, Acceptance/PerformanceAcceptanceTests, SalesPerformanceTests); one shared Infrastructure helper (#101).
+- Later sweep: the v1 write-path loads with Include chains (ComplementaryOrderService, ComplementarySendService, RequestComplementaryOrderService, CancelOrderService, CompleteOrderService, SendOrderService) have the same single-query shape as the sales order detail; add AsSplitQuery (lower impact: small line tables).
 - Test tidy (later, not v1): third copy of the 100,000-movement volume seed in Acceptance/PerformanceAcceptanceTests; private AdjustAsync in StockZeroForms/NotificationEvents acceptance tests duplicates ScenarioApi.AdjustAsync; fold into OrderFlow/Seed (BUG-001 review).
