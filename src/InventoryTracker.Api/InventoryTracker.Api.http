@@ -1,6 +1,7 @@
 # Sample requests for every endpoint of the API (design section 4), as one walk-through of the main flow:
 # sign in -> master data -> receive -> order -> send -> complementary -> complete -> notifications -> returns
-# -> adjustments -> users -> (v1.1) customers -> sales orders.
+# -> adjustments -> users -> (v1.1) a Seller -> customers -> sales orders and open demand -> ship -> reports
+# -> cancel and delete.
 #
 # Tools: the VS Code "REST Client" extension, or the .http editor of Visual Studio 2022 17.12 or later. Both send
 # the request under the cursor ("Send Request") and both support the variables used here:
@@ -18,17 +19,19 @@
 #
 # Passwords: never type a real password into this file, because it is tracked by git. Every password below is
 # read with {{$dotenv ...}} from a file named .env in this folder (src/InventoryTracker.Api/.env), which .gitignore
-# already excludes, NOT from a .env at the repository root. Create it with these five lines (the names are also in
+# already excludes, NOT from a .env at the repository root. Create it with these six lines (the names are also in
 # the repository's .env.example), replacing each placeholder with a value of your own:
 #   ADMIN_EMAIL=owner@example.com
 #   ADMIN_PASSWORD=<choose-your-own-strong-password>
 #   SAMPLE_USER_PASSWORD=<choose-a-password-for-the-sample-user>
 #   SAMPLE_USER_RESET_PASSWORD=<choose-a-second-password>
 #   SAMPLE_USER_NEW_PASSWORD=<choose-a-third-password>
+#   SAMPLE_SELLER_PASSWORD=<choose-a-password-for-the-sample-seller>
 # ADMIN_EMAIL and ADMIN_PASSWORD are the first Manager's, the values you stored with dotnet user-secrets
 # (architecture section 8). The three SAMPLE_USER_ passwords are for the Warehouse user that section 11 creates,
-# resets and then changes; each must pass the policy (8+ characters, an upper-case letter, a lower-case letter and
-# a digit), and the three must differ. The app itself never reads .env; the file is only for these sample
+# resets and then changes, and (v1.1) SAMPLE_SELLER_PASSWORD is for the Seller user that section 12 creates and
+# signs in as. Each must pass the policy (8+ characters, an upper-case letter, a lower-case letter and a digit),
+# and the three SAMPLE_USER_ ones must differ. The app itself never reads .env; the file is only for these sample
 # requests. Both editors support $dotenv. Every email below is a placeholder.
 
 @host = http://localhost:5133
@@ -429,16 +432,40 @@ Content-Type: application/json
 
 ###
 # ==== v1.1 ========================================================================================================
-# The version 1.1 endpoints (sales orders, customers, the Seller role). They follow on from the walk-through above and
-# use the first Manager's token. A Seller-only user could send every customer request below just the same.
+# The version 1.1 walk-through (sales orders, customers, the Seller role). It runs after sections 1 to 11 and sells
+# their finished product: the order completed in section 7 put 1,001 bags of "Shredded cheese 1 kg bag" in the
+# Warehouse, and sections 3 to 10 left 181 kg of Cheese there. A Seller, created first, does everything a Seller may
+# do: customers, sales orders, stock, reports and cancelling. The first Manager's token ({{token}}, section 1) ships
+# and reads the movements, because those need the Warehouse or Manager role (design section 4); a Seller gets 403.
 
 ###
-# ---- 12. (v1.1) Customers (US-29; Manager or Seller, reads also Warehouse) -------------------------------------------
+# ---- 12. (v1.1) A Seller user (US-03, US-30; Manager only) ------------------------------------------------------
 
-### Create the customer "Deli Norte". Notes are optional, up to 500 characters. 201, active.
+### Create a Seller-only user (Manager). Its password is SAMPLE_SELLER_PASSWORD from .env (see the top of this file). 201.
+# @name createSeller
+POST {{api}}/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "email": "seller.user@example.com", "password": "{{$dotenv SAMPLE_SELLER_PASSWORD}}", "roles": ["Seller"] }
+
+### Sign in as the Seller: 200 with the Seller's token, which sections 13, 14, 16 and 17 send.
+# @name signInSeller
+POST {{api}}/auth/sign-in
+Content-Type: application/json
+
+{ "email": "seller.user@example.com", "password": "{{$dotenv SAMPLE_SELLER_PASSWORD}}" }
+
+###
+@sellerToken = {{signInSeller.response.body.$.accessToken}}
+
+###
+# ---- 13. (v1.1) Customers (US-29; changes: Manager or Seller; reads: Warehouse, Manager or Seller) ---------------
+
+### Create the customer "Deli Norte" (Seller). Notes are optional, up to 500 characters. 201, active.
 # @name createCustomer
 POST {{api}}/customers
-Authorization: Bearer {{token}}
+Authorization: Bearer {{sellerToken}}
 Content-Type: application/json
 
 { "name": "Deli Norte", "notes": "Deliveries before 10:00, ask for the kitchen." }
@@ -446,50 +473,58 @@ Content-Type: application/json
 ###
 @customerId = {{createCustomer.response.body.$.id}}
 
-### List customers, newest first. Optional filter: isActive=true or false.
+### Create a second customer, "Cafe Sur". 201.
+# @name createCafeSur
+POST {{api}}/customers
+Authorization: Bearer {{sellerToken}}
+Content-Type: application/json
+
+{ "name": "Cafe Sur" }
+
+###
+@cafeSurId = {{createCafeSur.response.body.$.id}}
+
+### List customers, newest first. Optional filter: isActive=true or false. 200: Cafe Sur, then Deli Norte.
 GET {{api}}/customers?isActive=true
-Authorization: Bearer {{token}}
+Authorization: Bearer {{sellerToken}}
 
-### One customer.
+### One customer. 200.
 GET {{api}}/customers/{{customerId}}
-Authorization: Bearer {{token}}
+Authorization: Bearer {{sellerToken}}
 
-### Rename the customer and replace its notes (full replacement: leaving notes out clears them).
+### Rename the customer and replace its notes (full replacement: leaving notes out clears them). 200, "Deli Norte SA".
 PUT {{api}}/customers/{{customerId}}
-Authorization: Bearer {{token}}
+Authorization: Bearer {{sellerToken}}
 Content-Type: application/json
 
 { "name": "Deli Norte SA", "notes": "Deliveries before 10:00, ask for the kitchen." }
 
-### Deactivate the customer: no new sales orders for it. Repeating it succeeds and changes nothing.
+### Deactivate the customer: 200, isActive false; a new sales order for it would then get 409 customer-inactive. Repeating it
+# succeeds and changes nothing.
 POST {{api}}/customers/{{customerId}}/deactivate
-Authorization: Bearer {{token}}
+Authorization: Bearer {{sellerToken}}
 
-### Reactivate the customer.
+### Reactivate the customer, so section 14 can sell to it. 200, isActive true.
 POST {{api}}/customers/{{customerId}}/reactivate
-Authorization: Bearer {{token}}
+Authorization: Bearer {{sellerToken}}
 
-### Create "Pizzeria Lago" by mistake, to delete it below.
+### Create "Pizzeria Lago" by mistake; section 17 deletes it. 201.
 # @name createMistake
 POST {{api}}/customers
-Authorization: Bearer {{token}}
+Authorization: Bearer {{sellerToken}}
 Content-Type: application/json
 
 { "name": "Pizzeria Lago" }
 
-### Delete a customer that never had a sales order: 204. One with any sales order gets 409; deactivate it instead.
-DELETE {{api}}/customers/{{createMistake.response.body.$.id}}
-Authorization: Bearer {{token}}
-
 ###
-# ---- 13. (v1.1) Sales orders (US-24 to US-27; create and cancel: Manager or Seller; reads: Warehouse, Manager or
-# Seller; ship: Warehouse or Manager) -----------------------------------------------------------------------------
+# ---- 14. (v1.1) Sales orders and open demand (US-24, US-25, US-31; create: Manager or Seller; reads: Warehouse,
+# Manager or Seller; stock: any role) --------------------------------------------------------------------------------
 
-### Create a sales order for the customer above: 600 bags of the finished product and 120 kg of Cheese (any item type
-### may be sold). customerReference is optional, up to 100 characters. 201, Created. Stock is not checked or moved.
+### Create a sales order for Deli Norte SA (Seller): 600 bags of the finished product and 120 kg of Cheese (any item
+# type may be sold). customerReference is optional, up to 100 characters. 201, Created. Stock is not checked or moved.
 # @name createSalesOrder
 POST {{api}}/sales-orders
-Authorization: Bearer {{token}}
+Authorization: Bearer {{sellerToken}}
 Content-Type: application/json
 
 { "customerId": {{customerId}}, "customerReference": "PO-2291", "lines": [ { "itemId": {{productId}}, "quantity": 600 }, { "itemId": {{cheeseId}}, "quantity": 120 } ] }
@@ -497,58 +532,99 @@ Content-Type: application/json
 ###
 @salesOrderNumber = {{createSalesOrder.response.body.$.number}}
 
-### List sales orders, newest first. Optional filters, combined: status (Created, Shipped, Cancelled), itemId, customerId.
+### Create a sales order for Cafe Sur (Seller): 1,200 bags, more than the Warehouse holds. 201 all the same: a sales
+# order can be recorded before the stock exists (AC-24.2); the stock is checked only when it ships (section 15).
+# @name createLargeSalesOrder
+POST {{api}}/sales-orders
+Authorization: Bearer {{sellerToken}}
+Content-Type: application/json
+
+{ "customerId": {{cafeSurId}}, "lines": [ { "itemId": {{productId}}, "quantity": 1200 } ] }
+
+###
+@largeSalesOrderNumber = {{createLargeSalesOrder.response.body.$.number}}
+
+### List sales orders, newest first. Optional filters, combined: status (Created, Shipped, Cancelled), itemId,
+# customerId. 200: the Deli Norte SA sales order only.
 GET {{api}}/sales-orders?status=Created&customerId={{customerId}}&itemId={{productId}}
-Authorization: Bearer {{token}}
+Authorization: Bearer {{sellerToken}}
 
-### One sales order: the customer's current name, the lines with item type and unit, and the status history.
+### One sales order: the customer's current name, the lines with item type and unit, and the status history. 200.
 GET {{api}}/sales-orders/{{salesOrderNumber}}
+Authorization: Bearer {{sellerToken}}
+
+### Stock of the finished products, with open demand (the quantity on Created sales orders; information only).
+# 200: the bag row has warehouse 1001 and openDemand 1800 (600 + 1,200).
+GET {{api}}/stock?itemType=FinishedProduct
+Authorization: Bearer {{sellerToken}}
+
+### Stock of Cheese. 200: warehouse 181, openDemand 120.
+GET {{api}}/stock/{{cheeseId}}
+Authorization: Bearer {{sellerToken}}
+
+###
+# ---- 15. (v1.1) Ship (US-26, US-28; Warehouse or Manager, so the first Manager's token) ------------------------
+
+### Ship the Cafe Sur sales order. No quantities: every line ships in full, so 1,200 bags are needed and the Warehouse
+# has 1,001. 409 insufficient-stock, "Not enough stock: Shredded cheese 1 kg bag in Warehouse has 1,001 Bag; sales
+# order #{number} needs 1,200 Bag." (one sentence per short line). Nothing ships; it stays Created.
+POST {{api}}/sales-orders/{{largeSalesOrderNumber}}/ship
 Authorization: Bearer {{token}}
 
-### Ship the sales order (Warehouse or Manager). No quantities: every line ships in full. The note is optional, up to
-### 500 characters, and the body may be left out. 200, Shipped; one ShippedToCustomer movement per line. With the
-### walk-through above, the Warehouse holds 1,001 bags and 181 kg of Cheese, so both lines are covered. If any line
-### were short, the answer would be 409 insufficient-stock naming every short line, and nothing would ship.
+### Ship the Deli Norte SA sales order: both lines are covered. The note is optional, up to 500 characters, and the
+# body may be left out. 200, Shipped; one ShippedToCustomer movement per line. The Warehouse now holds 401 bags and
+# 61 kg of Cheese.
 POST {{api}}/sales-orders/{{salesOrderNumber}}/ship
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
 { "note": "Delivery note 8812" }
 
-### The shipment movements of that sales order (Warehouse, Production or Manager): one per line, all at the same time.
+### The shipment's movements (Warehouse, Production or Manager). 200: two ShippedToCustomer movements, warehouseChange
+# -600 (bags) and -120 (kg), both at the same time.
 GET {{api}}/movements?salesOrderNumber={{salesOrderNumber}}
 Authorization: Bearer {{token}}
 
-### A second sales order for the same customer, to cancel below: 400 bags of the finished product.
-# @name createSalesOrderToCancel
-POST {{api}}/sales-orders
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{ "customerId": {{customerId}}, "lines": [ { "itemId": {{productId}}, "quantity": 400 } ] }
-
-### Cancel it (Manager or Seller, whoever created it). The reason is required, 1 to 500 characters. 200, Cancelled,
-### with cancellationReason and a Cancelled history entry; no stock moves. A Shipped sales order (such as the one
-### shipped above) gets 409 already-shipped; one already cancelled gets 409 sales-order-cancelled.
-POST {{api}}/sales-orders/{{createSalesOrderToCancel.response.body.$.number}}/cancel
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{ "reason": "Customer changed the order to 400 bags" }
-
 ###
-# ---- 14. (v1.1) Shipped-totals reports (US-32, US-33; Warehouse, Manager or Seller) ---------------------------------
-# Totals of Shipped sales orders only, by shipment time; Created and Cancelled sales orders and adjustments never count.
-# from and to are optional whole UTC days, both included (yyyy-MM-dd); with neither the period is all time. Rows are
-# ordered by name, A to Z, not newest first, and paged as every list (page, pageSize).
+# ---- 16. (v1.1) Shipped-totals reports (US-32, US-33; Warehouse, Manager or Seller) -----------------------------
+# Totals of Shipped sales orders only, by shipment time; Created and Cancelled sales orders and adjustments never count,
+# so the Cafe Sur sales order is left out. from and to are optional whole UTC days, both included (yyyy-MM-dd); with
+# neither the period is all time, which is used here because the shipment above happened today. Rows are ordered by
+# name, A to Z, not newest first, and paged as every list (page, pageSize).
 
 ### Shipped per item: one row per item with its type, unit, shipped quantity and number of sales orders. Optional
-### filters, combined: from, to, itemType (RawMaterial or FinishedProduct), customerId. For one month, add for example
-### from=2026-12-01&to=2026-12-31.
-GET {{api}}/reports/shipped-by-item?itemType=FinishedProduct&customerId={{customerId}}
-Authorization: Bearer {{token}}
+# filters, combined: from, to, itemType (RawMaterial or FinishedProduct), customerId. For one month, add for example
+# from=2026-12-01&to=2026-12-31. 200, two rows: Cheese 120 kg, 1 sales order; Shredded cheese 1 kg bag 600 Bag, 1.
+GET {{api}}/reports/shipped-by-item
+Authorization: Bearer {{sellerToken}}
 
 ### Shipped per customer and item, with the customer's current name and active status. Optional filters, combined:
-### from, to, customerId, itemId. There is no total across items, because items have different units.
-GET {{api}}/reports/shipped-by-customer?itemId={{productId}}
-Authorization: Bearer {{token}}
+# from, to, customerId, itemId. There is no total across items, because items have different units. 200, two rows,
+# both Deli Norte SA: Cheese 120 kg, then Shredded cheese 1 kg bag 600 Bag, each 1 sales order.
+GET {{api}}/reports/shipped-by-customer?customerId={{customerId}}
+Authorization: Bearer {{sellerToken}}
+
+###
+# ---- 17. (v1.1) Cancel a sales order; delete customers (US-27, US-29; Manager or Seller) ------------------------
+
+### Cancel the Cafe Sur sales order (Seller). The reason is required, 1 to 500 characters. 200, Cancelled, with
+# cancellationReason and a Cancelled history entry; no stock moves. A Shipped sales order (such as the Deli Norte SA
+# one) gets 409 already-shipped; one already cancelled gets 409 sales-order-cancelled.
+POST {{api}}/sales-orders/{{largeSalesOrderNumber}}/cancel
+Authorization: Bearer {{sellerToken}}
+Content-Type: application/json
+
+{ "reason": "Cafe Sur ordered more than we can supply; the order is withdrawn" }
+
+### The bag's stock again. 200: warehouse 401, openDemand 0 (the only Created sales order is now Cancelled).
+GET {{api}}/stock/{{productId}}
+Authorization: Bearer {{sellerToken}}
+
+### Delete Pizzeria Lago, which never had a sales order. 204.
+DELETE {{api}}/customers/{{createMistake.response.body.$.id}}
+Authorization: Bearer {{sellerToken}}
+
+### Delete Deli Norte SA, which has a sales order (in any status, here Shipped). 409 customer-has-sales-orders,
+# "Deli Norte SA has sales orders and cannot be deleted. Deactivate it instead."
+DELETE {{api}}/customers/{{customerId}}
+Authorization: Bearer {{sellerToken}}

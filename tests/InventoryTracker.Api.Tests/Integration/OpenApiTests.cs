@@ -253,11 +253,29 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
     }
 
     /// <summary>
+    /// (v1.1) T-032, design 2.3: the v1.1 enums are described by their names, in declaration order: the three sales order
+    /// statuses (design 3.1), and the seven movement types including the new <c>ShippedToCustomer</c> (AC-28.1).
+    /// </summary>
+    [Theory]
+    [InlineData("SalesOrderStatus", "Created,Shipped,Cancelled")]
+    [InlineData("MovementType", "Received,SentToProduction,ConsumedInProduction,ProducedOutput,ReturnedToWarehouse,Adjustment,ShippedToCustomer")]
+    public async Task V1_1_enums_are_lists_of_names(string schemaName, string names)
+    {
+        using var document = await FetchDocumentAsync();
+
+        var values = document.RootElement.GetProperty("components").GetProperty("schemas").GetProperty(schemaName)
+            .GetProperty("enum").EnumerateArray().Select(value => value.GetString());
+
+        Assert.Equal(names.Split(','), values);
+    }
+
+    /// <summary>
     /// Decision #110, design 5 and 7.2: a request schema lists as "required" exactly the fields the API refuses to go
     /// without, and leaves out the optional ones: an item's <c>description</c>, a receipt's <c>note</c>, a return's
     /// <c>orderNumber</c>, a completion's <c>reason</c> (needed only when some leftover is above zero), a rejection's
     /// <c>note</c> and (v1.1) a sales order's <c>customerReference</c> and a shipment's <c>note</c>. The optional fields are
-    /// still described as properties. (v1.1) A sales order cancellation's <c>reason</c> is required (AC-27.2).
+    /// still described as properties. (v1.1) A sales order cancellation's <c>reason</c> is required (AC-27.2), and a
+    /// customer needs only its <c>name</c>; <c>notes</c> is optional (AC-29.1, T-032).
     /// </summary>
     [Theory]
     [InlineData("ItemRequest", "name,type,unitId", "description")]
@@ -268,6 +286,7 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
     [InlineData("AdjustmentRequest", "itemId,location,quantity,reason", "")]
     [InlineData("SendOrderLineRequest", "itemId,quantity", "")]
     [InlineData("SignInRequest", "email,password", "")]
+    [InlineData("CustomerRequest", "name", "notes")]
     [InlineData("CreateSalesOrderRequest", "customerId,lines", "customerReference")]
     [InlineData("SalesOrderLineRequest", "itemId,quantity", "")]
     [InlineData("ShipSalesOrderRequest", "", "note")]
@@ -288,7 +307,11 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
         static string[] Split(string list) => list.Split(',', StringSplitOptions.RemoveEmptyEntries);
     }
 
-    /// <summary>Design 2.3: response schemas list every field as required, because every response field is always present.</summary>
+    /// <summary>
+    /// Design 2.3: response schemas list every field as required, because every response field is always present.
+    /// (v1.1) T-032 adds the remaining v1.1 shapes: the stock row (with <c>openDemand</c>), the customer, and the sales
+    /// order's line and history entry.
+    /// </summary>
     [Fact]
     public async Task Response_schemas_require_every_field()
     {
@@ -297,14 +320,36 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
 
         foreach (var name in new[]
                  {
-                     "MovementResponse", "ItemResponse", "ReturnResponse", "ProductionOrderResponse",
-                     "SalesOrderResponse", "SalesOrderSummaryResponse",
-                     "ShippedByItemResponse", "ShippedByCustomerResponse", "CustomerSummary",
+                     "MovementResponse", "ItemResponse", "ReturnResponse", "ProductionOrderResponse", "StockResponse",
+                     "CustomerResponse", "SalesOrderResponse", "SalesOrderSummaryResponse", "SalesOrderLineResponse",
+                     "SalesOrderHistoryEntryResponse", "ShippedByItemResponse", "ShippedByCustomerResponse", "CustomerSummary",
                  })
         {
             var schema = schemas.GetProperty(name);
-            Assert.Equal(schema.GetProperty("properties").EnumerateObject().Count(), schema.GetProperty("required").GetArrayLength());
+            var properties = schema.GetProperty("properties").EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal);
+            var required = schema.GetProperty("required").EnumerateArray().Select(field => field.GetString()!).Order(StringComparer.Ordinal);
+            Assert.Equal(properties, required);
         }
+    }
+
+    /// <summary>
+    /// (v1.1) T-032: the fields version 1.1 added to existing or new responses are present and required by name, so a
+    /// client generated from the document always gets them: <c>openDemand</c> on a stock row (AC-31.1),
+    /// <c>salesOrderNumber</c> on a movement (AC-28.1), and a sales order's <c>customer</c> and <c>history</c> (AC-25.2).
+    /// </summary>
+    [Theory]
+    [InlineData("StockResponse", "openDemand")]
+    [InlineData("MovementResponse", "salesOrderNumber")]
+    [InlineData("SalesOrderResponse", "customer")]
+    [InlineData("SalesOrderResponse", "history")]
+    [InlineData("SalesOrderSummaryResponse", "customer")]
+    public async Task V1_1_response_field_is_required(string schemaName, string field)
+    {
+        using var document = await FetchDocumentAsync();
+        var schema = document.RootElement.GetProperty("components").GetProperty("schemas").GetProperty(schemaName);
+
+        Assert.True(schema.GetProperty("properties").TryGetProperty(field, out _), $"{schemaName} has no {field}.");
+        Assert.Contains(field, schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
     }
 
     /// <summary>
