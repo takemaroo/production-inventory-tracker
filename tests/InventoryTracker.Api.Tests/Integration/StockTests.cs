@@ -41,6 +41,10 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// <c>POST /sales-orders</c> (T-025) with <see cref="SalesFlow"/>. No endpoint ships yet (T-027), so the shipments
 /// themselves go in through the ledger, like every other movement here.
 /// </para>
+/// <para>
+/// (v1.1) T-029: open demand (D-12, US-31) on both stock endpoints. Those tests create, ship and cancel sales orders
+/// through the real endpoints (T-025, T-027, T-028), with the shared <see cref="SalesFlow"/> helpers (decision #166).
+/// </para>
 /// </remarks>
 public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 {
@@ -57,13 +61,16 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
     /// <summary>
     /// AC-10.2, AC-10.1, design 5.5: an item with no movements shows 0 in both locations, with its name, type and unit;
-    /// a raw material also shows 0 committed with no order, 0 pending and 0 free. Exactly the ten design fields. Every
-    /// role may read it (PRD 4.2, AC-05.1).
+    /// a raw material also shows 0 committed with no order, 0 pending and 0 free. Every role may read it (PRD 4.2,
+    /// AC-05.1). (v1.1) T-029, AC-31.1, design 5.5: exactly the eleven design fields, in the design's order, with
+    /// <c>openDemand</c> right after <c>productionStorage</c> and 0 (a number, not null) when no sales order has the item;
+    /// the Seller role reads it too (AC-31.4).
     /// </summary>
     [Theory]
     [InlineData(Roles.Warehouse)]
     [InlineData(Roles.Production)]
     [InlineData(Roles.Manager)]
+    [InlineData(Roles.Seller)]
     public async Task Item_without_movements_has_zero_stock_and_every_role_can_read_it(string role)
     {
         var item = await CreateItemAsync(ItemType.RawMaterial);
@@ -83,7 +90,8 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         Assert.Equal(JsonValueKind.Null, body.GetProperty("committedOrderNumber").ValueKind);
         Assert.Equal(0m, body.GetProperty("pendingReturns").GetDecimal());
         Assert.Equal(0m, body.GetProperty("freeLeftover").GetDecimal());
-        Assert.Equal(10, body.EnumerateObject().Count());
+        Assert.Equal(0m, OpenDemand(body));
+        Assert.Equal(StockFields, body.EnumerateObject().Select(field => field.Name));
 
         var list = await reader.GetAsync($"{StockPath}?pageSize=100", Cancel);
         Assert.Equal(HttpStatusCode.OK, list.StatusCode);
@@ -121,7 +129,9 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
     /// <summary>
     /// Design 5.5: a finished product shows its Warehouse stock (from ProducedOutput) and <c>null</c> for committed,
-    /// committed order, pending returns and free leftover, which are about raw materials only (AC-10.3).
+    /// committed order, pending returns and free leftover, which are about raw materials only (AC-10.3). (v1.1) T-029,
+    /// AC-31.1: open demand is not one of them; a finished product shows it as 0, never null, and the row has the same
+    /// eleven fields in the same order as a raw material's.
     /// </summary>
     [Fact]
     public async Task Finished_product_has_null_leftover_figures()
@@ -139,6 +149,9 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         {
             Assert.Equal(JsonValueKind.Null, body.GetProperty(field).ValueKind);
         }
+
+        Assert.Equal(0m, OpenDemand(body));
+        Assert.Equal(StockFields, body.EnumerateObject().Select(field => field.Name));
     }
 
     // ---- AC-10.3: committed, pending returns, free leftover -------------------------------------------------------
@@ -329,6 +342,10 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             // 100,000 receipts of 1.5 spread evenly over 500 items: 200 each, so 300 per item.
             Assert.All(page.GetProperty("items").EnumerateArray(), row => Assert.Equal(300m, row.GetProperty("warehouse").GetDecimal()));
 
+            // (v1.1) T-029: every read now runs the fourth query, open demand, too. No sales order exists here, so it is 0.
+            // The timings with a v1.1 volume of sales orders are T-031's (architecture 7).
+            Assert.All(page.GetProperty("items").EnumerateArray(), row => Assert.Equal(0m, OpenDemand(row)));
+
             var pageTimes = await TimeAsync(reader, $"{StockPath}?pageSize=100");
             var itemTimes = await TimeAsync(reader, $"{StockPath}/{firstId}");
 
@@ -338,6 +355,243 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             Assert.True(pageTimes[18] < 1000, $"GET /stock p95 was {pageTimes[18]} ms.");
             Assert.True(itemTimes[18] < 1000, $"GET /stock/{{id}} p95 was {itemTimes[18]} ms.");
         }
+    }
+
+    // ---- (v1.1) Open demand (T-029, US-31, D-12) ----------------------------------------------------------------
+    //
+    // Sales orders are created, shipped and cancelled through the API with the shared SalesFlow helpers (decision #166).
+    // Tests that read GET /stock as a list, or that need an InProduction order, have a factory of their own, so the list
+    // holds only their items.
+
+    /// <summary>
+    /// AC-31.2, step by step, through the API: 1,001 Bag in the Warehouse and two Created sales orders, of 600 (the PRD's
+    /// #1) and 500 (its #4). Open demand is 1,100 and the Warehouse still 1,001 (nothing is reserved, decision #140).
+    /// After the 600 ships: 500 and 401. After the 500 is cancelled: 0, and the Warehouse stays 401. The list row agrees
+    /// with the single-item read at every step.
+    /// </summary>
+    [Fact]
+    public async Task Open_demand_follows_the_sales_orders_through_ship_and_cancel()
+    {
+        await using var app = new TestApiFactory();
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var warehouse = await app.CreateClientAsAsync(Roles.Warehouse);
+        var bags = await ProductAsync(manager, 1001m);
+        var customer = await CreateCustomerAsync(manager);
+        var first = await CreateSalesOrderAsync(manager, customer.Id, (bags.Id, 600m));
+        var fourth = await CreateSalesOrderAsync(manager, customer.Id, (bags.Id, 500m));
+
+        await AssertStockAndDemandAsync(manager, bags.Id, warehouse: 1001m, openDemand: 1100m);
+
+        Assert.Equal(HttpStatusCode.OK, (await ShipAsync(warehouse, first)).StatusCode);
+        await AssertStockAndDemandAsync(manager, bags.Id, warehouse: 401m, openDemand: 500m);
+
+        Assert.Equal(HttpStatusCode.OK, (await CancelSalesOrderAsync(manager, fourth)).StatusCode);
+        await AssertStockAndDemandAsync(manager, bags.Id, warehouse: 401m, openDemand: 0m);
+    }
+
+    /// <summary>
+    /// AC-28.4 and the design 5.5 finished-product example: two Created sales orders of 600 Bag each leave the Warehouse
+    /// at 1,001 and give open demand 1,200, larger than the stock (AC-31.3 allows it). The four leftover figures stay
+    /// null and production storage 0: a Created sales order changes no figure but open demand.
+    /// </summary>
+    [Fact]
+    public async Task Two_created_sales_orders_add_up_and_leave_the_warehouse_alone()
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var bags = await ProductAsync(manager, 1001m);
+        var deli = await CreateCustomerAsync(manager);
+        var cafe = await CreateCustomerAsync(manager);
+        await CreateSalesOrderAsync(manager, deli.Id, (bags.Id, 600m));
+        await CreateSalesOrderAsync(manager, cafe.Id, (bags.Id, 600m));
+
+        var body = await OrderFlow.StockAsync(manager, bags.Id);
+
+        Assert.Equal(1001m, body.GetProperty("warehouse").GetDecimal());
+        Assert.Equal(0m, body.GetProperty("productionStorage").GetDecimal());
+        Assert.Equal(1200m, OpenDemand(body));
+        foreach (var field in new[] { "committedToOrder", "committedOrderNumber", "pendingReturns", "freeLeftover" })
+        {
+            Assert.Equal(JsonValueKind.Null, body.GetProperty(field).ValueKind);
+        }
+    }
+
+    /// <summary>
+    /// D-12, AC-31.2: only Created sales orders count. The item is on a Created sales order (2.5 and, with another item,
+    /// 0.1 on a second one) and on a Shipped (700) and a Cancelled (300) one written straight to the database; open
+    /// demand is exactly 2.6, summed as an exact decimal. The other item's line counts only for that item (0.25), and an
+    /// item on no Created sales order shows 0.
+    /// </summary>
+    [Fact]
+    public async Task Only_created_sales_orders_count_in_open_demand()
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var user = await CreateUserAsync();
+        var item = await RawMaterialAsync(manager, warehouse: 0m);
+        var other = await RawMaterialAsync(manager, warehouse: 0m);
+        var unsold = await RawMaterialAsync(manager, warehouse: 0m);
+        var customer = await CreateCustomerAsync(manager);
+        await CreateSalesOrderAsync(manager, customer.Id, (item.Id, 2.5m));
+        await CreateSalesOrderAsync(manager, customer.Id, (other.Id, 0.25m), (item.Id, 0.1m));
+        await InsertSalesOrderAsync(factory, customer.Id, item.Id, 700m, SalesOrderStatus.Shipped, user);
+        await InsertSalesOrderAsync(factory, customer.Id, item.Id, 300m, SalesOrderStatus.Cancelled, user);
+        await InsertSalesOrderAsync(factory, customer.Id, unsold.Id, 40m, SalesOrderStatus.Cancelled, user);
+
+        Assert.Equal(2.6m, OpenDemand(await OrderFlow.StockAsync(manager, item.Id)));
+        Assert.Equal(0.25m, OpenDemand(await OrderFlow.StockAsync(manager, other.Id)));
+        Assert.Equal(0m, OpenDemand(await OrderFlow.StockAsync(manager, unsold.Id)));
+    }
+
+    /// <summary>
+    /// AC-31.3, decision #140, with a raw material that has every AC-10.3 figure: an InProduction order commits 1,000,
+    /// a Pending return holds 10, and 40 is free leftover. Open demand never blocks anything:
+    /// <list type="bullet">
+    /// <item>a sales order for 5,000, more than the 2,000 in the Warehouse, is created first, and the order's send of
+    /// 1,000 still succeeds;</item>
+    /// <item>a second sales order (3,000) changes no field of the row except <c>openDemand</c> (5,000 to 8,000): the
+    /// row is compared field by field before and after;</item>
+    /// <item>a complementary send of 20 and a Warehouse adjustment of −100 then succeed as before, and the Warehouse goes
+    /// down by exactly those amounts while open demand stays 8,000.</item>
+    /// </list>
+    /// </summary>
+    [Fact]
+    public async Task Open_demand_larger_than_stock_changes_no_other_figure_and_blocks_nothing()
+    {
+        await using var app = new TestApiFactory();
+        var (manager, managerUser) = await SignedInAsync(app, Roles.Manager);
+        var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
+        var (production, _) = await SignedInAsync(app, Roles.Production);
+        var (number, cheese, starch) = await TwoLineOrderAsync(manager);
+        var customer = await CreateCustomerAsync(manager);
+        await CreateSalesOrderAsync(manager, customer.Id, (cheese.Id, 5000m));
+
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(warehouse, number, (cheese.Id, 1000m), (starch.Id, 15m))).StatusCode);
+        await PutLeftoverAsync(app, cheese.Id, 50m, managerUser.Id);
+
+        // The API cannot give one material both committed material and a Pending return: a return of a material on the
+        // InProduction order is refused (AC-22.3), and a send with a Pending return of its material is refused too (AC-15.11). So
+        // the return is written straight to the database, as the AC-10.3 test above does.
+        await InsertPendingReturnAsync(app, cheese.Id, 10m, managerUser.Id);
+
+        // Warehouse 2,000 − 1,000. Storage 1,000 + 50. Committed 1,000. Free 1,050 − 1,000 − 10.
+        var before = await OrderFlow.StockAsync(manager, cheese.Id);
+        AssertLeftoverFigures(before, warehouse: 1000m, production: 1050m, committed: 1000m, orderNumber: number, pending: 10m, free: 40m);
+        Assert.Equal(5000m, OpenDemand(before));
+
+        await CreateSalesOrderAsync(manager, customer.Id, (cheese.Id, 3000m));
+
+        var after = await OrderFlow.StockAsync(manager, cheese.Id);
+        Assert.Equal(8000m, OpenDemand(after));
+        Assert.Equal(FieldsExceptOpenDemand(before), FieldsExceptOpenDemand(after));
+
+        var complementary = await ApprovedComplementaryAsync(production, manager, number, "Hopper spill", (cheese.Id, 20m));
+        Assert.Equal(HttpStatusCode.OK, (await SendComplementaryAsync(warehouse, complementary, (cheese.Id, 20m))).StatusCode);
+        await Scenarios.ScenarioApi.AdjustAsync(manager, cheese.Id, "Warehouse", -100m, "Count correction");
+
+        var end = await OrderFlow.StockAsync(manager, cheese.Id);
+        Assert.Equal(1000m - 20m - 100m, end.GetProperty("warehouse").GetDecimal());
+        Assert.Equal(8000m, OpenDemand(end));
+    }
+
+    /// <summary>
+    /// AC-31.4, AC-10.5, decision #147: every role, Production-only and Seller-only included, reads the item's open
+    /// demand (7.5) with <c>200</c>, on <c>GET /stock/{itemId}</c> and in the <c>GET /stock</c> list. There is one stock
+    /// view for all, so no role gets <c>403</c> for it.
+    /// </summary>
+    [Theory]
+    [InlineData(Roles.Production)]
+    [InlineData(Roles.Seller)]
+    [InlineData(Roles.Warehouse)]
+    [InlineData(Roles.Manager)]
+    public async Task Every_role_sees_open_demand(string role)
+    {
+        await using var app = new TestApiFactory();
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var item = await ProductAsync(manager, 0m);
+        await CreateSalesOrderAsync(manager, (await CreateCustomerAsync(manager)).Id, (item.Id, 7.5m));
+        var reader = await app.CreateClientAsAsync(role);
+
+        var single = await reader.GetAsync($"{StockPath}/{item.Id}", Cancel);
+        var list = await reader.GetAsync(StockPath, Cancel);
+
+        Assert.Equal(HttpStatusCode.OK, single.StatusCode);
+        Assert.Equal(7.5m, OpenDemand(await ApiJson.ReadAsync(single)));
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        Assert.Equal(7.5m, OpenDemand(Assert.Single((await ApiJson.ReadAsync(list)).GetProperty("items").EnumerateArray())));
+    }
+
+    /// <summary>
+    /// AC-31.1, design 5.5: the <c>itemType</c> filter still works with open demand. A raw material with open demand 3
+    /// and a finished product with 1,200: each filter lists only its own type, every row carries its own
+    /// <c>openDemand</c> (a number for both types), and each row is exactly the single-item read.
+    /// </summary>
+    [Fact]
+    public async Task Item_type_filter_still_works_and_every_row_has_open_demand()
+    {
+        await using var app = new TestApiFactory();
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var raw = await RawMaterialAsync(manager, warehouse: 10m);
+        var product = await ProductAsync(manager, 1001m);
+        var customer = await CreateCustomerAsync(manager);
+        await CreateSalesOrderAsync(manager, customer.Id, (raw.Id, 3m), (product.Id, 600m));
+        await CreateSalesOrderAsync(manager, customer.Id, (product.Id, 600m));
+
+        var raws = await ApiJson.ReadAsync(await manager.GetAsync($"{StockPath}?itemType=RawMaterial", Cancel));
+        var products = await ApiJson.ReadAsync(await manager.GetAsync($"{StockPath}?itemType=finishedproduct", Cancel));
+        var all = await ApiJson.ReadAsync(await manager.GetAsync(StockPath, Cancel));
+
+        var rawRow = Assert.Single(raws.GetProperty("items").EnumerateArray());
+        var productRow = Assert.Single(products.GetProperty("items").EnumerateArray());
+        Assert.Equal(raw.Id, rawRow.GetProperty("itemId").GetInt32());
+        Assert.Equal(3m, OpenDemand(rawRow));
+        Assert.Equal(product.Id, productRow.GetProperty("itemId").GetInt32());
+        Assert.Equal(1200m, OpenDemand(productRow));
+        Assert.Equal((await OrderFlow.StockAsync(manager, raw.Id)).GetRawText(), rawRow.GetRawText());
+        Assert.Equal((await OrderFlow.StockAsync(manager, product.Id)).GetRawText(), productRow.GetRawText());
+        Assert.Equal([product.Id, raw.Id], ItemIds(all));
+        Assert.All(all.GetProperty("items").EnumerateArray(),
+            row => Assert.Equal(StockFields, row.EnumerateObject().Select(field => field.Name)));
+    }
+
+    /// <summary>
+    /// Decisions #85 and #159, architecture 3.5: open demand is read in the same snapshot as the stock beside it. The test
+    /// pauses <c>GET /stock/{itemId}</c> right after its first query (the movement sums, Warehouse 1,001) and, in that
+    /// gap, ships the 600 sales order through the API. The paused read must still show one moment, before the ship
+    /// (Warehouse 1,001, open demand 1,100), never the mix "1,001 in the Warehouse, 500 open". The next read shows the
+    /// state after the ship (401, 500).
+    /// </summary>
+    [Fact]
+    public async Task Open_demand_reads_the_same_snapshot_as_the_stock_even_when_a_ship_commits_in_between()
+    {
+        Func<Task> betweenQueries = () => Task.CompletedTask;
+        var pause = new AfterFirstReadInterceptor(
+            command => command.CommandText.Contains("FROM \"Movements\"", StringComparison.Ordinal)
+                       && command.CommandText.Contains("GROUP BY", StringComparison.Ordinal),
+            () => betweenQueries());
+        await using var app = new TestApiFactory
+        {
+            ReplaceServices = services => services.ConfigureDbContext<AppDbContext>(options => options.AddInterceptors(pause)),
+        };
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var warehouse = await app.CreateClientAsAsync(Roles.Warehouse);
+        var bags = await ProductAsync(manager, 1001m);
+        var customer = await CreateCustomerAsync(manager);
+        var shipped = await CreateSalesOrderAsync(manager, customer.Id, (bags.Id, 600m));
+        await CreateSalesOrderAsync(manager, customer.Id, (bags.Id, 500m));
+        var shipStatus = HttpStatusCode.InternalServerError;
+
+        // Another request, committed while the stock read is paused between its queries. The interceptor has already
+        // fired once, so the ship's own queries pass straight through it.
+        betweenQueries = async () => shipStatus = (await ShipAsync(warehouse, shipped)).StatusCode;
+        var reader = await app.CreateClientAsAsync(Roles.Seller);
+
+        pause.Arm();
+        var during = await OrderFlow.StockAsync(reader, bags.Id);
+        var after = await OrderFlow.StockAsync(reader, bags.Id);
+
+        Assert.True(pause.HasRun);
+        Assert.Equal(HttpStatusCode.OK, shipStatus);
+        Assert.Equal((1001m, 1100m), (during.GetProperty("warehouse").GetDecimal(), OpenDemand(during)));
+        Assert.Equal((401m, 500m), (after.GetProperty("warehouse").GetDecimal(), OpenDemand(after)));
     }
 
     // ---- StockLedger: never below zero --------------------------------------------------------------------------
@@ -1145,6 +1399,52 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
         Assert.Equal(pending, body.GetProperty("pendingReturns").GetDecimal());
         Assert.Equal(free, body.GetProperty("freeLeftover").GetDecimal());
+    }
+
+    /// <summary>
+    /// (v1.1) Design 5.5: the fields of a stock row, in order. <c>openDemand</c> sits right after the two stock figures
+    /// (AC-31.1); for a finished product the last four are null, but the field list is the same.
+    /// </summary>
+    private static readonly string[] StockFields =
+    [
+        "itemId", "itemName", "itemType", "unit", "warehouse", "productionStorage", "openDemand",
+        "committedToOrder", "committedOrderNumber", "pendingReturns", "freeLeftover",
+    ];
+
+    /// <summary>
+    /// (v1.1) AC-31.1: a row's <c>openDemand</c>, after checking it is a JSON number. <c>GetDecimal</c> alone would
+    /// throw on null too, but this way a null fails with a message that says so.
+    /// </summary>
+    private static decimal OpenDemand(JsonElement row)
+    {
+        var value = row.GetProperty("openDemand");
+        Assert.Equal(JsonValueKind.Number, value.ValueKind);
+        return value.GetDecimal();
+    }
+
+    /// <summary>
+    /// (v1.1) AC-31.3: every field of a stock row except <c>openDemand</c>, as name and raw JSON, so two reads of one
+    /// row can be compared field by field while open demand is allowed to differ.
+    /// </summary>
+    private static List<string> FieldsExceptOpenDemand(JsonElement row) =>
+        row.EnumerateObject()
+            .Where(field => field.Name != "openDemand")
+            .Select(field => $"{field.Name}={field.Value.GetRawText()}")
+            .ToList();
+
+    /// <summary>
+    /// (v1.1) AC-31.2: the item's Warehouse stock and open demand through <c>GET /stock/{itemId}</c>, and that its row in
+    /// <c>GET /stock</c> is exactly the same. For a factory of the test's own, so the item is on the first page.
+    /// </summary>
+    private static async Task AssertStockAndDemandAsync(HttpClient client, int itemId, decimal warehouse, decimal openDemand)
+    {
+        var single = await OrderFlow.StockAsync(client, itemId);
+        Assert.Equal(warehouse, single.GetProperty("warehouse").GetDecimal());
+        Assert.Equal(openDemand, OpenDemand(single));
+
+        var list = await ApiJson.ReadAsync(await client.GetAsync(StockPath, Cancel));
+        var row = list.GetProperty("items").EnumerateArray().Single(candidate => candidate.GetProperty("itemId").GetInt32() == itemId);
+        Assert.Equal(single.GetRawText(), row.GetRawText());
     }
 
     private async Task<CreatedItem> CreateItemAsync(ItemType type)

@@ -12,6 +12,11 @@ namespace InventoryTracker.Api.Features.Stock;
 /// <param name="Unit">The item's unit name (AC-10.1: "with the unit").</param>
 /// <param name="Warehouse">AC-10.1, D-2: the sum of the item's Warehouse changes; 0 with no movements (AC-10.2).</param>
 /// <param name="ProductionStorage">AC-10.1, D-2: the sum of the item's Production storage changes.</param>
+/// <param name="OpenDemand">
+/// (v1.1) AC-10.5, AC-31.1, D-12: the item's quantity on Created sales orders, in <paramref name="Unit"/>. A number for
+/// every item type, 0 (never null) when no Created sales order has the item. Information only: it may exceed
+/// <paramref name="Warehouse"/> and changes no other field (AC-31.3). Placed right after the stock figures (design 5.5).
+/// </param>
 /// <param name="CommittedToOrder">
 /// AC-10.3, D-3: committed to the InProduction order; 0 when no running order uses the material. Null for a finished
 /// product.
@@ -26,6 +31,7 @@ public sealed record StockResponse(
     string Unit,
     decimal Warehouse,
     decimal ProductionStorage,
+    decimal OpenDemand,
     decimal? CommittedToOrder,
     int? CommittedOrderNumber,
     decimal? PendingReturns,

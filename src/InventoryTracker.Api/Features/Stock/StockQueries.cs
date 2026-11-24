@@ -9,7 +9,8 @@ namespace InventoryTracker.Api.Features.Stock;
 /// <summary>
 /// Reads the current stock figures of items: Warehouse and Production storage stock (D-2), material committed to the
 /// InProduction order (D-3), quantity in Pending returns, and free leftover (D-4). Every feature that needs a stock
-/// figure asks this class, so stock is calculated in exactly one way (architecture 3.3).
+/// figure asks this class, so stock is calculated in exactly one way (architecture 3.3). (v1.1) It also sums open demand
+/// (D-12), the quantity on Created sales orders, which the stock view shows beside the stock.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -70,16 +71,19 @@ public sealed class StockQueries(AppDbContext db)
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Three small queries, each filtered by the ids, whatever the number of ids.
+    /// Four small queries (movement sums, the InProduction order's lines, Pending returns and, since v1.1, open demand on
+    /// Created sales orders), each filtered by the ids, whatever the number of ids.
     /// </para>
     /// <para>
-    /// <b>One snapshot for all three (decision #85).</b> Free leftover combines the results of different queries:
+    /// <b>One snapshot for all four (decisions #85, #159).</b> Free leftover combines the results of different queries:
     /// Production storage stock from the movements, committed material from the order lines. Run one after another
     /// without a transaction, each query reads the database as it is at that moment, so a send committed between them
     /// would give a row that never existed. For example, storage 50 kg read before the send (still the old figure) and
     /// 1,000 kg committed read after it give "50 in storage, 1,000 committed, 0 free", while before the send it was
-    /// "50 in storage, 0 committed, 50 free" and after it "1,000, 1,000, 0". So outside a write transaction the three
-    /// queries run inside one read transaction. In WAL mode SQLite gives a read transaction one consistent snapshot of
+    /// "50 in storage, 0 committed, 50 free" and after it "1,000, 1,000, 0". Open demand has the same risk with a
+    /// shipment: Warehouse 1,001 read before the ship and open demand 500 read after it would look as if 600 had left
+    /// the demand without leaving the Warehouse (AC-31.2 shows 1,100 with 1,001, then 500 with 401). So outside a write
+    /// transaction the four queries run inside one read transaction. In WAL mode SQLite gives a read transaction one consistent snapshot of
     /// the database from its first read until it ends, without blocking writers.
     /// </para>
     /// <para>
@@ -165,7 +169,7 @@ public sealed class StockQueries(AppDbContext db)
         }
     }
 
-    /// <summary>The three queries and the D-3/D-4 arithmetic behind <see cref="GetFiguresAsync"/>.</summary>
+    /// <summary>The four queries and the D-3/D-4 arithmetic behind <see cref="GetFiguresAsync"/>.</summary>
     private async Task<IReadOnlyDictionary<int, StockFigures>> ReadFiguresAsync(
         IReadOnlyCollection<int> itemIds, CancellationToken cancellationToken)
     {
@@ -203,6 +207,18 @@ public sealed class StockQueries(AppDbContext db)
             .Select(group => new { ItemId = group.Key, Quantity = group.Sum(leftoverReturn => leftoverReturn.Quantity) })
             .ToDictionaryAsync(row => row.ItemId, row => row.Quantity, cancellationToken);
 
+        // (v1.1) D-12, AC-31.1, architecture 3.5: open demand is the quantity customers still wait for, the sum of the
+        // item's lines on Created sales orders. Shipped lines have already left the Warehouse (their movements are in
+        // the sum above) and Cancelled ones will never ship, so only Created counts (AC-31.2). Like the other queries it
+        // is summed in SQL for the requested ids only, on the SalesOrderLines.ItemId index; and because it runs here, it
+        // reads the same snapshot as the stock it is shown beside (decisions #85, #159). The filter on the sales order's
+        // status is a join EF Core writes for us from the navigation property, not a second query.
+        var openDemand = await db.SalesOrderLines
+            .Where(line => line.SalesOrder.Status == SalesOrderStatus.Created && itemIds.Contains(line.ItemId))
+            .GroupBy(line => line.ItemId)
+            .Select(group => new { ItemId = group.Key, Quantity = group.Sum(line => line.Quantity) })
+            .ToDictionaryAsync(row => row.ItemId, row => row.Quantity, cancellationToken);
+
         var figures = new Dictionary<int, StockFigures>();
         foreach (var itemId in itemIds.Distinct())
         {
@@ -227,8 +243,12 @@ public sealed class StockQueries(AppDbContext db)
             // D-4: production storage − committed − pending returns, never below zero.
             var free = ProductionCalculations.FreeLeftover(productionStorage, committed, pending);
 
+            // D-12: an item on no Created sales order has no group, so 0, never null (AC-31.1). It enters no other
+            // figure: free leftover above is worked out without it, because nothing is reserved (decision #140, AC-31.3).
+            var demand = openDemand.GetValueOrDefault(itemId);
+
             figures[itemId] = new StockFigures(
-                warehouse, productionStorage, committed, committedOrderNumber, pending, free);
+                warehouse, productionStorage, demand, committed, committedOrderNumber, pending, free);
         }
 
         return figures;
@@ -238,6 +258,9 @@ public sealed class StockQueries(AppDbContext db)
 /// <summary>The stock figures of one item, as calculated by <see cref="StockQueries.GetFiguresAsync"/>.</summary>
 /// <param name="Warehouse">D-2: Warehouse stock.</param>
 /// <param name="ProductionStorage">D-2: Production storage stock.</param>
+/// <param name="OpenDemand">
+/// (v1.1) D-12: the sum of the item's quantities on Created sales orders; 0 when none. Information only: no rule reads it.
+/// </param>
 /// <param name="CommittedToOrder">D-3: committed to the InProduction order; 0 when no running order uses the item.</param>
 /// <param name="CommittedOrderNumber">The InProduction order's number, or null when <paramref name="CommittedToOrder"/> has no order.</param>
 /// <param name="PendingReturns">Total quantity of the item in Pending returns.</param>
@@ -245,6 +268,7 @@ public sealed class StockQueries(AppDbContext db)
 public sealed record StockFigures(
     decimal Warehouse,
     decimal ProductionStorage,
+    decimal OpenDemand,
     decimal CommittedToOrder,
     int? CommittedOrderNumber,
     decimal PendingReturns,

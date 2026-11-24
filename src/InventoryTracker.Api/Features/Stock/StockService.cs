@@ -75,6 +75,10 @@ public sealed class StockService(AppDbContext db, StockQueries stock)
             item.Unit,
             figures.Warehouse,
             figures.ProductionStorage,
+
+            // (v1.1) AC-31.1, design 5.5: unlike the four leftover figures, open demand is about selling, which any item
+            // type can be (decision #144), so every row shows it as a number.
+            figures.OpenDemand,
             isRawMaterial ? figures.CommittedToOrder : null,
             isRawMaterial ? figures.CommittedOrderNumber : null,
             isRawMaterial ? figures.PendingReturns : null,
