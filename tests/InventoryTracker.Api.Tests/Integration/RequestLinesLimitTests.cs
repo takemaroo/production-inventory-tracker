@@ -28,7 +28,9 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// </para>
 /// <para>
 /// The records named in the URLs do not exist, so the 400 also shows that the cap is checked before the <c>404</c>, and
-/// the control, once it gets the lock, answers <c>404</c>.
+/// the control, once it gets the lock, answers <c>404</c>. (v1.1) A new sales order has no record in its URL; its body
+/// names no customer, so the 400 also shows that the cap comes before the customer check (AC-24.5), and the control,
+/// once it gets the lock, answers the field checks' <c>400</c>.
 /// </para>
 /// </remarks>
 public class RequestLinesLimitTests(TestApiFactory app) : IClassFixture<TestApiFactory>
@@ -37,24 +39,31 @@ public class RequestLinesLimitTests(TestApiFactory app) : IClassFixture<TestApiF
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    /// <summary>The five endpoints whose body carries <c>lines</c>: method, path, and the JSON of one line.</summary>
-    public static TheoryData<string, string> LineEndpoints => new()
+    /// <summary>
+    /// The six endpoints whose body carries <c>lines</c>: method, path, and what the 500-line control answers once it has
+    /// the write lock.
+    /// </summary>
+    public static TheoryData<string, string, HttpStatusCode> LineEndpoints => new()
     {
-        { "PUT", $"/api/v1/items/{NoSuchRecord}/recipe" },
-        { "POST", $"{OrdersPath}/{NoSuchRecord}/send" },
-        { "POST", $"{OrdersPath}/{NoSuchRecord}/complete" },
-        { "POST", $"{OrdersPath}/{NoSuchRecord}/complementary-orders" },
-        { "POST", $"/api/v1/complementary-orders/{NoSuchRecord}/send" },
+        { "PUT", $"/api/v1/items/{NoSuchRecord}/recipe", HttpStatusCode.NotFound },
+        { "POST", $"{OrdersPath}/{NoSuchRecord}/send", HttpStatusCode.NotFound },
+        { "POST", $"{OrdersPath}/{NoSuchRecord}/complete", HttpStatusCode.NotFound },
+        { "POST", $"{OrdersPath}/{NoSuchRecord}/complementary-orders", HttpStatusCode.NotFound },
+        { "POST", $"/api/v1/complementary-orders/{NoSuchRecord}/send", HttpStatusCode.NotFound },
+
+        // (v1.1) T-025, AC-24.5: "Customer is required." and unknown items, all inside the transaction.
+        { "POST", SalesFlow.SalesOrdersPath, HttpStatusCode.BadRequest },
     };
 
     /// <summary>
-    /// SEC-01: 501 lines on any line-carrying endpoint get <c>400</c> <c>too-many-lines</c> "At most 500 lines are
-    /// allowed." under <c>lines</c>, answered while another connection holds the write lock; 500 lines pass the cap and
-    /// wait for the lock (control), then answer <c>404</c> for the missing record.
+    /// SEC-01, (v1.1) AC-24.5: 501 lines on any line-carrying endpoint get <c>400</c> <c>too-many-lines</c> "At most 500
+    /// lines are allowed." under <c>lines</c>, on its own, answered while another connection holds the write lock; 500
+    /// lines pass the cap and wait for the lock (control), then answer <paramref name="afterRelease"/>: <c>404</c> for the
+    /// missing record, or for a new sales order the <c>400</c> of its field checks.
     /// </summary>
     [Theory]
     [MemberData(nameof(LineEndpoints))]
-    public async Task Too_many_lines_are_refused_without_the_write_lock(string method, string path)
+    public async Task Too_many_lines_are_refused_without_the_write_lock(string method, string path, HttpStatusCode afterRelease)
     {
         var manager = await app.CreateClientAsAsync(Roles.Manager);
         await using var writeLock = await HeldWriteLock.TakeAsync(app.DatabasePath);
@@ -72,8 +81,8 @@ public class RequestLinesLimitTests(TestApiFactory app) : IClassFixture<TestApiF
         Assert.False(control.IsCompleted, "The 500-line request did not wait for the write lock, so the control proves nothing.");
 
         await writeLock.ReleaseAsync();
-        var afterRelease = await control.WaitAsync(TimeSpan.FromSeconds(30), Cancel);
-        Assert.Equal(HttpStatusCode.NotFound, afterRelease.StatusCode);
+        var controlResponse = await control.WaitAsync(TimeSpan.FromSeconds(30), Cancel);
+        Assert.Equal(afterRelease, controlResponse.StatusCode);
     }
 
     /// <summary>
@@ -152,8 +161,28 @@ public class RequestLinesLimitTests(TestApiFactory app) : IClassFixture<TestApiF
     }
 
     /// <summary>
+    /// (v1.1) AC-24.5: a sales order of exactly 500 lines, each a different item, is accepted (<c>201</c>) with every line
+    /// kept in the order sent (AC-24.1). The 500 items are raw materials, which a sales order may sell (decision #144).
+    /// </summary>
+    [Fact]
+    public async Task A_sales_order_of_500_lines_is_accepted()
+    {
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var customer = await SalesFlow.CreateCustomerAsync(manager);
+        var items = await InsertRawMaterialsAsync(manager, RequestLimits.MaxLines);
+        var body = JsonSerializer.Serialize(new { customerId = customer.Id, lines = items.Select(id => new { itemId = id, quantity = 1.5m }) });
+
+        var response = await SendAsync(manager, "POST", SalesFlow.SalesOrdersPath, body);
+
+        var created = await ApiJson.ReadAsync(response);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(items, created.GetProperty("lines").EnumerateArray().Select(line => line.GetProperty("itemId").GetInt32()));
+    }
+
+    /// <summary>
     /// A body for <paramref name="path"/> with <paramref name="count"/> lines, each naming a different item. Only the
-    /// number of lines matters to these tests; the other fields are present so the body is otherwise well formed.
+    /// number of lines matters to these tests; the other fields are present so the body is otherwise well formed. (v1.1)
+    /// The sales order body deliberately has no <c>customerId</c>, so the cap is shown to come before the customer check.
     /// </summary>
     private static string Body(string path, int count)
     {

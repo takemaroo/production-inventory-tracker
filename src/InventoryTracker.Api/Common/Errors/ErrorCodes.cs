@@ -35,7 +35,7 @@ public static class ErrorCodes
 
     /// <summary>
     /// SEC-01: a body has more lines than <see cref="Validation.RequestLimits.MaxLines"/>. Status <c>400</c>, raised by
-    /// recipes, sends, completions, complementary requests and complementary sends.
+    /// recipes, sends, completions, complementary requests and complementary sends, and (v1.1) new sales orders.
     /// </summary>
     public const string TooManyLines = "too-many-lines";
 

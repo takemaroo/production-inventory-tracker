@@ -1,14 +1,16 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using InventoryTracker.Api.Domain;
 
 namespace InventoryTracker.Api.Tests.Infrastructure;
 
 /// <summary>
 /// (v1.1) The steps of a sales order's life that many integration tests need as set-up (architecture 7, "Shared helpers";
-/// decision #101): a customer to sell to and, until the sales order endpoints exist, a sales order written straight to the
-/// database. One shared copy, so the customer, sales order, shipment and report tests (T-024 to T-031) all set up their
-/// records the same way, and a fix here reaches every one of them. T-025 and later tasks add the sales order calls.
+/// decision #101): a customer to sell to, a sales order created and read through the API (T-025), and a sales order
+/// written straight to the database in a status no endpoint produces yet. One shared copy, so the customer, sales order,
+/// shipment and report tests (T-024 to T-031) all set up their records the same way, and a fix here reaches every one of
+/// them. T-027 and T-028 add the ship and cancel calls.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,6 +27,9 @@ public static class SalesFlow
 {
     /// <summary>The base path of the customer endpoints (design 4).</summary>
     public const string CustomersPath = "/api/v1/customers";
+
+    /// <summary>(T-025) The base path of the sales order endpoints (design 4).</summary>
+    public const string SalesOrdersPath = "/api/v1/sales-orders";
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
@@ -46,6 +51,41 @@ public static class SalesFlow
         }
 
         return new CreatedCustomer(body.GetProperty("id").GetInt32(), body.GetProperty("name").GetString()!);
+    }
+
+    /// <summary>
+    /// Sends <c>POST /api/v1/sales-orders</c> (T-025) for <paramref name="customerId"/> with <paramref name="lines"/> in the
+    /// order given, and returns the response unchecked, for tests that check a refusal or race two requests.
+    /// <paramref name="client"/> needs the Manager or Seller role to succeed.
+    /// </summary>
+    public static Task<HttpResponseMessage> PostSalesOrderAsync(
+        HttpClient client, int customerId, params (int ItemId, decimal Quantity)[] lines) =>
+        client.PostAsJsonAsync(SalesOrdersPath,
+            new { customerId, lines = lines.Select(line => new { itemId = line.ItemId, quantity = line.Quantity }) }, Cancel);
+
+    /// <summary>
+    /// Creates a sales order through <c>POST /api/v1/sales-orders</c> (T-025) for <paramref name="customerId"/> with
+    /// <paramref name="lines"/>, checks it got <c>201</c>, and returns its number. <paramref name="client"/> must hold the
+    /// Manager or Seller role, and the customer must be active (AC-24.4).
+    /// </summary>
+    public static async Task<int> CreateSalesOrderAsync(
+        HttpClient client, int customerId, params (int ItemId, decimal Quantity)[] lines)
+    {
+        var response = await PostSalesOrderAsync(client, customerId, lines);
+        Assert.True(response.StatusCode == HttpStatusCode.Created,
+            $"Creating a sales order gave {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync(Cancel)}");
+        return (await ApiJson.ReadAsync(response)).GetProperty("number").GetInt32();
+    }
+
+    /// <summary>
+    /// Reads a sales order's detail through <c>GET /api/v1/sales-orders/{number}</c> (T-025) and checks it got
+    /// <c>200</c>. <paramref name="client"/> must hold the Warehouse, Manager or Seller role.
+    /// </summary>
+    public static async Task<JsonElement> ReadSalesOrderAsync(HttpClient client, int number)
+    {
+        var response = await client.GetAsync($"{SalesOrdersPath}/{number}", Cancel);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ApiJson.ReadAsync(response);
     }
 
     /// <summary>

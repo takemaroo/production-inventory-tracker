@@ -43,14 +43,15 @@ public static class RequestLimits
 
     /// <summary>
     /// The most lines one request may carry: a recipe (AC-08.1), a send (AC-15.1), a completion (AC-19.1), a
-    /// complementary request (AC-16.1) or a complementary send (AC-18.1).
+    /// complementary request (AC-16.1), a complementary send (AC-18.1) or (v1.1) a new sales order (AC-24.5).
     /// </summary>
     /// <remarks>
     /// A real recipe lists each raw material of one product, which is usually a handful and rarely more than a few
     /// dozen. 500 leaves ten times that as headroom. The same cap applies to every line-carrying body on purpose: an
     /// order has exactly one line per recipe line (AC-13.1), and a complementary order a subset of them, so a correct
-    /// send, completion or complementary body never has more lines than a recipe can have. At 500 lines, checking a body
-    /// inside the write transaction takes well under a millisecond.
+    /// send, completion or complementary body never has more lines than a recipe can have. (v1.1) Real sales orders have
+    /// 1 to 10 lines (PRD section 5, architecture risk 19), so the same cap of 500 applies to them with room to spare.
+    /// At 500 lines, checking a body inside the write transaction takes well under a millisecond.
     /// </remarks>
     public const int MaxLines = 500;
 

@@ -3,7 +3,7 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 /// <summary>
 /// The exact message texts that tests of many endpoints check: the sign-in and role refusals (<c>401</c> and
 /// <c>403</c>, design 7.1), the list of known roles (design 7.2), the input maximums (design 7.2, decision #80) and
-/// (v1.1) the PRD's customer sentences (design 7.2, Customers).
+/// (v1.1) the PRD's customer and sales order sentences (design 7.2, Customers and Sales orders).
 /// Kept in one place so every endpoint's tests compare against the same wording.
 /// </summary>
 /// <remarks>
@@ -85,4 +85,20 @@ public static class ExpectedMessages
     /// than <c>true</c> or <c>false</c> on <c>GET /customers</c>.
     /// </summary>
     public const string IsActiveMustBeBoolean = "isActive must be true or false.";
+
+    /// <summary>
+    /// (v1.1) AC-24.4, PRD example with decision #152's next step: <c>409</c> <c>customer-inactive</c> on a new sales order
+    /// for "Deli Norte" after it was deactivated.
+    /// </summary>
+    public const string DeliNorteInactive =
+        "Customer Deli Norte is deactivated. Reactivate the customer or choose another one.";
+
+    /// <summary>(v1.1) AC-24.5, design 7.2: <c>400</c> <c>too-many-lines</c> under <c>lines</c>, the same on every line-carrying body.</summary>
+    public const string TooManyLines = "At most 500 lines are allowed.";
+
+    /// <summary>
+    /// (v1.1) Design 7.2, architecture 4.1 item 19: <c>400</c> <c>validation</c> under <c>status</c> for an unknown value
+    /// on <c>GET /sales-orders</c> (AC-25.1).
+    /// </summary>
+    public const string SalesOrderStatusValues = "status must be Created, Shipped or Cancelled.";
 }

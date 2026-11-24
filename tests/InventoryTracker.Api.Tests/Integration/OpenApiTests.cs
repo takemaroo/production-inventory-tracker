@@ -44,6 +44,9 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
         // (v1.1) T-024: a duplicate customer name (AC-29.2) and deleting a customer with sales orders (AC-29.5).
         // Deactivate and reactivate can fail only with 404 (architecture 5.1), so they document no 409.
         "POST /customers", "PUT /customers/{id}", "DELETE /customers/{id}",
+
+        // (v1.1) T-025: a sales order for a deactivated customer (AC-24.4). The two reads cannot conflict.
+        "POST /sales-orders",
     ];
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
@@ -244,8 +247,9 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
     /// <summary>
     /// Decision #110, design 5 and 7.2: a request schema lists as "required" exactly the fields the API refuses to go
     /// without, and leaves out the optional ones: an item's <c>description</c>, a receipt's <c>note</c>, a return's
-    /// <c>orderNumber</c>, a completion's <c>reason</c> (needed only when some leftover is above zero) and a rejection's
-    /// <c>note</c>. The optional fields are still described as properties.
+    /// <c>orderNumber</c>, a completion's <c>reason</c> (needed only when some leftover is above zero), a rejection's
+    /// <c>note</c> and (v1.1) a sales order's <c>customerReference</c>. The optional fields are still described as
+    /// properties.
     /// </summary>
     [Theory]
     [InlineData("ItemRequest", "name,type,unitId", "description")]
@@ -256,6 +260,8 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
     [InlineData("AdjustmentRequest", "itemId,location,quantity,reason", "")]
     [InlineData("SendOrderLineRequest", "itemId,quantity", "")]
     [InlineData("SignInRequest", "email,password", "")]
+    [InlineData("CreateSalesOrderRequest", "customerId,lines", "customerReference")]
+    [InlineData("SalesOrderLineRequest", "itemId,quantity", "")]
     public async Task Request_schema_requires_exactly_the_fields_the_api_needs(string schemaName, string required, string optional)
     {
         using var document = await FetchDocumentAsync();
@@ -279,7 +285,11 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
         using var document = await FetchDocumentAsync();
         var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
 
-        foreach (var name in new[] { "MovementResponse", "ItemResponse", "ReturnResponse", "ProductionOrderResponse" })
+        foreach (var name in new[]
+                 {
+                     "MovementResponse", "ItemResponse", "ReturnResponse", "ProductionOrderResponse",
+                     "SalesOrderResponse", "SalesOrderSummaryResponse",
+                 })
         {
             var schema = schemas.GetProperty(name);
             Assert.Equal(schema.GetProperty("properties").EnumerateObject().Count(), schema.GetProperty("required").GetArrayLength());

@@ -29,7 +29,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.1 part) |
 | 2 | Design | done | `docs/02-design.md` |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` |
-| 4 | Build | in progress | code (tasks done: 3 of 11, T-022 to T-032) |
+| 4 | Build | in progress | code (tasks done: 4 of 11, T-022 to T-032) |
 | 5 | QA | not started | `docs/05-test-plan.md` |
 | 6 | Security | not started | `docs/06-security-review.md` |
 | 7 | Release | not started | `docs/09-release-notes.md`, README |
@@ -99,6 +99,7 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - 2026-11-24 T-022 approved by `code-reviewer` (hand-edited one-transaction migration verified; comment fixes), committed and pushed. Architecture 3.1 corrected (rolled-back inserts reuse a number on SQLite). Started T-023.
 - 2026-11-24 T-023 approved by `code-reviewer` (Seller role, role-based reads on nine v1 endpoints, six-caller role matrix; review tidy-ups), committed and pushed. Started T-024.
 - 2026-11-24 T-024 approved by `code-reviewer` (customers; race test verified by mutation; review tidy-ups), committed and pushed. Design 7.2 note corrected for #152. Started T-025.
+- 2026-11-24 T-025 approved by `code-reviewer` (create, list and view sales orders; customer race forced both ways; comment fixes), committed and pushed. Started T-026.
 
 ## Follow-ups to route
 

@@ -33,8 +33,8 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-022 | (v1.1) Data model, `SalesOrders` migration, sales order lines count as use | backend-developer | none | done |
 | T-023 | (v1.1) Seller role and role-based reads | backend-developer | T-022 | done |
 | T-024 | (v1.1) Customers | backend-developer | T-023 | done |
-| T-025 | (v1.1) Create and view sales orders | backend-developer | T-024 | in progress |
-| T-026 | (v1.1) Shipment movements: ledger rule, movement link and filter | backend-developer | T-025 | todo |
+| T-025 | (v1.1) Create and view sales orders | backend-developer | T-024 | done |
+| T-026 | (v1.1) Shipment movements: ledger rule, movement link and filter | backend-developer | T-025 | in progress |
 | T-027 | (v1.1) Ship a sales order | backend-developer | T-026 | todo |
 | T-028 | (v1.1) Cancel a sales order | backend-developer | T-027 | todo |
 | T-029 | (v1.1) Open demand on the stock view | backend-developer | T-028 | todo |

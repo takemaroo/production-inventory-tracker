@@ -1,6 +1,6 @@
 # Sample requests for every endpoint of the API (design section 4), as one walk-through of the main flow:
 # sign in -> master data -> receive -> order -> send -> complementary -> complete -> notifications -> returns
-# -> adjustments -> users -> (v1.1) customers.
+# -> adjustments -> users -> (v1.1) customers -> sales orders.
 #
 # Tools: the VS Code "REST Client" extension, or the .http editor of Visual Studio 2022 17.12 or later. Both send
 # the request under the cursor ("Send Request") and both support the variables used here:
@@ -479,4 +479,27 @@ Content-Type: application/json
 
 ### Delete a customer that never had a sales order: 204. One with any sales order gets 409; deactivate it instead.
 DELETE {{api}}/customers/{{createMistake.response.body.$.id}}
+Authorization: Bearer {{token}}
+
+###
+# ---- 13. (v1.1) Sales orders (US-24, US-25; create: Manager or Seller; reads: Warehouse, Manager or Seller) ---------
+
+### Create a sales order for the customer above: 600 bags of the finished product and 120 kg of Cheese (any item type
+### may be sold). customerReference is optional, up to 100 characters. 201, Created. Stock is not checked or moved.
+# @name createSalesOrder
+POST {{api}}/sales-orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "customerId": {{customerId}}, "customerReference": "PO-2291", "lines": [ { "itemId": {{productId}}, "quantity": 600 }, { "itemId": {{cheeseId}}, "quantity": 120 } ] }
+
+###
+@salesOrderNumber = {{createSalesOrder.response.body.$.number}}
+
+### List sales orders, newest first. Optional filters, combined: status (Created, Shipped, Cancelled), itemId, customerId.
+GET {{api}}/sales-orders?status=Created&customerId={{customerId}}&itemId={{productId}}
+Authorization: Bearer {{token}}
+
+### One sales order: the customer's current name, the lines with item type and unit, and the status history.
+GET {{api}}/sales-orders/{{salesOrderNumber}}
 Authorization: Bearer {{token}}

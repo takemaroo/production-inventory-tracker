@@ -293,15 +293,22 @@ public class RoleMatrixTests(RoleMatrixTests.MatrixApp app) : IClassFixture<Role
         }),
         new("DELETE", "/customers/{id}", Prd42.ManageCustomers, HttpStatusCode.NoContent,
             async (a, _) => new Call($"/customers/{await a.NewCustomerAsync()}")),
+
+        // (v1.1) T-025, US-24, US-25: the reads look at one shared sales order. Each create adds a new sales order for the
+        // shared customer and item; creating moves and checks no stock (AC-24.2), so the cases never compete.
+        new("GET", "/sales-orders", Prd42.ViewSales, HttpStatusCode.OK, (_, _) => Plain("/sales-orders")),
+        new("GET", "/sales-orders/{number}", Prd42.ViewSales, HttpStatusCode.OK, (a, _) => Plain($"/sales-orders/{a.SharedSalesOrder}")),
+        new("POST", "/sales-orders", Prd42.CreateOrCancelSalesOrder, HttpStatusCode.Created, (a, _) => Plain("/sales-orders",
+            new { customerId = a.SharedCustomer, lines = new[] { new { itemId = a.Shelf.Id, quantity = 5m } } })),
     ];
 
     /// <summary>
     /// The number of endpoints in design section 4 that exist in the app so far. The 48 of version 1; each v1.1 endpoint
     /// task raises it by the endpoints it adds (T-024 to 55, T-025 to 58, T-027 to 59, T-028 to 60, T-030 to 62,
-    /// decision #164). <c>OpenApiTests</c> uses it too, so the two lists cannot disagree on the count. Now 55: the 48 of
-    /// version 1 and T-024's seven customer endpoints.
+    /// decision #164). <c>OpenApiTests</c> uses it too, so the two lists cannot disagree on the count. Now 58: the 48 of
+    /// version 1, T-024's seven customer endpoints and T-025's three sales order endpoints (list, read one, create).
     /// </summary>
-    public const int DesignEndpointCount = 55;
+    public const int DesignEndpointCount = 58;
 
     /// <summary>
     /// The callers of the matrix (decision #164), as role lists: one user per single role (AC-05.1, AC-30.4), Warehouse
@@ -616,7 +623,7 @@ public class RoleMatrixTests(RoleMatrixTests.MatrixApp app) : IClassFixture<Role
     /// The app every case shares, set up once through the API: the start-up Manager's client, one signed-in user per
     /// caller of <see cref="Callers"/> (created through <c>POST /users</c>), and the records that read-only rows look at:
     /// a unit, a raw material with stock and its receipt movement, a product with a recipe, an order and a complementary
-    /// order (both cancelled), a Pending return, a notification and (v1.1) a customer. xUnit calls <see cref="InitializeAsync"/> before the
+    /// order (both cancelled), a Pending return, a notification and (v1.1) a customer with a Created sales order. xUnit calls <see cref="InitializeAsync"/> before the
     /// first case (<see cref="IAsyncLifetime"/>) and disposes the app after the last.
     /// </summary>
     public sealed class MatrixApp : TestApiFactory, IAsyncLifetime
@@ -653,8 +660,14 @@ public class RoleMatrixTests(RoleMatrixTests.MatrixApp app) : IClassFixture<Role
         /// <summary>A notification (the complementary request's ComplementaryAwaitingApproval).</summary>
         public int SharedNotification { get; private set; }
 
-        /// <summary>(v1.1) The id of an active customer that the two customer reads look at.</summary>
+        /// <summary>
+        /// (v1.1) The id of an active customer that the two customer reads look at, and that every sales order create
+        /// case sells to.
+        /// </summary>
         public int SharedCustomer { get; private set; }
+
+        /// <summary>(v1.1) The number of a Created sales order for <see cref="SharedCustomer"/>, which the sales order detail read looks at.</summary>
+        public int SharedSalesOrder { get; private set; }
 
         /// <inheritdoc />
         public async ValueTask InitializeAsync()
@@ -680,6 +693,7 @@ public class RoleMatrixTests(RoleMatrixTests.MatrixApp app) : IClassFixture<Role
                 .Single(row => row.GetProperty("type").GetString() == "ComplementaryAwaitingApproval").GetProperty("id").GetInt32();
             SharedReturn = await InstructedReturnAsync(Admin, (await FreeLeftoverAsync()).Id, 5m);
             SharedCustomer = await NewCustomerAsync();
+            SharedSalesOrder = await SalesFlow.CreateSalesOrderAsync(Admin, SharedCustomer, (Shelf.Id, 1m));
         }
 
         /// <summary>(v1.1) A new active customer with a unique name, created by the start-up Manager; returns the id.</summary>
