@@ -1,12 +1,9 @@
 using System.Net;
 using System.Text.Json;
 using InventoryTracker.Api.Auth;
-using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Domain;
 using InventoryTracker.Api.Tests.Infrastructure;
 using InventoryTracker.Api.Tests.Integration.Scenarios;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using static InventoryTracker.Api.Tests.Infrastructure.SalesFlow;
 
@@ -34,7 +31,6 @@ public class ShipSalesOrderTests(TestApiFactory factory) : IClassFixture<TestApi
     private const string ShreddedName = "Shredded cheese 1 kg bag";
     private const string GratedName = "Grated cheese 200 g bag";
     private const string NoteTooLong = "Note must be 500 characters or fewer.";
-    private const string OpeningCount = "Opening stock count";
 
     /// <summary>A character outside the Basic Multilingual Plane: two UTF-16 code units, one code point (decision #116).</summary>
     private const string Emoji = "\U0001F9C0";
@@ -891,55 +887,6 @@ public class ShipSalesOrderTests(TestApiFactory factory) : IClassFixture<TestApi
         return (bags, five, six, warehouse, manager);
     }
 
-    /// <summary>A new raw material (its own new unit) with <paramref name="warehouse"/> received into the Warehouse when above 0.</summary>
-    private static async Task<CreatedItem> RawMaterialAsync(HttpClient manager, decimal warehouse)
-    {
-        var item = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
-        if (warehouse > 0m)
-        {
-            await OrderFlow.ReceiveAsync(manager, item.Id, warehouse);
-        }
-
-        return item;
-    }
-
-    /// <summary>
-    /// A new finished product (its own new unit) with <paramref name="warehouse"/> put into the Warehouse by a positive
-    /// adjustment when above 0 (finished products cannot be received, AC-09.3).
-    /// </summary>
-    private static async Task<CreatedItem> ProductAsync(HttpClient manager, decimal warehouse)
-    {
-        var item = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
-        if (warehouse > 0m)
-        {
-            await ScenarioApi.AdjustAsync(manager, item.Id, "Warehouse", warehouse, OpeningCount);
-        }
-
-        return item;
-    }
-
-    /// <summary>The item's Warehouse stock through <c>GET /stock/{itemId}</c>.</summary>
-    private static async Task<decimal> WarehouseAsync(HttpClient client, int itemId) =>
-        (await OrderFlow.StockAsync(client, itemId)).GetProperty("warehouse").GetDecimal();
-
-    /// <summary>The item's Warehouse and production storage stock through <c>GET /stock/{itemId}</c> are these.</summary>
-    private static async Task AssertStockAsync(HttpClient client, int itemId, decimal warehouse, decimal productionStorage)
-    {
-        var stock = await OrderFlow.StockAsync(client, itemId);
-        Assert.Equal(warehouse, stock.GetProperty("warehouse").GetDecimal());
-        Assert.Equal(productionStorage, stock.GetProperty("productionStorage").GetDecimal());
-    }
-
-    /// <summary>
-    /// AC-28.1, AC-28.2: the movements of sales order <paramref name="number"/> through
-    /// <c>GET /movements?salesOrderNumber=</c>, oldest first (by id). <paramref name="client"/> needs the Warehouse,
-    /// Production or Manager role.
-    /// </summary>
-    private static async Task<List<JsonElement>> ShipmentMovementsAsync(HttpClient client, int number) =>
-        (await ScenarioApi.AllRowsAsync(client, $"{ScenarioApi.ApiPath}/movements?salesOrderNumber={number}"))
-            .OrderBy(movement => movement.GetProperty("id").GetInt32())
-            .ToList();
-
     /// <summary>The sales order's current status through <c>GET /sales-orders/{number}</c>.</summary>
     private static async Task<string?> StatusAsync(HttpClient client, int number) =>
         (await ReadSalesOrderAsync(client, number)).GetProperty("status").GetString();
@@ -961,14 +908,6 @@ public class ShipSalesOrderTests(TestApiFactory factory) : IClassFixture<TestApi
 
     /// <summary>A stored time as the API writes it: UTC, whole seconds, with <c>Z</c> (architecture 4.1 item 9).</summary>
     private static string ApiTime(DateTime time) => time.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
-
-    /// <summary>The sales order as stored, read in a new scope without tracking.</summary>
-    private static async Task<SalesOrder> StoredSalesOrderAsync(TestApiFactory app, int number)
-    {
-        await using var scope = app.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().SalesOrders.AsNoTracking()
-            .SingleAsync(order => order.Number == number, Cancel);
-    }
 
     /// <summary>The per-test records of <see cref="SceneAsync"/>.</summary>
     private sealed record Scene(

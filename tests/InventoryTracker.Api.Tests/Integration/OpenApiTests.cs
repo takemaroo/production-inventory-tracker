@@ -50,6 +50,9 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
 
         // (v1.1) T-027: shipping a sales order that is Shipped or Cancelled (AC-26.7), or without the stock (AC-26.3).
         "POST /sales-orders/{number}/ship",
+
+        // (v1.1) T-028: cancelling a sales order that is Shipped or already Cancelled (AC-27.2).
+        "POST /sales-orders/{number}/cancel",
     ];
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
@@ -252,7 +255,7 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
     /// without, and leaves out the optional ones: an item's <c>description</c>, a receipt's <c>note</c>, a return's
     /// <c>orderNumber</c>, a completion's <c>reason</c> (needed only when some leftover is above zero), a rejection's
     /// <c>note</c> and (v1.1) a sales order's <c>customerReference</c> and a shipment's <c>note</c>. The optional fields are
-    /// still described as properties.
+    /// still described as properties. (v1.1) A sales order cancellation's <c>reason</c> is required (AC-27.2).
     /// </summary>
     [Theory]
     [InlineData("ItemRequest", "name,type,unitId", "description")]
@@ -266,6 +269,7 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
     [InlineData("CreateSalesOrderRequest", "customerId,lines", "customerReference")]
     [InlineData("SalesOrderLineRequest", "itemId,quantity", "")]
     [InlineData("ShipSalesOrderRequest", "", "note")]
+    [InlineData("CancelSalesOrderRequest", "reason", "")]
     public async Task Request_schema_requires_exactly_the_fields_the_api_needs(string schemaName, string required, string optional)
     {
         using var document = await FetchDocumentAsync();

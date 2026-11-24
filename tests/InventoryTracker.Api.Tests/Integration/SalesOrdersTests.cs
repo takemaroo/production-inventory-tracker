@@ -929,14 +929,6 @@ public class SalesOrdersTests(TestApiFactory factory) : IClassFixture<TestApiFac
         Assert.Equal(quantity, line.GetProperty("quantity").GetDecimal());
     }
 
-    private static async Task<SalesOrder> StoredSalesOrderAsync(TestApiFactory app, int number)
-    {
-        await using var scope = app.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().SalesOrders.AsNoTracking()
-            .Include(order => order.Lines)
-            .SingleAsync(order => order.Number == number, Cancel);
-    }
-
     private static async Task<int> CountSalesOrdersAsync(TestApiFactory app)
     {
         await using var scope = app.Services.CreateAsyncScope();

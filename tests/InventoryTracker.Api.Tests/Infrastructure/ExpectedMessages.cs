@@ -112,4 +112,16 @@ public static class ExpectedMessages
     /// (v1.1) AC-26.7, AC-27.3, design 7.2: <c>409</c> <c>sales-order-cancelled</c> on shipping a Cancelled sales order.
     /// </summary>
     public const string ShipCancelled = "This sales order is cancelled.";
+
+    /// <summary>
+    /// (v1.1) AC-27.2, AC-26.10, design 7.2: <c>409</c> <c>already-shipped</c> on cancelling a Shipped sales order,
+    /// including a cancel that lost a race with a ship. The code is the ship's; the sentence fits the cancel.
+    /// </summary>
+    public const string CancelShipped = "This sales order has been shipped and cannot be cancelled.";
+
+    /// <summary>
+    /// (v1.1) AC-27.2, design 7.2: <c>409</c> <c>sales-order-cancelled</c> on cancelling a Cancelled sales order,
+    /// including the loser of two cancels at the same moment.
+    /// </summary>
+    public const string AlreadyCancelled = "This sales order is already cancelled.";
 }

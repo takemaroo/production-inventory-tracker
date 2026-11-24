@@ -36,8 +36,8 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-025 | (v1.1) Create and view sales orders | backend-developer | T-024 | done |
 | T-026 | (v1.1) Shipment movements: ledger rule, movement link and filter | backend-developer | T-025 | done |
 | T-027 | (v1.1) Ship a sales order | backend-developer | T-026 | done |
-| T-028 | (v1.1) Cancel a sales order | backend-developer | T-027 | in progress |
-| T-029 | (v1.1) Open demand on the stock view | backend-developer | T-028 | todo |
+| T-028 | (v1.1) Cancel a sales order | backend-developer | T-027 | done |
+| T-029 | (v1.1) Open demand on the stock view | backend-developer | T-028 | in progress |
 | T-030 | (v1.1) Shipped-totals reports | backend-developer | T-028 | todo |
 | T-031 | (v1.1) End-to-end scenarios, cross-endpoint races, performance | backend-developer | T-029, T-030 | todo |
 | T-032 | (v1.1) OpenAPI and sample requests | backend-developer | T-029, T-030 | todo |

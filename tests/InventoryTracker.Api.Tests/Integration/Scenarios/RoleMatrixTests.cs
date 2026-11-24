@@ -306,16 +306,22 @@ public class RoleMatrixTests(RoleMatrixTests.MatrixApp app) : IClassFixture<Role
         new("POST", "/sales-orders/{number}/ship", Prd42.ShipSalesOrder, HttpStatusCode.OK, async (a, _) =>
             new Call($"/sales-orders/{await SalesFlow.CreateSalesOrderAsync(a.Admin, a.SharedCustomer, (a.Shelf.Id, 1m))}/ship",
                 new { note = "Matrix" })),
+
+        // (v1.1) T-028, US-27: each case cancels a new Created sales order of its own, so a refused caller's 403 and an
+        // allowed caller's 200 never depend on another case having cancelled it first.
+        new("POST", "/sales-orders/{number}/cancel", Prd42.CreateOrCancelSalesOrder, HttpStatusCode.OK, async (a, _) =>
+            new Call($"/sales-orders/{await SalesFlow.CreateSalesOrderAsync(a.Admin, a.SharedCustomer, (a.Shelf.Id, 1m))}/cancel",
+                new { reason = "Matrix" })),
     ];
 
     /// <summary>
     /// The number of endpoints in design section 4 that exist in the app so far. The 48 of version 1; each v1.1 endpoint
     /// task raises it by the endpoints it adds (T-024 to 55, T-025 to 58, T-027 to 59, T-028 to 60, T-030 to 62,
-    /// decision #164). <c>OpenApiTests</c> uses it too, so the two lists cannot disagree on the count. Now 59: the 48 of
-    /// version 1, T-024's seven customer endpoints, T-025's three sales order endpoints (list, read one, create) and
-    /// T-027's ship.
+    /// decision #164). <c>OpenApiTests</c> uses it too, so the two lists cannot disagree on the count. Now 60: the 48 of
+    /// version 1, T-024's seven customer endpoints, T-025's three sales order endpoints (list, read one, create),
+    /// T-027's ship and T-028's cancel.
     /// </summary>
-    public const int DesignEndpointCount = 59;
+    public const int DesignEndpointCount = 60;
 
     /// <summary>
     /// The callers of the matrix (decision #164), as role lists: one user per single role (AC-05.1, AC-30.4), Warehouse

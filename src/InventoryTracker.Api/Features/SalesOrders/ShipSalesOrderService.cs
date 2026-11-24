@@ -43,6 +43,8 @@ namespace InventoryTracker.Api.Features.SalesOrders;
 /// backstop.</item>
 /// <item>Two shipments wanting the same stock: the second sees the stock the first left and gets
 /// <c>insufficient-stock</c> naming its own short lines. The ledger checks each movement again.</item>
+/// <item>A ship and a cancel of the same sales order: the loser reads the winner's status (<c>sales-order-cancelled</c>
+/// for a ship, with no movement; <c>already-shipped</c> for a cancel, see <see cref="CancelSalesOrderService"/>).</item>
 /// </list>
 /// <para>
 /// <b>Check order</b> (design 2.2, architecture 5.1 v1.1): the sales order in the URL (<c>404</c>), the note (<c>400</c>),

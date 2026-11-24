@@ -8,15 +8,16 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 namespace InventoryTracker.Api.Features.SalesOrders;
 
 /// <summary>
-/// (v1.1) The <c>/api/v1/sales-orders</c> endpoints (US-24 to US-26, design 3.13, 3.14, 4 and 5.12): list sales
-/// orders, view one, create one (T-025) and ship one (T-027). Warehouse, Manager and Seller users may read; Manager and
-/// Seller users may create; Warehouse and Manager users ship. The cancel (T-028) is added to this controller later.
+/// (v1.1) The <c>/api/v1/sales-orders</c> endpoints (US-24 to US-27, design 3.13 to 3.15, 4 and 5.12): list sales
+/// orders, view one, create one (T-025), ship one (T-027) and cancel one (T-028). Warehouse, Manager and Seller users may
+/// read; Manager and Seller users may create and cancel; Warehouse and Manager users ship.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Built the same way as <c>UnitsController</c>, which explains the request flow, model binding, <c>[Authorize]</c> and
-/// <c>CreatedAtAction</c>. The controller is thin: every rule is in <see cref="SalesOrderService"/> and, for the ship,
-/// <see cref="ShipSalesOrderService"/>. Sales orders are addressed by their number, not an id (design 2.1).
+/// <c>CreatedAtAction</c>. The controller is thin: every rule is in <see cref="SalesOrderService"/> and, for the ship and
+/// the cancel, <see cref="ShipSalesOrderService"/> and <see cref="CancelSalesOrderService"/>. Sales orders are addressed
+/// by their number, not an id (design 2.1).
 /// </para>
 /// <para>
 /// <b>Why each action carries its own <c>[Authorize]</c></b> (decision #156, explained in full on
@@ -33,7 +34,8 @@ namespace InventoryTracker.Api.Features.SalesOrders;
 /// </remarks>
 [ApiController]
 [Route("api/v1/sales-orders")]
-public sealed class SalesOrdersController(SalesOrderService salesOrders, ShipSalesOrderService shipments) : ControllerBase
+public sealed class SalesOrdersController(
+    SalesOrderService salesOrders, ShipSalesOrderService shipments, CancelSalesOrderService cancellations) : ControllerBase
 {
     /// <summary>
     /// <c>GET /api/v1/sales-orders</c>: one page of sales order summaries, newest first, optionally filtered with
@@ -123,5 +125,27 @@ public sealed class SalesOrdersController(SalesOrderService salesOrders, ShipSal
         // AC-05.3, AC-26.1: "shipped by" is the caller, taken from the checked token, never from the body.
         var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
         return shipments.ShipAsync(number, request, userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// <c>POST /api/v1/sales-orders/{number}/cancel</c>: cancels a Created sales order with a reason (AC-27.1, design
+    /// 5.12): <c>{ "reason": "Customer changed the order to 400 bags" }</c>. <c>200</c> with the sales order, now Cancelled,
+    /// with <c>cancellationReason</c> filled and a Cancelled history entry; no stock moves. <c>404</c> for an unknown
+    /// number; <c>400</c> <c>validation</c> for a missing, blank or too long reason; <c>409</c> <c>already-shipped</c> or
+    /// <c>sales-order-cancelled</c> for a Shipped or already Cancelled sales order (AC-27.2).
+    /// </summary>
+    /// <remarks>
+    /// PRD 4.2, "Create or cancel a sales order": Manager or Seller, whoever created the sales order (decision #146). A
+    /// Warehouse or Production user gets <c>403</c> (AC-27.4) before the sales order or the body is looked at (design 2.2).
+    /// </remarks>
+    [HttpPost("{number:int}/cancel")]
+    [Authorize(Roles = Roles.ManagerOrSeller)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`already-shipped` or `sales-order-cancelled`: a Shipped or Cancelled sales order cannot be cancelled (AC-27.2).")]
+    public Task<SalesOrderResponse> Cancel(int number, CancelSalesOrderRequest request, CancellationToken cancellationToken)
+    {
+        // AC-05.3, AC-27.1: "cancelled by" is the caller, taken from the checked token, never from the body.
+        var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
+        return cancellations.CancelAsync(number, request, userId, cancellationToken);
     }
 }

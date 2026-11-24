@@ -52,6 +52,23 @@ public sealed record SalesOrderLineRequest(int? ItemId, decimal? Quantity);
 public sealed record ShipSalesOrderRequest(string? Note = null);
 
 /// <summary>
+/// (v1.1) Body of <c>POST /api/v1/sales-orders/{number}/cancel</c> (design 5.12, architecture 4.1 item 15): why the sales
+/// order will not be shipped, for example <c>{ "reason": "Customer changed the order to 400 bags" }</c>.
+/// </summary>
+/// <param name="Reason">
+/// Required: 1 to 500 characters after trimming (AC-27.1, AC-27.2, design 2.6). Stored trimmed as the sales order's
+/// cancellation reason and shown as the note of the Cancelled history entry (design 5.12).
+/// </param>
+/// <remarks>
+/// Nullable so that a missing value reaches <see cref="CancelSalesOrderService"/>, which answers with the design's own
+/// message "Reason is required." under <c>reason</c> rather than a framework error (architecture 6, Validation). Unlike
+/// the ship's body, the body itself is required, as for the production order cancel: no body at all is the framework's
+/// <c>400</c> "A request body is required." (architecture 4.1 item 2). There is no <c>= null</c>, so the OpenAPI
+/// description lists <c>reason</c> as required (decision #110).
+/// </remarks>
+public sealed record CancelSalesOrderRequest(string? Reason);
+
+/// <summary>
 /// (v1.1) A sales order in full, as <c>GET /api/v1/sales-orders/{number}</c> and every change to a sales order return it
 /// (design 5.12, AC-25.2). Built in one place, <see cref="SalesOrderService.ReadDetailAsync"/> (decision #161).
 /// </summary>

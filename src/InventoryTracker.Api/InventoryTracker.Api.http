@@ -482,8 +482,8 @@ DELETE {{api}}/customers/{{createMistake.response.body.$.id}}
 Authorization: Bearer {{token}}
 
 ###
-# ---- 13. (v1.1) Sales orders (US-24 to US-26; create: Manager or Seller; reads: Warehouse, Manager or Seller;
-# ship: Warehouse or Manager) -------------------------------------------------------------------------------------
+# ---- 13. (v1.1) Sales orders (US-24 to US-27; create and cancel: Manager or Seller; reads: Warehouse, Manager or
+# Seller; ship: Warehouse or Manager) -----------------------------------------------------------------------------
 
 ### Create a sales order for the customer above: 600 bags of the finished product and 120 kg of Cheese (any item type
 ### may be sold). customerReference is optional, up to 100 characters. 201, Created. Stock is not checked or moved.
@@ -518,3 +518,20 @@ Content-Type: application/json
 ### The shipment movements of that sales order (Warehouse, Production or Manager): one per line, all at the same time.
 GET {{api}}/movements?salesOrderNumber={{salesOrderNumber}}
 Authorization: Bearer {{token}}
+
+### A second sales order for the same customer, to cancel below: 400 bags of the finished product.
+# @name createSalesOrderToCancel
+POST {{api}}/sales-orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "customerId": {{customerId}}, "lines": [ { "itemId": {{productId}}, "quantity": 400 } ] }
+
+### Cancel it (Manager or Seller, whoever created it). The reason is required, 1 to 500 characters. 200, Cancelled,
+### with cancellationReason and a Cancelled history entry; no stock moves. A Shipped sales order (such as the one
+### shipped above) gets 409 already-shipped; one already cancelled gets 409 sales-order-cancelled.
+POST {{api}}/sales-orders/{{createSalesOrderToCancel.response.body.$.number}}/cancel
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Customer changed the order to 400 bags" }
