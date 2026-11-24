@@ -26,7 +26,7 @@ namespace InventoryTracker.Api.Features.Movements;
 /// AC-11.3: there are only two <c>GET</c> actions. With no <c>PUT</c>, <c>PATCH</c>, <c>DELETE</c> or <c>POST</c>
 /// action on these paths, routing answers those methods with the framework's <c>405</c> (design 4), so no request can
 /// edit, delete or add a movement here. Movements are added only by the commands that cause them (receipts,
-/// adjustments, sends, completions, returns), through <see cref="StockLedger"/>.
+/// adjustments, sends, completions, returns and (v1.1) shipments), through <see cref="StockLedger"/>.
 /// </para>
 /// </remarks>
 [ApiController]

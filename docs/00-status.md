@@ -29,7 +29,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.1 part) |
 | 2 | Design | done | `docs/02-design.md` |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` |
-| 4 | Build | in progress | code (tasks done: 5 of 11, T-022 to T-032) |
+| 4 | Build | in progress | code (tasks done: 6 of 11, T-022 to T-032) |
 | 5 | QA | not started | `docs/05-test-plan.md` |
 | 6 | Security | not started | `docs/06-security-review.md` |
 | 7 | Release | not started | `docs/09-release-notes.md`, README |
@@ -101,6 +101,7 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - 2026-11-24 T-024 approved by `code-reviewer` (customers; race test verified by mutation; review tidy-ups), committed and pushed. Design 7.2 note corrected for #152. Started T-025.
 - 2026-11-24 T-025 approved by `code-reviewer` (create, list and view sales orders; customer race forced both ways; comment fixes), committed and pushed. Started T-026.
 - 2026-11-24 T-026 approved by `code-reviewer` (ShippedToCustomer ledger rules, salesOrderNumber on movements and filter, DayRange), committed and pushed. Started T-027.
+- 2026-11-24 T-027 approved by `code-reviewer` (ship: all-lines stock check, Warehouse only, both races forced, one clock read), committed and pushed. Started T-028.
 
 ## Follow-ups to route
 
@@ -120,4 +121,5 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - backend-developer (Later, SEC-22): move the signing-key rule into the API's start-up checks (StartupChecks.CheckSettings): characters A-Z a-z 0-9 + / = - _, at least 43 characters, at least 10 different; keep run.ps1's check in step; tests for the banner, a repeated letter and a generated key.
 - technical-writer / T-032 (v1.1): docs/08-user-guide.md:158 and InventoryTracker.Api.http:154 still use the v1 item-in-use wording; the message now includes "sales order lines".
 - After v1.1 (owner, 2026-11-24): prepare the repo for going public: full-history secret scan (security-reviewer), LICENSE (owner to choose; suggested "all rights reserved", view for evaluation only), README "About this project" (AI-team approach, stated honestly), and GitHub's private-email setting. The owner changes visibility.
+- Later tidy (T-027 review nit): the stem "Not enough stock: {item} in {location} has {n} {unit}" exists in both StockLedger.InsufficientStockMessage and ShipSalesOrderService; a shared stem helper in StockLedger would give one source.
 - Test tidy (later, not v1): third copy of the 100,000-movement volume seed in Acceptance/PerformanceAcceptanceTests; private AdjustAsync in StockZeroForms/NotificationEvents acceptance tests duplicates ScenarioApi.AdjustAsync; fold into OrderFlow/Seed (BUG-001 review).

@@ -300,15 +300,22 @@ public class RoleMatrixTests(RoleMatrixTests.MatrixApp app) : IClassFixture<Role
         new("GET", "/sales-orders/{number}", Prd42.ViewSales, HttpStatusCode.OK, (a, _) => Plain($"/sales-orders/{a.SharedSalesOrder}")),
         new("POST", "/sales-orders", Prd42.CreateOrCancelSalesOrder, HttpStatusCode.Created, (a, _) => Plain("/sales-orders",
             new { customerId = a.SharedCustomer, lines = new[] { new { itemId = a.Shelf.Id, quantity = 5m } } })),
+
+        // (v1.1) T-027, US-26: each case ships a new Created sales order of 1 of the shared material, which holds far more
+        // Warehouse stock than every case together takes, so an allowed caller's 200 never depends on the other cases.
+        new("POST", "/sales-orders/{number}/ship", Prd42.ShipSalesOrder, HttpStatusCode.OK, async (a, _) =>
+            new Call($"/sales-orders/{await SalesFlow.CreateSalesOrderAsync(a.Admin, a.SharedCustomer, (a.Shelf.Id, 1m))}/ship",
+                new { note = "Matrix" })),
     ];
 
     /// <summary>
     /// The number of endpoints in design section 4 that exist in the app so far. The 48 of version 1; each v1.1 endpoint
     /// task raises it by the endpoints it adds (T-024 to 55, T-025 to 58, T-027 to 59, T-028 to 60, T-030 to 62,
-    /// decision #164). <c>OpenApiTests</c> uses it too, so the two lists cannot disagree on the count. Now 58: the 48 of
-    /// version 1, T-024's seven customer endpoints and T-025's three sales order endpoints (list, read one, create).
+    /// decision #164). <c>OpenApiTests</c> uses it too, so the two lists cannot disagree on the count. Now 59: the 48 of
+    /// version 1, T-024's seven customer endpoints, T-025's three sales order endpoints (list, read one, create) and
+    /// T-027's ship.
     /// </summary>
-    public const int DesignEndpointCount = 58;
+    public const int DesignEndpointCount = 59;
 
     /// <summary>
     /// The callers of the matrix (decision #164), as role lists: one user per single role (AC-05.1, AC-30.4), Warehouse

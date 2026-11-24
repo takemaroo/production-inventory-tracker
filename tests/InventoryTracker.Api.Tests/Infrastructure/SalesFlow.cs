@@ -7,10 +7,10 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 
 /// <summary>
 /// (v1.1) The steps of a sales order's life that many integration tests need as set-up (architecture 7, "Shared helpers";
-/// decision #101): a customer to sell to, a sales order created and read through the API (T-025), and a sales order
-/// written straight to the database in a status no endpoint produces yet. One shared copy, so the customer, sales order,
-/// shipment and report tests (T-024 to T-031) all set up their records the same way, and a fix here reaches every one of
-/// them. T-027 and T-028 add the ship and cancel calls.
+/// decision #101): a customer to sell to, a sales order created, read (T-025) and shipped (T-027) through the API, and a
+/// sales order written straight to the database in a status no endpoint produces in one step. One shared copy, so the
+/// customer, sales order, shipment and report tests (T-024 to T-031) all set up their records the same way, and a fix
+/// here reaches every one of them. T-028 adds the cancel call.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -89,16 +89,26 @@ public static class SalesFlow
     }
 
     /// <summary>
+    /// Ships a sales order through <c>POST /api/v1/sales-orders/{number}/ship</c> (T-027) with <c>{ "note": ... }</c>, and
+    /// returns the response unchecked, because the ship is often the request under test or one side of a race.
+    /// <paramref name="client"/> needs the Warehouse or Manager role to succeed (AC-26.9). A test of the other body forms
+    /// (no body, <c>{}</c>) sends its own request.
+    /// </summary>
+    public static Task<HttpResponseMessage> ShipAsync(HttpClient client, int number, string? note = null) =>
+        client.PostAsJsonAsync($"{SalesOrdersPath}/{number}/ship", new { note }, Cancel);
+
+    /// <summary>
     /// Inserts a sales order for <paramref name="customerId"/> with one line (<paramref name="quantity"/> of
     /// <paramref name="itemId"/>), straight in <paramref name="status"/>, created now by <paramref name="userId"/>, in a
     /// write transaction of its own, and returns its number.
     /// </summary>
     /// <remarks>
     /// For states the API cannot produce yet, or not in one step: T-024 needs "a customer with a Cancelled sales order"
-    /// before the sales order endpoints exist (AC-29.5). A Shipped or Cancelled one gets the who-and-when pair of that
-    /// step (AC-05.3) and, for Cancelled, a reason, so the row looks like one the endpoints would leave. A Shipped one gets
-    /// <b>no</b> shipment movement: use the ship endpoint (T-027) when stock must move. <c>StatusChangedAt</c> is the time
-    /// of the latest step, as architecture 5.1 sets it.
+    /// before the sales order endpoints exist (AC-29.5), and T-027 a Cancelled one before the cancel endpoint exists
+    /// (T-028). A Shipped or Cancelled one gets the who-and-when pair of that step (AC-05.3) and, for Cancelled, a reason,
+    /// so the row looks like one the endpoints would leave. A Shipped one gets <b>no</b> shipment movement: use
+    /// <see cref="ShipAsync"/> when stock must move. <c>StatusChangedAt</c> is the time of the latest step, as
+    /// architecture 5.1 sets it.
     /// </remarks>
     public static async Task<int> InsertSalesOrderAsync(
         TestApiFactory app, int customerId, int itemId, decimal quantity, SalesOrderStatus status, string userId)

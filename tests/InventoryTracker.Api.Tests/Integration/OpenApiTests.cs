@@ -47,6 +47,9 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
 
         // (v1.1) T-025: a sales order for a deactivated customer (AC-24.4). The two reads cannot conflict.
         "POST /sales-orders",
+
+        // (v1.1) T-027: shipping a sales order that is Shipped or Cancelled (AC-26.7), or without the stock (AC-26.3).
+        "POST /sales-orders/{number}/ship",
     ];
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
@@ -248,8 +251,8 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
     /// Decision #110, design 5 and 7.2: a request schema lists as "required" exactly the fields the API refuses to go
     /// without, and leaves out the optional ones: an item's <c>description</c>, a receipt's <c>note</c>, a return's
     /// <c>orderNumber</c>, a completion's <c>reason</c> (needed only when some leftover is above zero), a rejection's
-    /// <c>note</c> and (v1.1) a sales order's <c>customerReference</c>. The optional fields are still described as
-    /// properties.
+    /// <c>note</c> and (v1.1) a sales order's <c>customerReference</c> and a shipment's <c>note</c>. The optional fields are
+    /// still described as properties.
     /// </summary>
     [Theory]
     [InlineData("ItemRequest", "name,type,unitId", "description")]
@@ -262,6 +265,7 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
     [InlineData("SignInRequest", "email,password", "")]
     [InlineData("CreateSalesOrderRequest", "customerId,lines", "customerReference")]
     [InlineData("SalesOrderLineRequest", "itemId,quantity", "")]
+    [InlineData("ShipSalesOrderRequest", "", "note")]
     public async Task Request_schema_requires_exactly_the_fields_the_api_needs(string schemaName, string required, string optional)
     {
         using var document = await FetchDocumentAsync();

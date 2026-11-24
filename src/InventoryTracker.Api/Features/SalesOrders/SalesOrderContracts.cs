@@ -36,6 +36,22 @@ public sealed record CreateSalesOrderRequest(
 public sealed record SalesOrderLineRequest(int? ItemId, decimal? Quantity);
 
 /// <summary>
+/// (v1.1) Body of <c>POST /api/v1/sales-orders/{number}/ship</c> (design 5.12, architecture 4.1 item 15), for example
+/// <c>{ "note": "Delivery note 8812" }</c>. There are no quantities: every line ships in full (AC-26.1, decision #141).
+/// </summary>
+/// <param name="Note">
+/// Optional: a note about the shipment, such as the delivery note number, trimmed, up to 500 characters (AC-26.8). Empty
+/// or blank is stored as no note (design 2.6).
+/// </param>
+/// <remarks>
+/// The whole body is optional too: no body, <c>{}</c>, a <c>null</c> note and an all-spaces note all mean "no note"
+/// (AC-26.8). The controller binds it with <c>EmptyBodyBehavior.Allow</c>, the complementary reject's pattern, so a
+/// missing body arrives as <c>null</c>. <c>= null</c> marks the note as not required in the OpenAPI description
+/// (decision #110).
+/// </remarks>
+public sealed record ShipSalesOrderRequest(string? Note = null);
+
+/// <summary>
 /// (v1.1) A sales order in full, as <c>GET /api/v1/sales-orders/{number}</c> and every change to a sales order return it
 /// (design 5.12, AC-25.2). Built in one place, <see cref="SalesOrderService.ReadDetailAsync"/> (decision #161).
 /// </summary>

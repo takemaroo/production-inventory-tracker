@@ -656,7 +656,7 @@ A new password check added later follows the same pattern: hash outside, re-conf
 
 ### 5.3 (v1.1) The shipment, step by step
 
-`ShipSalesOrderService.ShipAsync(number, request, userId)` (decision #158). It holds `AppDbContext`, `StockLedger`, `StockQueries` and `Clock` from its constructor (decision #77). Everything below runs in one `db.InWriteTransactionAsync`, so a shipment either completes fully or saves nothing (AC-26.3, PRD section 5):
+`ShipSalesOrderService.ShipAsync(number, request, userId)` (decision #158). It holds `AppDbContext`, `StockLedger`, `StockQueries`, `Clock`, `SalesOrderService` (for `ReadDetailAsync`, step 7) and an `ILogger` (step 8) from its constructor (decision #77), the same pattern as `SendOrderService`. Everything below runs in one `db.InWriteTransactionAsync`, so a shipment either completes fully or saves nothing (AC-26.3, PRD section 5):
 
 1. Load the sales order with its lines, in `LineNo` order, and each line's item name and unit. Missing: `404` "Sales order #{number} not found.".
 2. Clean the note (`Text.Clean`; blank becomes null, AC-26.8). More than 500 code points: `400` "Note must be 500 characters or fewer." under `note`.

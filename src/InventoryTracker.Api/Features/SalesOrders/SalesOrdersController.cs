@@ -3,19 +3,20 @@ using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Common.Paging;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace InventoryTracker.Api.Features.SalesOrders;
 
 /// <summary>
-/// (v1.1) The <c>/api/v1/sales-orders</c> endpoints of T-025 (US-24, US-25, design 3.13, 4 and 5.12): list sales orders,
-/// view one, and create one. Warehouse, Manager and Seller users may read; Manager and Seller users may create. The ship
-/// (T-027) and the cancel (T-028) are added to this controller later.
+/// (v1.1) The <c>/api/v1/sales-orders</c> endpoints (US-24 to US-26, design 3.13, 3.14, 4 and 5.12): list sales
+/// orders, view one, create one (T-025) and ship one (T-027). Warehouse, Manager and Seller users may read; Manager and
+/// Seller users may create; Warehouse and Manager users ship. The cancel (T-028) is added to this controller later.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Built the same way as <c>UnitsController</c>, which explains the request flow, model binding, <c>[Authorize]</c> and
-/// <c>CreatedAtAction</c>. The controller is thin: every rule is in <see cref="SalesOrderService"/>. Sales orders are
-/// addressed by their number, not an id (design 2.1).
+/// <c>CreatedAtAction</c>. The controller is thin: every rule is in <see cref="SalesOrderService"/> and, for the ship,
+/// <see cref="ShipSalesOrderService"/>. Sales orders are addressed by their number, not an id (design 2.1).
 /// </para>
 /// <para>
 /// <b>Why each action carries its own <c>[Authorize]</c></b> (decision #156, explained in full on
@@ -32,7 +33,7 @@ namespace InventoryTracker.Api.Features.SalesOrders;
 /// </remarks>
 [ApiController]
 [Route("api/v1/sales-orders")]
-public sealed class SalesOrdersController(SalesOrderService salesOrders) : ControllerBase
+public sealed class SalesOrdersController(SalesOrderService salesOrders, ShipSalesOrderService shipments) : ControllerBase
 {
     /// <summary>
     /// <c>GET /api/v1/sales-orders</c>: one page of sales order summaries, newest first, optionally filtered with
@@ -93,5 +94,34 @@ public sealed class SalesOrdersController(SalesOrderService salesOrders) : Contr
         var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
         var salesOrder = await salesOrders.CreateAsync(request, userId, cancellationToken);
         return CreatedAtAction(nameof(Get), new { number = salesOrder.Number }, salesOrder);
+    }
+
+    /// <summary>
+    /// <c>POST /api/v1/sales-orders/{number}/ship</c>: ships a Created sales order in full, with an optional note
+    /// (AC-26.1, design 5.12): <c>{ "note": "Delivery note 8812" }</c>, an empty object or no body at all. <c>200</c> with
+    /// the sales order, now Shipped; one <c>ShippedToCustomer</c> movement per line took its quantity out of the
+    /// Warehouse. <c>404</c> for an unknown number; <c>400</c> <c>validation</c> for a note over 500 characters
+    /// (AC-26.8); <c>409</c> <c>already-shipped</c> or <c>sales-order-cancelled</c> (AC-26.7), or
+    /// <c>insufficient-stock</c> naming every line the Warehouse cannot cover (AC-26.3).
+    /// </summary>
+    /// <remarks>
+    /// PRD 4.2, "Ship a sales order": Warehouse or Manager. A Production or Seller user gets <c>403</c> (AC-26.9) before
+    /// the sales order or the body is looked at (design 2.2). <c>[FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)]</c>
+    /// makes the body optional: by default <c>[ApiController]</c> refuses a missing body with <c>400</c>, but design 5.12
+    /// says no body means no note. Without a body the parameter is <c>null</c>. This is the pattern of the complementary
+    /// reject (<c>ComplementaryOrdersController.Reject</c>).
+    /// </remarks>
+    [HttpPost("{number:int}/ship")]
+    [Authorize(Roles = Roles.WarehouseOrManager)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`already-shipped` or `sales-order-cancelled` (AC-26.7), or `insufficient-stock` (AC-26.3).")]
+    public Task<SalesOrderResponse> Ship(
+        int number,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] ShipSalesOrderRequest? request,
+        CancellationToken cancellationToken)
+    {
+        // AC-05.3, AC-26.1: "shipped by" is the caller, taken from the checked token, never from the body.
+        var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
+        return shipments.ShipAsync(number, request, userId, cancellationToken);
     }
 }

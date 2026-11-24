@@ -101,4 +101,15 @@ public static class ExpectedMessages
     /// on <c>GET /sales-orders</c> (AC-25.1).
     /// </summary>
     public const string SalesOrderStatusValues = "status must be Created, Shipped or Cancelled.";
+
+    /// <summary>
+    /// (v1.1) AC-26.7, AC-26.10, design 7.2: <c>409</c> <c>already-shipped</c> on shipping a sales order that is already
+    /// Shipped, including the loser of two shipments at the same moment.
+    /// </summary>
+    public const string AlreadyShipped = "This sales order has already been shipped.";
+
+    /// <summary>
+    /// (v1.1) AC-26.7, AC-27.3, design 7.2: <c>409</c> <c>sales-order-cancelled</c> on shipping a Cancelled sales order.
+    /// </summary>
+    public const string ShipCancelled = "This sales order is cancelled.";
 }

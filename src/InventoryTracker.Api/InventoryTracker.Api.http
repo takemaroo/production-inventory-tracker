@@ -482,7 +482,8 @@ DELETE {{api}}/customers/{{createMistake.response.body.$.id}}
 Authorization: Bearer {{token}}
 
 ###
-# ---- 13. (v1.1) Sales orders (US-24, US-25; create: Manager or Seller; reads: Warehouse, Manager or Seller) ---------
+# ---- 13. (v1.1) Sales orders (US-24 to US-26; create: Manager or Seller; reads: Warehouse, Manager or Seller;
+# ship: Warehouse or Manager) -------------------------------------------------------------------------------------
 
 ### Create a sales order for the customer above: 600 bags of the finished product and 120 kg of Cheese (any item type
 ### may be sold). customerReference is optional, up to 100 characters. 201, Created. Stock is not checked or moved.
@@ -502,4 +503,18 @@ Authorization: Bearer {{token}}
 
 ### One sales order: the customer's current name, the lines with item type and unit, and the status history.
 GET {{api}}/sales-orders/{{salesOrderNumber}}
+Authorization: Bearer {{token}}
+
+### Ship the sales order (Warehouse or Manager). No quantities: every line ships in full. The note is optional, up to
+### 500 characters, and the body may be left out. 200, Shipped; one ShippedToCustomer movement per line. With the
+### walk-through above, the Warehouse holds 1,001 bags and 181 kg of Cheese, so both lines are covered. If any line
+### were short, the answer would be 409 insufficient-stock naming every short line, and nothing would ship.
+POST {{api}}/sales-orders/{{salesOrderNumber}}/ship
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "note": "Delivery note 8812" }
+
+### The shipment movements of that sales order (Warehouse, Production or Manager): one per line, all at the same time.
+GET {{api}}/movements?salesOrderNumber={{salesOrderNumber}}
 Authorization: Bearer {{token}}
