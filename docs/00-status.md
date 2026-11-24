@@ -29,7 +29,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.1 part) |
 | 2 | Design | done | `docs/02-design.md` |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` |
-| 4 | Build | in progress | code (tasks done: 8 of 11, T-022 to T-032) |
+| 4 | Build | in progress | code (tasks done: 9 of 11, T-022 to T-032) |
 | 5 | QA | not started | `docs/05-test-plan.md` |
 | 6 | Security | not started | `docs/06-security-review.md` |
 | 7 | Release | not started | `docs/09-release-notes.md`, README |
@@ -104,6 +104,7 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - 2026-11-24 T-027 approved by `code-reviewer` (ship: all-lines stock check, Warehouse only, both races forced, one clock read), committed and pushed. Started T-028.
 - 2026-11-24 T-028 approved by `code-reviewer` after two rounds (cancel; ship-vs-cancel race forced both ways; shared sales test helpers #166; #165), committed and pushed. Started T-029.
 - 2026-11-24 T-029 approved by `code-reviewer` (open demand in the stock snapshot; mutation-checked), committed and pushed. Started T-030.
+- 2026-11-24 T-030 approved by `code-reviewer` after two rounds (shipped-totals reports; expression-tree helper reverted to plain copies, #167), committed and pushed. Started T-031.
 
 ## Follow-ups to route
 

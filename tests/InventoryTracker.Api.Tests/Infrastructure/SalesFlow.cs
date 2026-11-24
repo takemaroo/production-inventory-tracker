@@ -13,7 +13,8 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 /// (v1.1) The steps of a sales order's life that many integration tests need as set-up (architecture 7, "Shared helpers";
 /// decision #101): a customer to sell to, a sales order created, read (T-025), shipped (T-027) and cancelled (T-028)
 /// through the API, a sales order written straight to the database in a status no endpoint produces in one step, and
-/// (T-028) items with Warehouse stock, the stock and shipment-movement reads and the stored sales order. One shared copy,
+/// (T-028) items with Warehouse stock, the stock and shipment-movement reads and the stored sales order, and (T-030) a
+/// sales order created and shipped in one step and the two shipped-totals report reads. One shared copy,
 /// so the customer, sales order, shipment and report tests (T-024 to T-031) all set up and check their records the same
 /// way, and a fix here reaches every one of them.
 /// </summary>
@@ -35,6 +36,9 @@ public static class SalesFlow
 
     /// <summary>(T-025) The base path of the sales order endpoints (design 4).</summary>
     public const string SalesOrdersPath = "/api/v1/sales-orders";
+
+    /// <summary>(T-030) The base path of the shipped-totals reports (design 4).</summary>
+    public const string ReportsPath = "/api/v1/reports";
 
     /// <summary>The reason of the adjustment <see cref="ProductAsync"/> uses to put a finished product into the Warehouse.</summary>
     public const string OpeningCount = "Opening stock count";
@@ -104,6 +108,42 @@ public static class SalesFlow
     /// </summary>
     public static Task<HttpResponseMessage> ShipAsync(HttpClient client, int number, string? note = null) =>
         client.PostAsJsonAsync($"{SalesOrdersPath}/{number}/ship", new { note }, Cancel);
+
+    /// <summary>
+    /// (T-030) Creates a sales order for <paramref name="customerId"/> with <paramref name="lines"/> (through
+    /// <paramref name="seller"/>, Manager or Seller) and ships it at once (through <paramref name="shipper"/>, Warehouse or
+    /// Manager), checking both answers, and returns its number. The shipment time is the app's clock at the ship, so a
+    /// test that needs a given day sets <c>TestApiFactory.FakeTime</c> first. The Warehouse must hold every line.
+    /// </summary>
+    public static async Task<int> CreateAndShipAsync(
+        HttpClient seller, HttpClient shipper, int customerId, params (int ItemId, decimal Quantity)[] lines)
+    {
+        var number = await CreateSalesOrderAsync(seller, customerId, lines);
+        var response = await ShipAsync(shipper, number);
+        Assert.True(response.StatusCode == HttpStatusCode.OK,
+            $"Shipping sales order #{number} gave {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync(Cancel)}");
+        return number;
+    }
+
+    /// <summary>
+    /// (T-030) <c>GET /api/v1/reports/shipped-by-item</c> with <paramref name="query"/> (for example
+    /// <c>"from=2026-12-01&amp;to=2026-12-31"</c>, without the <c>?</c>), checked for <c>200</c>; returns the page.
+    /// <paramref name="client"/> needs the Warehouse, Manager or Seller role (AC-32.6).
+    /// </summary>
+    public static Task<JsonElement> ShippedByItemAsync(HttpClient client, string query = "") =>
+        ScenarioApi.GetAsync(client, ReportPath("shipped-by-item", query));
+
+    /// <summary>
+    /// (T-030) <c>GET /api/v1/reports/shipped-by-customer</c> with <paramref name="query"/> (without the <c>?</c>),
+    /// checked for <c>200</c>; returns the page. <paramref name="client"/> needs the Warehouse, Manager or Seller role
+    /// (AC-33.2).
+    /// </summary>
+    public static Task<JsonElement> ShippedByCustomerAsync(HttpClient client, string query = "") =>
+        ScenarioApi.GetAsync(client, ReportPath("shipped-by-customer", query));
+
+    /// <summary>(T-030) The path of a report with an optional query string, for tests that send the request themselves.</summary>
+    public static string ReportPath(string report, string query = "") =>
+        query.Length == 0 ? $"{ReportsPath}/{report}" : $"{ReportsPath}/{report}?{query}";
 
     /// <summary>
     /// Cancels a sales order through <c>POST /api/v1/sales-orders/{number}/cancel</c> (T-028) with

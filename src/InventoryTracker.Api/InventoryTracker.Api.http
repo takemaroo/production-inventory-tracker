@@ -535,3 +535,20 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 { "reason": "Customer changed the order to 400 bags" }
+
+###
+# ---- 14. (v1.1) Shipped-totals reports (US-32, US-33; Warehouse, Manager or Seller) ---------------------------------
+# Totals of Shipped sales orders only, by shipment time; Created and Cancelled sales orders and adjustments never count.
+# from and to are optional whole UTC days, both included (yyyy-MM-dd); with neither the period is all time. Rows are
+# ordered by name, A to Z, not newest first, and paged as every list (page, pageSize).
+
+### Shipped per item: one row per item with its type, unit, shipped quantity and number of sales orders. Optional
+### filters, combined: from, to, itemType (RawMaterial or FinishedProduct), customerId. For one month, add for example
+### from=2026-12-01&to=2026-12-31.
+GET {{api}}/reports/shipped-by-item?itemType=FinishedProduct&customerId={{customerId}}
+Authorization: Bearer {{token}}
+
+### Shipped per customer and item, with the customer's current name and active status. Optional filters, combined:
+### from, to, customerId, itemId. There is no total across items, because items have different units.
+GET {{api}}/reports/shipped-by-customer?itemId={{productId}}
+Authorization: Bearer {{token}}

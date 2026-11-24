@@ -53,6 +53,8 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
 
         // (v1.1) T-028: cancelling a sales order that is Shipped or already Cancelled (AC-27.2).
         "POST /sales-orders/{number}/cancel",
+
+        // (v1.1) T-030: the two reports only read and cannot conflict.
     ];
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
@@ -297,11 +299,42 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
                  {
                      "MovementResponse", "ItemResponse", "ReturnResponse", "ProductionOrderResponse",
                      "SalesOrderResponse", "SalesOrderSummaryResponse",
+                     "ShippedByItemResponse", "ShippedByCustomerResponse", "CustomerSummary",
                  })
         {
             var schema = schemas.GetProperty(name);
             Assert.Equal(schema.GetProperty("properties").EnumerateObject().Count(), schema.GetProperty("required").GetArrayLength());
         }
+    }
+
+    /// <summary>
+    /// (v1.1) T-030, design 5.13: each report documents exactly its query parameters (paging and its four filters, as
+    /// strings for the dates and the item type and integers for the ids), and its row's <c>shippedQuantity</c> is an exact
+    /// decimal (design 2.4).
+    /// </summary>
+    [Theory]
+    [InlineData("GET /reports/shipped-by-item", "ShippedByItemResponse", "page,pageSize,from,to,itemType,customerId")]
+    [InlineData("GET /reports/shipped-by-customer", "ShippedByCustomerResponse", "page,pageSize,from,to,customerId,itemId")]
+    public async Task Report_documents_its_filters_and_a_decimal_quantity(string endpoint, string rowSchema, string parameters)
+    {
+        using var document = await FetchDocumentAsync();
+        var operation = Operations(document)[endpoint];
+
+        var documented = operation.GetProperty("parameters").EnumerateArray()
+            .Select(parameter => (Name: parameter.GetProperty("name").GetString()!, In: parameter.GetProperty("in").GetString()))
+            .ToList();
+        Assert.Equal(parameters.Split(','), documented.Select(parameter => parameter.Name));
+        Assert.All(documented, parameter => Assert.Equal("query", parameter.In));
+        foreach (var name in new[] { "customerId", "itemId" }.Where(parameters.Contains))
+        {
+            var schema = operation.GetProperty("parameters").EnumerateArray()
+                .Single(parameter => parameter.GetProperty("name").GetString() == name).GetProperty("schema");
+            Assert.Equal("integer", schema.GetProperty("type").GetString());
+        }
+
+        var quantity = document.RootElement.GetProperty("components").GetProperty("schemas").GetProperty(rowSchema)
+            .GetProperty("properties").GetProperty("shippedQuantity");
+        Assert.Equal("decimal", quantity.GetProperty("format").GetString());
     }
 
     /// <summary>

@@ -22,6 +22,8 @@ public static class SalesOrderMapping
     /// </summary>
     public static readonly Expression<Func<SalesOrder, SalesOrderSummaryResponse>> AsSummary = order => new(
         order.Number,
+
+        // AC-29.3, AC-33.4: current name and status, read by the join.
         new CustomerSummary(order.Customer.Id, order.Customer.Name, order.Customer.IsActive),
         order.CustomerReference,
         order.Status,
@@ -46,6 +48,8 @@ public static class SalesOrderMapping
 
         return new SalesOrderResponse(
             order.Number,
+
+            // AC-29.3, AC-33.4: current name and status, read by the join.
             new CustomerSummary(order.Customer.Id, order.Customer.Name, order.Customer.IsActive),
             order.CustomerReference,
             order.Status,
