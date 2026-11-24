@@ -106,6 +106,7 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - 2026-11-24 T-029 approved by `code-reviewer` (open demand in the stock snapshot; mutation-checked), committed and pushed. Started T-030.
 - 2026-11-24 T-030 approved by `code-reviewer` after two rounds (shipped-totals reports; expression-tree helper reverted to plain copies, #167), committed and pushed. Started T-031.
 - 2026-11-24 T-031 approved by `code-reviewer` (HTTP-only sales chain, Seller's day, 7 races, performance at v1.1 volume: slowest p95 ~0.1 s; #168), committed and pushed. Review confirmed a performance issue: the sales order detail and ship loads scan every sales order line (fix before release, AsSplitQuery). Started that fix.
+- 2026-11-24 Fix approved by `code-reviewer`: sales order detail and ship loads use AsSplitQuery and the index; GET in a read transaction (#169); query-plan regression tests. p95 detail 37→2 ms, ship 92→23 ms. Committed and pushed. Started T-032.
 
 ## Follow-ups to route
 

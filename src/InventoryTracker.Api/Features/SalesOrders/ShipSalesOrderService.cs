@@ -101,9 +101,14 @@ public sealed class ShipSalesOrderService(
         {
             // Architecture 5.3 step 1, design 2.2 step 3: the record named in the URL. Tracked (no AsNoTracking),
             // because the shipment writes its status onto it. Its lines come with each item's name and unit, for the
-            // stock message.
+            // stock message. AsSplitQuery loads the sales order and its lines with two SELECTs instead of one JOIN: as
+            // one statement, SQLite built the lines-items-units join over every sales order line in the database before
+            // keeping this sales order's, while this transaction holds the single write lock (T-031 review; see
+            // SalesOrderService.ReadDetailAsync). Split, the lines query uses IX_SalesOrderLines_SalesOrderNumber_ItemId.
+            // Both SELECTs run inside this write transaction, so they read the same state.
             var salesOrder = await db.SalesOrders
                 .Include(order => order.Lines).ThenInclude(line => line.Item).ThenInclude(item => item.Unit)
+                .AsSplitQuery()
                 .SingleOrDefaultAsync(order => order.Number == number, cancellationToken)
                 ?? throw new NotFoundException($"Sales order #{number} not found.");
 

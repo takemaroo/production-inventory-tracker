@@ -6,6 +6,7 @@ using InventoryTracker.Api.Common.Validation;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Data.Configurations;
 using InventoryTracker.Api.Domain;
+using InventoryTracker.Api.Features.Stock;
 using Microsoft.EntityFrameworkCore;
 
 namespace InventoryTracker.Api.Features.SalesOrders;
@@ -20,8 +21,9 @@ namespace InventoryTracker.Api.Features.SalesOrders;
 /// <b>What creating a sales order does, in plain words.</b> It records what a customer has ordered, and nothing more: no
 /// stock is checked and none moves (AC-24.2). The Warehouse ships it later, in one go (US-26); until then its lines only
 /// count as open demand (D-12). So a sales order can be created for an item with no stock at all, and several sales
-/// orders can want the same stock (AC-24.6). That is why this class needs neither <c>StockLedger</c> nor
-/// <c>StockQueries</c>.
+/// orders can want the same stock (AC-24.6). That is why this class needs no <c>StockLedger</c>. It takes
+/// <see cref="StockQueries"/> only for its read-transaction helper, which <see cref="GetAsync"/> uses so the detail's
+/// two queries read one snapshot (see <see cref="ReadDetailAsync"/>); it reads no stock figures.
 /// </para>
 /// <para>
 /// <b>Check order</b> (design 2.2, architecture 5.1 v1.1). The framework answers <c>401</c>, <c>403</c> and unreadable
@@ -34,7 +36,8 @@ namespace InventoryTracker.Api.Features.SalesOrders;
 /// <c>T</c> names the log category, so a log line says which class wrote it.
 /// </para>
 /// </remarks>
-public sealed class SalesOrderService(AppDbContext db, Clock clock, ILogger<SalesOrderService> logger)
+public sealed class SalesOrderService(
+    AppDbContext db, StockQueries stock, Clock clock, ILogger<SalesOrderService> logger)
 {
     /// <summary>Design 7.2: the code for a sales order for a deactivated customer (AC-24.4).</summary>
     public const string CustomerInactiveCode = "customer-inactive";
@@ -85,8 +88,16 @@ public sealed class SalesOrderService(AppDbContext db, Clock clock, ILogger<Sale
     /// AC-25.2: one sales order in full (design 5.12), in any status, or <c>404</c> "Sales order #{number} not found."
     /// (AC-25.3).
     /// </summary>
+    /// <remarks>
+    /// The detail is read with two SQL statements (the sales order, then its lines; see <see cref="ReadDetailAsync"/>).
+    /// A GET has no write transaction, so it opens a read transaction, as the production order GET does (decision #85):
+    /// both statements then read the same snapshot, and a change committed between them cannot give a response that
+    /// mixes two moments (for example a customer and an item renamed together, with only one of the new names shown).
+    /// Today EF Core happens to keep the first statement's reader open while the second runs, which on SQLite already
+    /// shares one snapshot; the transaction makes that a guarantee rather than a side effect of how EF Core reads.
+    /// </remarks>
     public Task<SalesOrderResponse> GetAsync(int number, CancellationToken cancellationToken) =>
-        ReadDetailAsync(number, cancellationToken);
+        stock.InReadTransactionAsync(() => ReadDetailAsync(number, cancellationToken), cancellationToken);
 
     /// <summary>
     /// AC-24.1: creates a sales order for an active customer: the next sales order number (D-10), status Created, who and
@@ -164,27 +175,38 @@ public sealed class SalesOrderService(AppDbContext db, Clock clock, ILogger<Sale
 
     /// <summary>
     /// The detail of sales order <paramref name="number"/> (design 5.12), or <c>404</c> "Sales order #{number} not
-    /// found.". The one builder of the detail (architecture 3.5, decision #161): <c>GET</c>, the create, and later the
-    /// ship (T-027) and the cancel (T-028) all answer with it, so their responses cannot differ.
+    /// found.". The one builder of the detail (architecture 3.5, decision #161): <c>GET</c>, the create, the
+    /// ship and the cancel all answer with it, so their responses cannot differ.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>One query.</b> <c>Include</c> tells EF Core to load the related rows with the sales order: the customer, the
-    /// people, and the lines with their items and units. Without <c>AsSplitQuery</c>, EF Core loads them all with one SQL
-    /// statement and its joins, and one statement always reads one consistent state of the database, so a plain read
-    /// needs no read transaction (unlike the production order detail, whose estimate combines several queries).
-    /// <c>AsNoTracking</c>: these objects are only read, never saved.
+    /// <b>Two queries, one snapshot.</b> <c>Include</c> tells EF Core to load the related rows with the sales order: the
+    /// customer, the people, and the lines with their items and units. <c>AsSplitQuery</c> makes EF Core do that with two
+    /// SQL statements (the sales order with its single-row relations, then its lines), because the one-statement form
+    /// made SQLite read every sales order line ever stored (see the comment in the method). Two statements could see two
+    /// different moments of the database, so this must run inside a transaction: the write transaction of the create,
+    /// ship or cancel, or <see cref="StockQueries.InReadTransactionAsync{T}"/> for a GET (decision #85). It refuses to
+    /// run without one. <c>AsNoTracking</c>: these objects are only read, never saved.
     /// </para>
     /// <para>
     /// <b>Call it after <c>SaveChangesAsync</c></b> when answering a change. It reads the database, not the objects the
     /// caller holds in memory, so a change that is only tracked, not saved, would be missing from the response. Inside
-    /// the open write transaction the saved change is visible to this query while still uncommitted. To make that
+    /// the open write transaction the saved change is visible to these queries while still uncommitted. To make that
     /// mistake impossible to miss, it refuses to run while the DbContext holds unsaved changes.
     /// </para>
     /// </remarks>
-    /// <exception cref="InvalidOperationException">The DbContext holds changes that have not been saved.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// No transaction is open on the DbContext, or the DbContext holds changes that have not been saved.
+    /// </exception>
     public async Task<SalesOrderResponse> ReadDetailAsync(int number, CancellationToken cancellationToken)
     {
+        // Decision #85: the two statements below must read one snapshot, which only a transaction gives.
+        if (db.Database.CurrentTransaction is null)
+        {
+            throw new InvalidOperationException(
+                "ReadDetailAsync must run inside a write transaction or StockQueries.InReadTransactionAsync (decision #85).");
+        }
+
         // ChangeTracker is EF Core's list of the objects this DbContext has loaded or added, and what changed on them.
         if (db.ChangeTracker.HasChanges())
         {
@@ -192,6 +214,13 @@ public sealed class SalesOrderService(AppDbContext db, Clock clock, ILogger<Sale
                 "ReadDetailAsync reads the database; call SaveChangesAsync first so the response includes this request's changes.");
         }
 
+        // AsSplitQuery makes EF Core load the sales order with two separate SELECTs (the sales order with its customer
+        // and people, then its lines with their items and units) instead of one big JOIN. As one statement, EF Core put
+        // the lines-items-units join in a subquery that SQLite built in full, over every sales order line in the
+        // database, before keeping the ones of this sales order: slower with every sales order ever created, since none
+        // is deleted (T-031 review). Split, the lines query finds this sales order's lines through the index
+        // IX_SalesOrderLines_SalesOrderNumber_ItemId. Separate queries could normally see different moments of the
+        // database, but here they all run inside the transaction checked above, so they read the same snapshot.
         var salesOrder = await db.SalesOrders
             .AsNoTracking()
             .Include(order => order.Customer)
@@ -199,6 +228,7 @@ public sealed class SalesOrderService(AppDbContext db, Clock clock, ILogger<Sale
             .Include(order => order.ShippedBy)
             .Include(order => order.CancelledBy)
             .Include(order => order.Lines).ThenInclude(line => line.Item).ThenInclude(item => item.Unit)
+            .AsSplitQuery()
             .SingleOrDefaultAsync(order => order.Number == number, cancellationToken)
             ?? throw new NotFoundException($"Sales order #{number} not found.");
 

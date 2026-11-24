@@ -4,6 +4,7 @@ using System.Text.Json;
 using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Domain;
+using InventoryTracker.Api.Features.SalesOrders;
 using InventoryTracker.Api.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -823,6 +824,147 @@ public class SalesOrdersTests(TestApiFactory factory) : IClassFixture<TestApiFac
         Assert.Equal(0, await SalesOrdersWithoutCustomerAsync(race.App));
     }
 
+    // ---- The detail's queries (T-031 review fix) ---------------------------------------------------------------------
+
+    /// <summary>
+    /// AC-25.2, PRD section 5 (performance), T-031 review: <c>GET /sales-orders/{number}</c> finds the sales order's lines
+    /// through <c>IX_SalesOrderLines_SalesOrderNumber_ItemId</c> and never reads the whole <c>SalesOrderLines</c> table.
+    /// The single-query form it replaced had SQLite build the lines-items-units join over every line ever stored, then
+    /// keep this sales order's: slower with every sales order created, since none is deleted.
+    /// </summary>
+    /// <remarks>
+    /// The guard checks SQLite's query plan (<c>EXPLAIN QUERY PLAN</c>) for the SQL the request really ran, recorded by
+    /// <see cref="QueryPlanRecorder"/>. Chosen over a check of the SQL text because the old single query also mentions
+    /// <c>SalesOrderNumber</c> (in its join) and filters by the number, so text alone cannot tell the slow shape from the
+    /// fast one; the plan says directly whether the table is scanned. Chosen over a timing because the plan is the same
+    /// on any machine and any amount of data.
+    /// </remarks>
+    [Fact]
+    public async Task Detail_finds_its_lines_through_the_index_without_reading_every_line()
+    {
+        var recorder = new QueryPlanRecorder();
+        await using var app = new TestApiFactory
+        {
+            ReplaceServices = services => services.ConfigureDbContext<AppDbContext>(options => options.AddInterceptors(recorder)),
+        };
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var seller = await app.CreateClientAsAsync(Roles.Seller);
+        var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
+        var material = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
+        var customer = await CreateCustomerAsync(seller);
+        await CreateSalesOrderAsync(seller, customer.Id, (product.Id, 1m));
+        var number = await CreateSalesOrderAsync(seller, customer.Id, (product.Id, 5m), (material.Id, 2.5m));
+
+        recorder.Arm();
+        var detail = await ReadSalesOrderAsync(seller, number);
+
+        Assert.Equal(2, detail.GetProperty("lines").GetArrayLength());
+        var plan = await recorder.AssertSalesOrderLinesNeverScannedAsync(app, Cancel);
+        Assert.Contains(plan, step => step.Contains("INDEX IX_SalesOrderLines_SalesOrderNumber_ItemId (SalesOrderNumber=?)",
+            StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Decision #85, AC-25.2: <c>GET /sales-orders/{number}</c> runs both of the detail's queries (the sales order with
+    /// its customer and people, then its lines with their items and units) inside one transaction, the read transaction
+    /// of <c>StockQueries.InReadTransactionAsync</c>, so they read one snapshot of the database and a change committed
+    /// between them cannot show up in only one half of the response.
+    /// </summary>
+    /// <remarks>
+    /// Why the test checks the transaction itself rather than committing a change between the two queries and looking
+    /// at the response: today EF Core keeps the first query's reader open while the second runs, and on SQLite two
+    /// statements open at once on one connection already share a snapshot, so such a test passes with or without the
+    /// transaction and could never fail. The transaction is what makes the one-snapshot read a guarantee instead of a
+    /// side effect of how EF Core happens to read.
+    /// </remarks>
+    [Fact]
+    public async Task Detail_queries_share_one_transaction()
+    {
+        var recorder = new QueryPlanRecorder();
+        await using var app = new TestApiFactory
+        {
+            ReplaceServices = services => services.ConfigureDbContext<AppDbContext>(options => options.AddInterceptors(recorder)),
+        };
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var seller = await app.CreateClientAsAsync(Roles.Seller);
+        var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
+        var customer = await CreateCustomerAsync(seller);
+        var number = await CreateSalesOrderAsync(seller, customer.Id, (product.Id, 5m));
+
+        recorder.Arm();
+        await ReadSalesOrderAsync(seller, number);
+
+        var detailQueries = recorder.Queries
+            .Where(query => query.Sql.Contains("FROM \"SalesOrders\"", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(2, detailQueries.Count);
+        Assert.Empty(QueryPlanRecorder.SalesOrderLinesAliases(detailQueries[0].Sql));
+        Assert.NotEmpty(QueryPlanRecorder.SalesOrderLinesAliases(detailQueries[1].Sql));
+        Assert.NotNull(detailQueries[0].Transaction);
+        Assert.Same(detailQueries[0].Transaction, detailQueries[1].Transaction);
+    }
+
+    /// <summary>
+    /// Decision #85: the detail builder refuses to run outside a transaction, because its two queries could otherwise
+    /// read two different moments. GET opens a read transaction; the create, ship and cancel call it inside their write
+    /// transaction.
+    /// </summary>
+    [Fact]
+    public async Task Detail_read_outside_a_transaction_is_refused()
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var salesOrders = scope.ServiceProvider.GetRequiredService<SalesOrderService>();
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => salesOrders.ReadDetailAsync(1, Cancel));
+        Assert.Contains("decision #85", refused.Message);
+    }
+
+    /// <summary>
+    /// The detail reads the database, so it refuses to run while the request holds unsaved changes, still with the split
+    /// query: a cancel that set Cancelled without saving would otherwise answer with a stale Created detail. Saved first,
+    /// inside the same write transaction, the same read works and shows the change. Both transactions roll back, so the
+    /// stored sales order stays Created.
+    /// </summary>
+    [Fact]
+    public async Task Detail_read_with_unsaved_changes_is_refused()
+    {
+        var scene = await SceneAsync();
+        var number = await CreateSalesOrderAsync(scene.Seller, scene.Customer.Id, (scene.Product.Id, 5m));
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var salesOrders = scope.ServiceProvider.GetRequiredService<SalesOrderService>();
+
+            var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => db.InWriteTransactionAsync(async () =>
+            {
+                var stored = await db.SalesOrders.SingleAsync(order => order.Number == number, Cancel);
+                stored.Status = SalesOrderStatus.Cancelled;
+                return await salesOrders.ReadDetailAsync(number, Cancel);
+            }, Cancel));
+            Assert.Contains("SaveChangesAsync", refused.Message);
+        }
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var salesOrders = scope.ServiceProvider.GetRequiredService<SalesOrderService>();
+
+            // Throwing at the end rolls this transaction back too, so the shared database is left as it was.
+            var rolledBack = await Assert.ThrowsAsync<RollbackOnPurpose>(() => db.InWriteTransactionAsync<bool>(async () =>
+            {
+                var stored = await db.SalesOrders.SingleAsync(order => order.Number == number, Cancel);
+                stored.Status = SalesOrderStatus.Cancelled;
+                await db.SaveChangesAsync(Cancel);
+                throw new RollbackOnPurpose(await salesOrders.ReadDetailAsync(number, Cancel));
+            }, Cancel));
+            Assert.Equal(SalesOrderStatus.Cancelled, rolledBack.Detail.Status);
+            Assert.Single(rolledBack.Detail.Lines);
+        }
+
+        Assert.Equal(SalesOrderStatus.Created, (await StoredSalesOrderAsync(factory, number)).Status);
+    }
+
     // ---- Decision #163: logging ------------------------------------------------------------------------------------
 
     /// <summary>
@@ -959,6 +1101,13 @@ public class SalesOrdersTests(TestApiFactory factory) : IClassFixture<TestApiFac
         await scope.ServiceProvider.GetRequiredService<AppDbContext>().SalesOrders
             .Where(order => order.Number == number)
             .ExecuteUpdateAsync(set => set.SetProperty(order => order.CreatedAt, createdAt).SetProperty(order => order.StatusChangedAt, createdAt), Cancel);
+    }
+
+    /// <summary>Thrown to roll a test's write transaction back after looking at what it produced.</summary>
+    private sealed class RollbackOnPurpose(SalesOrderResponse detail) : Exception
+    {
+        /// <summary>The detail read inside the transaction before it was rolled back.</summary>
+        public SalesOrderResponse Detail { get; } = detail;
     }
 
     /// <summary>The per-test records of <see cref="SceneAsync"/>.</summary>

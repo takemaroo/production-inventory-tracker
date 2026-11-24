@@ -474,7 +474,7 @@ var lines = db.SalesOrderLines.Where(line => line.SalesOrder.Status == SalesOrde
 
 **Sales order list (AC-25.1)**: filters `status` (`Status ==`), `customerId` (`CustomerId ==`) and `itemId` (`Lines.Any(l => l.ItemId == id)`, an `EXISTS` on the `ItemId` index); ordered by `CreatedAt` descending, then `Number` descending (design 2.5). `lineCount` is `Lines.Count()` and `customer` is joined from `Customers`, so the list always shows the current name. Prototype: 4 ms with the item filter.
 
-**The sales order detail** is built in one place, `SalesOrderService.ReadDetailAsync(number)` (decision #92's reasoning), and used by `GET /sales-orders/{number}`, the create, the ship and the cancel. It is one query with its joins (customer, users, lines with item and unit), so it reads one consistent state without a read transaction. The changing actions call it after `SaveChangesAsync`, still inside their write transaction, so the response is exactly what is committed.
+**The sales order detail** is built in one place, `SalesOrderService.ReadDetailAsync(number)` (decision #92's reasoning), and used by `GET /sales-orders/{number}`, the create, the ship and the cancel. It is a split query (`AsSplitQuery`: the order with its customer and users, then its lines with item and unit through `IX_SalesOrderLines_SalesOrderNumber_ItemId`), because the single-query form made SQLite scan every sales order line (T-031 review, decision #169). Two statements must read one snapshot, so `ReadDetailAsync` requires a transaction: `GET /sales-orders/{number}` runs it in `StockQueries.InReadTransactionAsync` (#85). The changing actions call it after `SaveChangesAsync`, still inside their write transaction, so the response is exactly what is committed.
 
 ## 4. Interface contract
 
@@ -599,7 +599,7 @@ var lines = db.SalesOrderLines.Where(line => line.SalesOrder.Status == SalesOrde
   | `PUT /customers/{id}` | none | `404` → name and notes (`400`) → `409` `customer-name-taken` (any *other* customer with the same `NameNormalized`; its own name in another case is allowed) → update. |
   | `POST /customers/{id}/deactivate`, `/reactivate` | none | `404` → set `IsActive` (a no-op when it already has that value, AC-29.4). |
   | `DELETE /customers/{id}` | none | `404` → `409` `customer-has-sales-orders` (any sales order, any status) → delete. |
-  | `GET` lists and reports | read-only | query values (`400`), then the query. No transaction: each is one statement, apart from the stock figures (section 3.3). |
+  | `GET` lists and reports | read-only | query values (`400`), then the query. No transaction: each is one statement, apart from the stock figures (section 3.3). (A detail is not a list: the production order and sales order details run in a read transaction, sections 3.5 and 5.2.) |
 
   Codes used only by sales orders (`already-shipped`, `sales-order-cancelled`, `customer-inactive`) are constants in `Features/SalesOrders`. Codes used only by customers (`customer-name-taken`, `customer-has-sales-orders`) are constants in `Features/Customers`. The ship's `insufficient-stock` is `StockLedger.InsufficientStockCode`. All follow the rule of section 6, Error handling.
 

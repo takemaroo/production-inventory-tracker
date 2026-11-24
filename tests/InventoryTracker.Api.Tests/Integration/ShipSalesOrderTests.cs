@@ -1,9 +1,12 @@
 using System.Net;
 using System.Text.Json;
 using InventoryTracker.Api.Auth;
+using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Domain;
 using InventoryTracker.Api.Tests.Infrastructure;
 using InventoryTracker.Api.Tests.Integration.Scenarios;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using static InventoryTracker.Api.Tests.Infrastructure.SalesFlow;
 
@@ -795,6 +798,44 @@ public class ShipSalesOrderTests(TestApiFactory factory) : IClassFixture<TestApi
         await ApiAssert.ProblemAsync(lost, HttpStatusCode.Conflict, "insufficient-stock",
             $"Not enough stock: {ShreddedName} in Warehouse has 400 Bag; sales order #{lostNumber} needs 600 Bag.");
         Assert.Equal(400m, await WarehouseAsync(manager, bags.Id));
+    }
+
+    // ---- The ship's queries (T-031 review fix) -----------------------------------------------------------------------
+
+    /// <summary>
+    /// AC-26.1, PRD section 5 (performance), T-031 review: the ship reads the sales order's lines (to check stock, and
+    /// again for the response) through <c>IX_SalesOrderLines_SalesOrderNumber_ItemId</c>, and no query it runs reads the
+    /// whole <c>SalesOrderLines</c> table. That matters most here: the ship holds SQLite's single write lock while it
+    /// reads, so a slow read delays every other change. The guard checks SQLite's query plan for each query the request
+    /// really ran (see <see cref="QueryPlanRecorder"/>, and <c>SalesOrdersTests</c> for why a plan, not the SQL text or a
+    /// timing).
+    /// </summary>
+    [Fact]
+    public async Task Ship_finds_the_lines_through_the_index_without_reading_every_line()
+    {
+        var recorder = new QueryPlanRecorder();
+        await using var app = new TestApiFactory
+        {
+            ReplaceServices = services => services.ConfigureDbContext<AppDbContext>(options => options.AddInterceptors(recorder)),
+        };
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var seller = await app.CreateClientAsAsync(Roles.Seller);
+        var warehouse = await app.CreateClientAsAsync(Roles.Warehouse);
+        var product = await ProductAsync(manager, warehouse: 50m);
+        var material = await RawMaterialAsync(manager, warehouse: 50m);
+        var customer = await CreateCustomerAsync(seller);
+        await CreateSalesOrderAsync(seller, customer.Id, (product.Id, 1m));
+        var number = await CreateSalesOrderAsync(seller, customer.Id, (product.Id, 5m), (material.Id, 2.5m));
+
+        recorder.Arm();
+        var shipped = await ShipAsync(warehouse, number);
+
+        Assert.Equal(HttpStatusCode.OK, shipped.StatusCode);
+        var plan = await recorder.AssertSalesOrderLinesNeverScannedAsync(app, Cancel);
+
+        // The ship's own load and the response's detail: both look the lines up by sales order number.
+        Assert.True(plan.Count(step => step.Contains("INDEX IX_SalesOrderLines_SalesOrderNumber_ItemId (SalesOrderNumber=?)",
+            StringComparison.Ordinal)) >= 2, string.Join("\n", plan));
     }
 
     // ---- Architecture 5.3 step 8: logging ------------------------------------------------------------------------------
