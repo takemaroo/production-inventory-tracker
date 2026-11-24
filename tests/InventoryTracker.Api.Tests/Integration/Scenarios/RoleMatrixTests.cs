@@ -274,14 +274,34 @@ public class RoleMatrixTests(RoleMatrixTests.MatrixApp app) : IClassFixture<Role
         new("POST", "/notifications/{id}/read", Prd42.Notifications, HttpStatusCode.NoContent,
             (a, _) => Plain($"/notifications/{a.SharedNotification}/read")),
         new("POST", "/notifications/read-all", Prd42.Notifications, HttpStatusCode.NoContent, (_, _) => Plain("/notifications/read-all")),
+
+        // (v1.1) T-024, US-29: the reads look at one shared customer; every change gets a fresh customer of its own, so a
+        // delete or deactivate in one case never changes what another case acts on.
+        new("GET", "/customers", Prd42.ViewSales, HttpStatusCode.OK, (_, _) => Plain("/customers")),
+        new("GET", "/customers/{id}", Prd42.ViewSales, HttpStatusCode.OK, (a, _) => Plain($"/customers/{a.SharedCustomer}")),
+        new("POST", "/customers", Prd42.ManageCustomers, HttpStatusCode.Created,
+            (_, _) => Plain("/customers", new { name = Seed.UniqueName("Customer"), notes = "Matrix" })),
+        new("PUT", "/customers/{id}", Prd42.ManageCustomers, HttpStatusCode.OK,
+            async (a, _) => new Call($"/customers/{await a.NewCustomerAsync()}", new { name = Seed.UniqueName("Customer") })),
+        new("POST", "/customers/{id}/deactivate", Prd42.ManageCustomers, HttpStatusCode.OK,
+            async (a, _) => new Call($"/customers/{await a.NewCustomerAsync()}/deactivate")),
+        new("POST", "/customers/{id}/reactivate", Prd42.ManageCustomers, HttpStatusCode.OK, async (a, _) =>
+        {
+            var id = await a.NewCustomerAsync();
+            await a.ExpectAsync(HttpStatusCode.OK, a.Admin.PostAsync($"{ApiPath}/customers/{id}/deactivate", content: null, Cancel));
+            return new Call($"/customers/{id}/reactivate");
+        }),
+        new("DELETE", "/customers/{id}", Prd42.ManageCustomers, HttpStatusCode.NoContent,
+            async (a, _) => new Call($"/customers/{await a.NewCustomerAsync()}")),
     ];
 
     /// <summary>
     /// The number of endpoints in design section 4 that exist in the app so far. The 48 of version 1; each v1.1 endpoint
     /// task raises it by the endpoints it adds (T-024 to 55, T-025 to 58, T-027 to 59, T-028 to 60, T-030 to 62,
-    /// decision #164). <c>OpenApiTests</c> uses it too, so the two lists cannot disagree on the count.
+    /// decision #164). <c>OpenApiTests</c> uses it too, so the two lists cannot disagree on the count. Now 55: the 48 of
+    /// version 1 and T-024's seven customer endpoints.
     /// </summary>
-    public const int DesignEndpointCount = 48;
+    public const int DesignEndpointCount = 55;
 
     /// <summary>
     /// The callers of the matrix (decision #164), as role lists: one user per single role (AC-05.1, AC-30.4), Warehouse
@@ -596,7 +616,7 @@ public class RoleMatrixTests(RoleMatrixTests.MatrixApp app) : IClassFixture<Role
     /// The app every case shares, set up once through the API: the start-up Manager's client, one signed-in user per
     /// caller of <see cref="Callers"/> (created through <c>POST /users</c>), and the records that read-only rows look at:
     /// a unit, a raw material with stock and its receipt movement, a product with a recipe, an order and a complementary
-    /// order (both cancelled), a Pending return and a notification. xUnit calls <see cref="InitializeAsync"/> before the
+    /// order (both cancelled), a Pending return, a notification and (v1.1) a customer. xUnit calls <see cref="InitializeAsync"/> before the
     /// first case (<see cref="IAsyncLifetime"/>) and disposes the app after the last.
     /// </summary>
     public sealed class MatrixApp : TestApiFactory, IAsyncLifetime
@@ -633,6 +653,9 @@ public class RoleMatrixTests(RoleMatrixTests.MatrixApp app) : IClassFixture<Role
         /// <summary>A notification (the complementary request's ComplementaryAwaitingApproval).</summary>
         public int SharedNotification { get; private set; }
 
+        /// <summary>(v1.1) The id of an active customer that the two customer reads look at.</summary>
+        public int SharedCustomer { get; private set; }
+
         /// <inheritdoc />
         public async ValueTask InitializeAsync()
         {
@@ -656,7 +679,11 @@ public class RoleMatrixTests(RoleMatrixTests.MatrixApp app) : IClassFixture<Role
             SharedNotification = (await AllRowsAsync(Admin, $"{ApiPath}/notifications"))
                 .Single(row => row.GetProperty("type").GetString() == "ComplementaryAwaitingApproval").GetProperty("id").GetInt32();
             SharedReturn = await InstructedReturnAsync(Admin, (await FreeLeftoverAsync()).Id, 5m);
+            SharedCustomer = await NewCustomerAsync();
         }
+
+        /// <summary>(v1.1) A new active customer with a unique name, created by the start-up Manager; returns the id.</summary>
+        public async Task<int> NewCustomerAsync() => (await SalesFlow.CreateCustomerAsync(Admin)).Id;
 
         /// <summary>A new user (Warehouse only, unless given roles) through <c>POST /users</c>; returns the id.</summary>
         public Task<string> NewUserAsync() => ScenarioApi.CreateUserAsync(Admin, Seed.UniqueEmail("matrix"), Roles.Warehouse);

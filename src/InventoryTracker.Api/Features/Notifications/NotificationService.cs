@@ -31,10 +31,19 @@ public sealed class NotificationService(AppDbContext db, Clock clock)
 {
     /// <summary>
     /// The <c>400</c> message for an <c>unreadOnly</c> value that is not a boolean (design 2.5: a filter value in the
-    /// wrong format is <c>400</c>). The design gives no wording for it; this follows its other filter messages, such as
-    /// "status must be Created, InProduction, Completed or Cancelled." (decision #102).
+    /// wrong format is <c>400</c>; design 7.2, decision #102). It is the sentence <see cref="BoolParser.Message"/> builds
+    /// for <c>unreadOnly</c>, and the service gets its message from <c>BoolParser</c>, not from here (decision #161).
     /// </summary>
+    /// <remarks>
+    /// Why it has to be a <c>const</c> and cannot be <c>static readonly ... = BoolParser.Message(...)</c>: the
+    /// notification tests pass it in <c>[InlineData(...)]</c>, and an attribute argument has to be known when the code is
+    /// compiled. A method call only runs when the program runs, so it cannot be used there. The text is typed once more
+    /// here for that reason only. <c>BoolParserTests.Message_names_the_parameter</c> fails if the two ever differ.
+    /// </remarks>
     public const string UnreadOnlyMessage = "unreadOnly must be true or false.";
+
+    /// <summary>The query parameter name, used as the <c>errors</c> key and in <see cref="UnreadOnlyMessage"/>.</summary>
+    private const string UnreadOnlyParameter = "unreadOnly";
 
     /// <summary>
     /// AC-23.1: one page of notifications, newest first, each with <c>isRead</c> for <paramref name="userId"/>. With
@@ -48,7 +57,9 @@ public sealed class NotificationService(AppDbContext db, Clock clock)
         // Design 2.2 step 4: check the whole query first, so one 400 lists every problem (design 6).
         var errors = new ValidationErrors();
         page.Validate(errors);
-        var onlyUnread = ParseUnreadOnly(unreadOnly, errors);
+        // Design 5.10: missing or empty means the default, false (all notifications). BoolParser holds the rules
+        // shared with the customer isActive filter (decision #161).
+        var onlyUnread = BoolParser.ParseOptional(unreadOnly, UnreadOnlyParameter, errors) ?? false;
         errors.ThrowIfAny();
 
         var query = db.Notifications.AsQueryable();
@@ -195,39 +206,6 @@ public sealed class NotificationService(AppDbContext db, Clock clock)
                     WHERE r."NotificationId" = n."Id" AND r."UserId" = {userId})
                 """, cancellationToken);
         }, cancellationToken);
-    }
-
-    /// <summary>
-    /// Design 5.10: <c>unreadOnly</c> is <c>true</c> or <c>false</c>, default <c>false</c>. Missing or empty means the
-    /// default. Any letter case is accepted, like enum values (design 2.3, <c>EnumParser</c>), but nothing else:
-    /// surrounding spaces, numbers and other words add <see cref="UnreadOnlyMessage"/> (design 2.5: a filter value in
-    /// the wrong format is <c>400</c>; decision #102).
-    /// </summary>
-    /// <remarks>
-    /// The value arrives as text rather than as a <c>bool</c> parameter so the error is this message, in the style of
-    /// the design's other filter messages, rather than model binding's generic "The value 'yes' is not valid".
-    /// </remarks>
-    private static bool ParseUnreadOnly(string? value, ValidationErrors errors)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return false;
-        }
-
-        // An exact comparison, ignoring only letter case. bool.TryParse is not used because it also accepts
-        // surrounding spaces (" true "), which enum filters do not.
-        if (string.Equals(value, bool.TrueString, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (string.Equals(value, bool.FalseString, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        errors.Add("unreadOnly", UnreadOnlyMessage);
-        return false;
     }
 
     /// <summary>Design 7.2, AC-23.5: the <c>404</c> for an unknown notification id.</summary>

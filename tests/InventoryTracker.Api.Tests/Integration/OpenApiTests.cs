@@ -40,6 +40,10 @@ public class OpenApiTests(OpenApiTests.DevelopmentApp app) : IClassFixture<OpenA
         "POST /complementary-orders/{number}/approve", "POST /complementary-orders/{number}/reject",
         "POST /complementary-orders/{number}/send",
         "POST /returns", "POST /returns/{number}/receive", "POST /returns/{number}/cancel",
+
+        // (v1.1) T-024: a duplicate customer name (AC-29.2) and deleting a customer with sales orders (AC-29.5).
+        // Deactivate and reactivate can fail only with 404 (architecture 5.1), so they document no 409.
+        "POST /customers", "PUT /customers/{id}", "DELETE /customers/{id}",
     ];
 
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;

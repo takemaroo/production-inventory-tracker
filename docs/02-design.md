@@ -1440,7 +1440,7 @@ Marking an already-read notification read again succeeds (`204`). A missing or e
 | 409 | `customer-has-sales-orders` | Delete a customer that has at least one sales order, in any status (AC-29.5) | {customer} has sales orders and cannot be deleted. Deactivate it instead. (PRD, #152) *(example: "Deli Norte has sales orders and cannot be deleted. Deactivate it instead.")* |
 | 400 | `validation` | `isActive` filter not exactly `true` or `false` (any letter case), as `unreadOnly` (decision #102) | isActive must be true or false. |
 
-Deactivating, reactivating and deleting take no body and can fail only with `404` (and `409` for the delete). The PRD messages are kept word for word, so they do not add a next step; the next step (deactivate instead of delete, reactivate or pick another customer) is in the flows (3.12, 3.13) and belongs in the user guide.
+Deactivating, reactivating and deleting take no body and can fail only with `404` (and `409` for the delete). Both customer messages state the next step (decision #152): "Deactivate it instead." on a refused delete, and "Reactivate the customer or choose another one." on a sales order for a deactivated customer; the flows (3.12, 3.13) show the same steps.
 
 **Sales orders (v1.1) (US-24, US-26, US-27)**
 

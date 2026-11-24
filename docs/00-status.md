@@ -29,7 +29,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.1 part) |
 | 2 | Design | done | `docs/02-design.md` |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` |
-| 4 | Build | in progress | code (tasks done: 2 of 11, T-022 to T-032) |
+| 4 | Build | in progress | code (tasks done: 3 of 11, T-022 to T-032) |
 | 5 | QA | not started | `docs/05-test-plan.md` |
 | 6 | Security | not started | `docs/06-security-review.md` |
 | 7 | Release | not started | `docs/09-release-notes.md`, README |
@@ -98,6 +98,7 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - 2026-11-24 Owner approved v1.1 phase 3. Started T-022.
 - 2026-11-24 T-022 approved by `code-reviewer` (hand-edited one-transaction migration verified; comment fixes), committed and pushed. Architecture 3.1 corrected (rolled-back inserts reuse a number on SQLite). Started T-023.
 - 2026-11-24 T-023 approved by `code-reviewer` (Seller role, role-based reads on nine v1 endpoints, six-caller role matrix; review tidy-ups), committed and pushed. Started T-024.
+- 2026-11-24 T-024 approved by `code-reviewer` (customers; race test verified by mutation; review tidy-ups), committed and pushed. Design 7.2 note corrected for #152. Started T-025.
 
 ## Follow-ups to route
 
@@ -116,4 +117,5 @@ v1.1 build, one agent at a time: T-022 (data model and migration) with `backend-
 - Optional script nits (later): Test-FileInUse description says the lock check fails "exactly when the API is running" (not true when idle); 07-release section 10 row could mention a running build of the API project matching the process check.
 - backend-developer (Later, SEC-22): move the signing-key rule into the API's start-up checks (StartupChecks.CheckSettings): characters A-Z a-z 0-9 + / = - _, at least 43 characters, at least 10 different; keep run.ps1's check in step; tests for the banner, a repeated letter and a generated key.
 - technical-writer / T-032 (v1.1): docs/08-user-guide.md:158 and InventoryTracker.Api.http:154 still use the v1 item-in-use wording; the message now includes "sales order lines".
+- After v1.1 (owner, 2026-11-24): prepare the repo for going public: full-history secret scan (security-reviewer), LICENSE (owner to choose; suggested "all rights reserved", view for evaluation only), README "About this project" (AI-team approach, stated honestly), and GitHub's private-email setting. The owner changes visibility.
 - Test tidy (later, not v1): third copy of the 100,000-movement volume seed in Acceptance/PerformanceAcceptanceTests; private AdjustAsync in StockZeroForms/NotificationEvents acceptance tests duplicates ScenarioApi.AdjustAsync; fold into OrderFlow/Seed (BUG-001 review).

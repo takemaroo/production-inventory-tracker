@@ -1,6 +1,6 @@
 # Sample requests for every endpoint of the API (design section 4), as one walk-through of the main flow:
 # sign in -> master data -> receive -> order -> send -> complementary -> complete -> notifications -> returns
-# -> adjustments -> users.
+# -> adjustments -> users -> (v1.1) customers.
 #
 # Tools: the VS Code "REST Client" extension, or the .http editor of Visual Studio 2022 17.12 or later. Both send
 # the request under the cursor ("Send Request") and both support the variables used here:
@@ -426,3 +426,57 @@ Authorization: Bearer {{signInUser.response.body.$.accessToken}}
 Content-Type: application/json
 
 { "currentPassword": "{{$dotenv SAMPLE_USER_RESET_PASSWORD}}", "newPassword": "{{$dotenv SAMPLE_USER_NEW_PASSWORD}}" }
+
+###
+# ==== v1.1 ========================================================================================================
+# The version 1.1 endpoints (sales orders, customers, the Seller role). They follow on from the walk-through above and
+# use the first Manager's token. A Seller-only user could send every customer request below just the same.
+
+###
+# ---- 12. (v1.1) Customers (US-29; Manager or Seller, reads also Warehouse) -------------------------------------------
+
+### Create the customer "Deli Norte". Notes are optional, up to 500 characters. 201, active.
+# @name createCustomer
+POST {{api}}/customers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Deli Norte", "notes": "Deliveries before 10:00, ask for the kitchen." }
+
+###
+@customerId = {{createCustomer.response.body.$.id}}
+
+### List customers, newest first. Optional filter: isActive=true or false.
+GET {{api}}/customers?isActive=true
+Authorization: Bearer {{token}}
+
+### One customer.
+GET {{api}}/customers/{{customerId}}
+Authorization: Bearer {{token}}
+
+### Rename the customer and replace its notes (full replacement: leaving notes out clears them).
+PUT {{api}}/customers/{{customerId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Deli Norte SA", "notes": "Deliveries before 10:00, ask for the kitchen." }
+
+### Deactivate the customer: no new sales orders for it. Repeating it succeeds and changes nothing.
+POST {{api}}/customers/{{customerId}}/deactivate
+Authorization: Bearer {{token}}
+
+### Reactivate the customer.
+POST {{api}}/customers/{{customerId}}/reactivate
+Authorization: Bearer {{token}}
+
+### Create "Pizzeria Lago" by mistake, to delete it below.
+# @name createMistake
+POST {{api}}/customers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Pizzeria Lago" }
+
+### Delete a customer that never had a sales order: 204. One with any sales order gets 409; deactivate it instead.
+DELETE {{api}}/customers/{{createMistake.response.body.$.id}}
+Authorization: Bearer {{token}}

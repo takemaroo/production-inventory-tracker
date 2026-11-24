@@ -2,7 +2,8 @@ namespace InventoryTracker.Api.Tests.Infrastructure;
 
 /// <summary>
 /// The exact message texts that tests of many endpoints check: the sign-in and role refusals (<c>401</c> and
-/// <c>403</c>, design 7.1), the list of known roles (design 7.2) and the input maximums (design 7.2, decision #80).
+/// <c>403</c>, design 7.1), the list of known roles (design 7.2), the input maximums (design 7.2, decision #80) and
+/// (v1.1) the PRD's customer sentences (design 7.2, Customers).
 /// Kept in one place so every endpoint's tests compare against the same wording.
 /// </summary>
 /// <remarks>
@@ -66,4 +67,22 @@ public static class ExpectedMessages
 
     /// <summary>Decision #80, design 7.2: <c>400</c> <c>validation</c> for a recipe amount per unit above 999,999.999999.</summary>
     public const string AmountPerUnitAboveMax = "Amount per unit must be 999,999.999999 or less.";
+
+    /// <summary>
+    /// (v1.1) AC-29.2, PRD example: <c>409</c> <c>customer-name-taken</c> when another customer is already called
+    /// "Deli Norte", ignoring case. The name quoted is the one sent, trimmed.
+    /// </summary>
+    public const string DeliNorteNameTaken = "A customer named 'Deli Norte' already exists.";
+
+    /// <summary>
+    /// (v1.1) AC-29.5, PRD example with decision #152's next step: <c>409</c> <c>customer-has-sales-orders</c> on deleting
+    /// "Deli Norte", which has a sales order in some status.
+    /// </summary>
+    public const string DeliNorteHasSalesOrders = "Deli Norte has sales orders and cannot be deleted. Deactivate it instead.";
+
+    /// <summary>
+    /// (v1.1) Design 7.2, architecture 4.1 item 19: <c>400</c> <c>validation</c> under <c>isActive</c> for a value other
+    /// than <c>true</c> or <c>false</c> on <c>GET /customers</c>.
+    /// </summary>
+    public const string IsActiveMustBeBoolean = "isActive must be true or false.";
 }
