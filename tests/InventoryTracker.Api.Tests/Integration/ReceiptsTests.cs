@@ -48,7 +48,7 @@ public class ReceiptsTests(ReceiptsTests.FixedClockFactory factory) : IClassFixt
     /// <summary>
     /// AC-09.1, AC-09.4, design 5.6: Cheese in the Warehouse is 200 kg; a Warehouse user's receipt of 1,000 kg makes it
     /// 1,200 kg and leaves Production storage unchanged. The <c>201</c> body is the Received movement with exactly the
-    /// fifteen design fields, the date, note, user and UTC time (AC-05.3), and <c>Location: /api/v1/movements/{id}</c>.
+    /// sixteen design fields, the date, note, user and UTC time (AC-05.3), and <c>Location: /api/v1/movements/{id}</c>.
     /// </summary>
     [Fact]
     public async Task Warehouse_user_records_a_receipt_and_warehouse_stock_goes_up()
@@ -82,10 +82,12 @@ public class ReceiptsTests(ReceiptsTests.FixedClockFactory factory) : IClassFixt
         Assert.Equal(JsonValueKind.Null, body.GetProperty("orderNumber").ValueKind);
         Assert.Equal(JsonValueKind.Null, body.GetProperty("complementaryOrderNumber").ValueKind);
         Assert.Equal(JsonValueKind.Null, body.GetProperty("returnNumber").ValueKind);
+        // (v1.1) T-026, design 5.6: every movement carries salesOrderNumber, null on anything but a shipment.
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("salesOrderNumber").ValueKind);
         Assert.Equal(Today, body.GetProperty("receiptDate").GetString());
         Assert.Equal("Delivery note 4471", body.GetProperty("note").GetString());
         Assert.Equal(JsonValueKind.Null, body.GetProperty("reason").ValueKind);
-        Assert.Equal(15, body.EnumerateObject().Count());
+        Assert.Equal(16, body.EnumerateObject().Count());
 
         var stock = await ApiJson.ReadAsync(await warehouse.GetAsync($"/api/v1/stock/{cheese.Id}", Cancel));
         Assert.Equal(1200m, stock.GetProperty("warehouse").GetDecimal());

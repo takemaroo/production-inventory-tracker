@@ -243,7 +243,8 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
 
     /// <summary>
     /// T-002: enum names match design 2.3 exactly (these are the strings stored in the tables). (v1.1) T-022:
-    /// SalesOrderStatus is Created, Shipped, Cancelled; MovementType is unchanged here (T-026 adds ShippedToCustomer).
+    /// SalesOrderStatus is Created, Shipped, Cancelled. T-026: MovementType has seven names, ShippedToCustomer last, in
+    /// the design 2.3 order that the <c>type</c> filter's message follows (D-2, AC-28.1).
     /// </summary>
     [Fact]
     public void Enum_names_match_design_section_2_3()
@@ -251,7 +252,7 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         Assert.Equal(new[] { "RawMaterial", "FinishedProduct" }, Enum.GetNames<ItemType>());
         Assert.Equal(new[] { "Warehouse", "ProductionStorage" }, Enum.GetNames<Location>());
         Assert.Equal(
-            new[] { "Received", "SentToProduction", "ConsumedInProduction", "ProducedOutput", "ReturnedToWarehouse", "Adjustment" },
+            new[] { "Received", "SentToProduction", "ConsumedInProduction", "ProducedOutput", "ReturnedToWarehouse", "Adjustment", "ShippedToCustomer" },
             Enum.GetNames<MovementType>());
         Assert.Equal(new[] { "Created", "InProduction", "Completed", "Cancelled" }, Enum.GetNames<OrderStatus>());
         Assert.Equal(
@@ -1033,19 +1034,25 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     }
 
     /// <summary>
-    /// A Warehouse decrease of 1 that names <paramref name="salesOrderNumber"/>, for the database rules on the new column.
-    /// Its type is Adjustment only because <c>ShippedToCustomer</c> arrives in T-026: the foreign key and the filtered
-    /// index look at the sales order number and the item, never at the type. Added straight through the DbContext,
-    /// not through <c>StockLedger</c>, to reach the database's own checks (tests only, decision #112).
+    /// A Warehouse decrease of 1 for the database rules on <c>SalesOrderNumber</c>. With a number it is a
+    /// <c>ShippedToCustomer</c> movement (T-026), the only type that carries one; without, an Adjustment with a reason.
+    /// So each row has the shape and links <c>StockLedger</c> would accept (D-2, decision #157), and a refusal can only
+    /// come from the rule under test.
     /// </summary>
+    /// <remarks>
+    /// Added straight through the DbContext, not through <c>StockLedger</c>, to reach the database's own checks (tests
+    /// only, decision #112). That also skips the ledger's below-zero check, which is why a decrease with no stock is
+    /// fine here. The foreign key and the filtered index look only at the sales order number and the item, never at the
+    /// type, so the ledger's "SalesOrderNumber only on ShippedToCustomer" rule cannot interfere with these tests.
+    /// </remarks>
     private static Movement NewSalesOrderMovement(int itemId, string userId, int? salesOrderNumber) => new()
     {
-        Type = MovementType.Adjustment,
+        Type = salesOrderNumber is null ? MovementType.Adjustment : MovementType.ShippedToCustomer,
         ItemId = itemId,
         WarehouseChange = -1m,
         OccurredAt = SampleTime,
         UserId = userId,
-        Reason = "Database rule test",
+        Reason = salesOrderNumber is null ? "Database rule test" : null,
         SalesOrderNumber = salesOrderNumber,
     };
 }

@@ -27,10 +27,10 @@ namespace InventoryTracker.Api.Features.Movements;
 public sealed class MovementService(AppDbContext db)
 {
     /// <summary>
-    /// AC-11.1, AC-11.2: one page of movements matching every given filter, newest first. <c>400</c> <c>validation</c>
-    /// for paging outside its limits, an unknown location or type, a date not written <c>yyyy-MM-dd</c>, or
-    /// <c>from</c> later than <c>to</c>; every problem is reported in one response. No match is <c>200</c> with an
-    /// empty page.
+    /// AC-11.1, AC-11.2, (v1.1) AC-28.2: one page of movements matching every given filter, newest first. <c>400</c>
+    /// <c>validation</c> for paging outside its limits, an unknown location or type, a date not written
+    /// <c>yyyy-MM-dd</c>, or <c>from</c> later than <c>to</c>; every problem is reported in one response. No match is
+    /// <c>200</c> with an empty page.
     /// </summary>
     public async Task<PagedResult<MovementResponse>> ListAsync(
         PageQuery page, MovementFilter filter, CancellationToken cancellationToken)
@@ -85,21 +85,29 @@ public sealed class MovementService(AppDbContext db)
             query = query.Where(movement => movement.ComplementaryOrderNumber == complementaryNumber);
         }
 
+        // (v1.1) AC-28.2, architecture 4.1 item 20: only shipments carry a sales order number (the ledger refuses it on
+        // every other type), so this finds exactly the sales order's shipment movements. SQLite answers it from the
+        // partial index IX_Movements_OneShipmentPerLine: "SalesOrderNumber = 5" implies the index's own filter
+        // "SalesOrderNumber IS NOT NULL". The orderNumber filter above compares ProductionOrderNumber, which is always
+        // null on a shipment, so it can never return one, even when the two numbers are equal (D-10).
+        if (filter.SalesOrderNumber is { } salesOrderNumber)
+        {
+            query = query.Where(movement => movement.SalesOrderNumber == salesOrderNumber);
+        }
+
         // AC-11.2, design 2.5 and 9: from and to are whole UTC days, both included, compared with occurredAt (not the
         // receipt date). So "from" starts at 00:00:00 UTC of that day, and "to" ends just before 00:00:00 UTC of the
-        // next day. Comparing "before the next midnight" rather than "at or before 23:59:59" includes every instant of
-        // the day without relying on times being whole seconds.
+        // next day. DayRange holds that rule (and why it is "before the next midnight"), shared with the reports so the
+        // two can never disagree about a day (decision #161).
         if (from is { } firstDay)
         {
-            var start = StartOfDay(firstDay);
+            var start = DayRange.Start(firstDay);
             query = query.Where(movement => movement.OccurredAt >= start);
         }
 
-        // 9999-12-31 has no next day (DateOnly.AddDays would throw, a 500), and nothing can happen after it, so that
-        // day needs no upper bound at all.
-        if (to is { } lastDay && lastDay < DateOnly.MaxValue)
+        // Decision #89: to=9999-12-31 has no next day, so EndExclusive gives null and the query gets no upper bound.
+        if (to is { } lastDay && DayRange.EndExclusive(lastDay) is { } end)
         {
-            var end = StartOfDay(lastDay.AddDays(1));
             query = query.Where(movement => movement.OccurredAt < end);
         }
 
@@ -126,9 +134,4 @@ public sealed class MovementService(AppDbContext db)
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException($"Movement {id} not found.");
     }
-
-    /// <summary>
-    /// 00:00:00 UTC at the start of <paramref name="day"/>. Marked as UTC, like every stored time (architecture 3.1).
-    /// </summary>
-    private static DateTime StartOfDay(DateOnly day) => day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
 }

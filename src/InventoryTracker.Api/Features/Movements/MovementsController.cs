@@ -35,9 +35,10 @@ public sealed class MovementsController(MovementService movements) : ControllerB
 {
     /// <summary>
     /// <c>GET /api/v1/movements</c>: one page of movements, newest first, filtered by any of <c>itemId</c>,
-    /// <c>location</c>, <c>type</c>, <c>orderNumber</c>, <c>complementaryOrderNumber</c>, <c>from</c> and <c>to</c>
-    /// (AC-11.1, AC-11.2, design 5.6). Filters combine with AND; no match is <c>200</c> with an empty list; a value in
-    /// the wrong format, or <c>from</c> after <c>to</c>, is <c>400</c>.
+    /// <c>location</c>, <c>type</c>, <c>orderNumber</c>, <c>complementaryOrderNumber</c>, (v1.1)
+    /// <c>salesOrderNumber</c>, <c>from</c> and <c>to</c> (AC-11.1, AC-11.2, AC-28.2, design 5.6). Filters combine with
+    /// AND; no match is <c>200</c> with an empty list; a value in the wrong format, or <c>from</c> after <c>to</c>, is
+    /// <c>400</c>.
     /// </summary>
     /// <param name="paging">The <c>page</c> and <c>pageSize</c> query parameters (see <c>UnitsController.List</c> for the name).</param>
     /// <param name="filter">

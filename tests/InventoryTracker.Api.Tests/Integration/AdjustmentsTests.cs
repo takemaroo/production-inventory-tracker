@@ -43,7 +43,7 @@ public class AdjustmentsTests(TestApiFactory factory) : IClassFixture<TestApiFac
 
     /// <summary>
     /// AC-12.1, AC-05.3, design 5.6: a Manager's adjustment of +7.5 kg in the Warehouse with a reason gives <c>201</c> and
-    /// <c>Location: /api/v1/movements/{id}</c>. The body is the Adjustment movement with exactly the fifteen design
+    /// <c>Location: /api/v1/movements/{id}</c>. The body is the Adjustment movement with exactly the sixteen design
     /// fields: the Warehouse change, Production storage null, the trimmed reason, no note, date or links, the Manager and
     /// the UTC time in whole seconds. <c>GET /movements/{id}</c> returns the same body, and the Warehouse stock rises by
     /// exactly the quantity while Production storage is unchanged.
@@ -72,13 +72,14 @@ public class AdjustmentsTests(TestApiFactory factory) : IClassFixture<TestApiFac
         Assert.Equal("2026-11-11T08:00:00Z", body.GetProperty("occurredAt").GetString());
         Assert.Equal(managerUser.Id, body.GetProperty("user").GetProperty("id").GetString());
         Assert.Equal(managerUser.Email, body.GetProperty("user").GetProperty("email").GetString());
-        foreach (var empty in new[] { "orderNumber", "complementaryOrderNumber", "returnNumber", "receiptDate", "note" })
+        // (v1.1) T-026, design 5.6: salesOrderNumber is on every movement, and null on an adjustment (AC-28.6).
+        foreach (var empty in new[] { "orderNumber", "complementaryOrderNumber", "returnNumber", "salesOrderNumber", "receiptDate", "note" })
         {
             Assert.Equal(JsonValueKind.Null, body.GetProperty(empty).ValueKind);
         }
 
         Assert.Equal("Physical count found more", body.GetProperty("reason").GetString());
-        Assert.Equal(15, body.EnumerateObject().Count());
+        Assert.Equal(16, body.EnumerateObject().Count());
 
         // Design 4: the Location header names a real resource, and it shows the very same movement.
         var byId = await manager.GetAsync(response.Headers.Location, Cancel);

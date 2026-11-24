@@ -13,8 +13,8 @@ namespace InventoryTracker.Api.Domain;
 /// <para>
 /// A movement has one signed change per location. Which columns each type fills (architecture 3.2):
 /// Received W+; SentToProduction W−, P+; ConsumedInProduction P−; ProducedOutput W+; ReturnedToWarehouse W+, P−;
-/// Adjustment exactly one of W or P. A location the movement does not touch is null. No movement is created with
-/// a zero quantity (PRD section 6 row 17).
+/// Adjustment exactly one of W or P; (v1.1) ShippedToCustomer W− only. A location the movement does not touch is null.
+/// No movement is created with a zero quantity (PRD section 6 row 17).
 /// </para>
 /// <para>
 /// AC-11.3: movements are insert-only. Every property is <c>init</c>, so code can set it only while creating the

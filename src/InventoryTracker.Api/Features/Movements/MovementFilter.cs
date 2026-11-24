@@ -42,13 +42,24 @@ public sealed class MovementFilter
     [FromQuery(Name = "type")]
     public string? Type { get; set; }
 
-    /// <summary>Movements of this production order, including the sends of its complementary orders (design 5.6).</summary>
+    /// <summary>
+    /// Movements of this production order, including the sends of its complementary orders (design 5.6). (v1.1) Never a
+    /// shipment: production orders and sales orders are numbered separately (D-10), so production order #1 and sales
+    /// order #1 can both exist, and this filter only ever means the production order (AC-28.2).
+    /// </summary>
     [FromQuery(Name = "orderNumber")]
     public int? OrderNumber { get; set; }
 
     /// <summary>Movements of this complementary order (its sends).</summary>
     [FromQuery(Name = "complementaryOrderNumber")]
     public int? ComplementaryOrderNumber { get; set; }
+
+    /// <summary>
+    /// (v1.1) Movements of this sales order: its <c>ShippedToCustomer</c> movements, one per line once it has shipped
+    /// (AC-28.2, design 5.6). Production users may filter by it even though they cannot open the sales order (AC-28.7).
+    /// </summary>
+    [FromQuery(Name = "salesOrderNumber")]
+    public int? SalesOrderNumber { get; set; }
 
     /// <summary>First day included, <c>yyyy-MM-dd</c>, a whole UTC day compared with <c>occurredAt</c>.</summary>
     [FromQuery(Name = "from")]

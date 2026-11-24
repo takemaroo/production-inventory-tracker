@@ -10,9 +10,9 @@ namespace InventoryTracker.Api.Features.Stock;
 
 /// <summary>
 /// The only code that writes stock movements (architecture 5.1). Receipts (T-008), sends (T-010, T-018), completions
-/// (T-011), adjustments (T-015) and received returns (T-019) all add their movements through
-/// <see cref="AddAsync"/>, which refuses any movement that would take the Warehouse or Production storage below zero
-/// (D-2, AC-12.3, AC-15.7).
+/// (T-011), adjustments (T-015), received returns (T-019) and (v1.1) sales order shipments (T-027) all add their
+/// movements through <see cref="AddAsync"/>, which refuses any movement that would take the Warehouse or Production
+/// storage below zero (D-2, AC-12.3, AC-15.7).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -130,7 +130,8 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
     /// A new movement with <c>Type</c>, <c>ItemId</c>, the signed change(s) for its type, <c>OccurredAt</c> (from
     /// <c>Clock.UtcNow</c>) and <c>UserId</c> (the signed-in user) set, plus exactly the order, return, date, note or
     /// reason fields its type uses (see <c>CheckLinks</c>: for example a SentToProduction needs its
-    /// <c>ProductionOrderNumber</c>, a Received its <c>ReceiptDate</c>, an Adjustment its <c>Reason</c>).
+    /// <c>ProductionOrderNumber</c>, a Received its <c>ReceiptDate</c>, an Adjustment its <c>Reason</c>, (v1.1) a
+    /// ShippedToCustomer its <c>SalesOrderNumber</c>).
     /// </param>
     /// <param name="cancellationToken">Cancels the queries and the save.</param>
     /// <exception cref="ConflictException">
@@ -142,6 +143,11 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
     /// </exception>
     /// <exception cref="ArgumentException">
     /// The movement breaks D-2, the audit rules or the link rules (a programming error).
+    /// </exception>
+    /// <exception cref="DbUpdateException">
+    /// (v1.1) The database refused the insert: a <c>SalesOrderNumber</c> that names no sales order (the foreign key), or
+    /// a second shipment movement for the same sales order and item (<c>IX_Movements_OneShipmentPerLine</c>). The ledger
+    /// deliberately leaves both checks to the database (architecture 5.1, decision #157); see <c>CheckLinks</c>.
     /// </exception>
     public async Task AddAsync(Movement movement, CancellationToken cancellationToken)
     {
@@ -211,7 +217,8 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
     /// D-2 and AC-05.3: throws <see cref="ArgumentException"/> when the movement is not one the PRD allows. Which
     /// change columns each type fills (architecture 3.2): Received W+; SentToProduction W−, P+ (same quantity);
     /// ConsumedInProduction P−; ProducedOutput W+; ReturnedToWarehouse W+, P− (same quantity); Adjustment exactly one
-    /// of W or P, either sign. No movement has a zero quantity (PRD section 6 row 17, AC-15.4).
+    /// of W or P, either sign; (v1.1) ShippedToCustomer W− only. No movement has a zero quantity (PRD section 6 row 17,
+    /// AC-15.4).
     /// </summary>
     private static void CheckShape(Movement movement)
     {
@@ -251,6 +258,10 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
             MovementType.ReturnedToWarehouse => production < 0m && warehouse == -production,
             // Exactly one location: one of the two is null and the other is not.
             MovementType.Adjustment => (warehouse is null) != (production is null),
+            // (v1.1) D-2, D-11, AC-28.1: a shipment only takes goods out of the Warehouse. Nothing is ever shipped from
+            // production storage, so that column must be null.
+            MovementType.ShippedToCustomer => warehouse < 0m && production is null,
+            // A type added to the enum without a rule here is refused rather than let through unchecked.
             _ => false,
         };
 
@@ -280,9 +291,20 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
     /// <item><term>ComplementaryOrderNumber</term><description>SentToProduction only, optional, and always together
     /// with its parent's ProductionOrderNumber (design 5.6). That the order named really is the parent is checked
     /// against the database by <see cref="CheckComplementaryParentAsync"/>.</description></item>
+    /// <item><term>SalesOrderNumber</term><description>(v1.1) ShippedToCustomer only, and required there (AC-28.1,
+    /// decision #157). A shipment carries none of the other links or texts: no rule above lists ShippedToCustomer as
+    /// allowed, so they are all refused on it without a rule of their own.</description></item>
     /// </list>
     /// Note and Reason must also be stored as the services clean them (trimmed, not blank, design 2.6) and fit their
     /// 500-character columns, which SQLite would not enforce.
+    /// <para>
+    /// (v1.1) Why the ledger does not read the sales order. Two things about <c>SalesOrderNumber</c> are left to the
+    /// database on purpose (architecture 5.1, decision #157). A number that names no sales order fails the insert with
+    /// "FOREIGN KEY constraint failed"; a second shipment movement for the same sales order and item fails the unique
+    /// index <c>IX_Movements_OneShipmentPerLine</c>. Either way the save throws <see cref="DbUpdateException"/> and the
+    /// transaction rolls back, so the database gives the same guarantee a read here would, without the extra query. The
+    /// complementary order is different: its rule (the right parent) is not something a foreign key can express.
+    /// </para>
     /// </remarks>
     private static void CheckLinks(Movement movement)
     {
@@ -302,6 +324,12 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
             required: type is MovementType.SentToProduction or MovementType.ConsumedInProduction or MovementType.ProducedOutput);
         CheckField(movement, "ComplementaryOrderNumber", movement.ComplementaryOrderNumber is not null,
             allowed: type == MovementType.SentToProduction, required: false);
+
+        // (v1.1) AC-28.1, decision #157: the link that makes a shipment a shipment, and nothing else may carry it. Design
+        // 5.6 shows salesOrderNumber as null on every other type, even an adjustment whose reason names a sales order
+        // (AC-28.6), so GET /movements?salesOrderNumber= can only ever return real shipments.
+        CheckField(movement, "SalesOrderNumber", movement.SalesOrderNumber is not null,
+            allowed: type == MovementType.ShippedToCustomer, required: type == MovementType.ShippedToCustomer);
 
         foreach (var (field, text) in new[] { ("Note", movement.Note), ("Reason", movement.Reason) })
         {

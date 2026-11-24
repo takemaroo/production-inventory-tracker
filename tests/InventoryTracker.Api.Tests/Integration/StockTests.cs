@@ -14,6 +14,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using static InventoryTracker.Api.Tests.Infrastructure.OrderFlow;
+using static InventoryTracker.Api.Tests.Infrastructure.SalesFlow;
 
 namespace InventoryTracker.Api.Tests.Integration;
 
@@ -34,6 +35,11 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// copies until T-020). No endpoint takes stock away yet (adjustments arrive in T-015), so "refused" is
 /// checked on the <see cref="ConflictException"/> itself; the exception handler that turns it into the <c>409</c> body
 /// is tested in T-001.
+/// </para>
+/// <para>
+/// (v1.1) T-026: shipment movements (<c>ShippedToCustomer</c>) link to real sales orders, created through
+/// <c>POST /sales-orders</c> (T-025) with <see cref="SalesFlow"/>. No endpoint ships yet (T-027), so the shipments
+/// themselves go in through the ledger, like every other movement here.
 /// </para>
 /// </remarks>
 public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
@@ -563,7 +569,9 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     /// <summary>
     /// D-2 (which columns each type fills, and their signs), PRD section 6 row 17 (no zero quantity), PRD 4.1 (at most 3
     /// decimal places) and architecture 3.1 (decimal(18,3)): a movement of the wrong shape is a programming error
-    /// (<see cref="ArgumentException"/>, a <c>500</c> if it ever reached a client) and is not added.
+    /// (<see cref="ArgumentException"/>, a <c>500</c> if it ever reached a client) and is not added. (v1.1) T-026,
+    /// AC-28.1, D-11: a ShippedToCustomer movement with a positive, null or zero Warehouse change, or with any
+    /// production-storage change, is refused the same way, even though it names a real sales order.
     /// </summary>
     [Theory]
     [InlineData(MovementType.Received, "-5", null)]
@@ -583,6 +591,12 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [InlineData(MovementType.Adjustment, "5", "-5")]
     [InlineData(MovementType.Adjustment, null, null)]
     [InlineData(MovementType.Adjustment, null, "0")]
+    [InlineData(MovementType.ShippedToCustomer, "5", null)]
+    [InlineData(MovementType.ShippedToCustomer, null, null)]
+    [InlineData(MovementType.ShippedToCustomer, null, "-5")]
+    [InlineData(MovementType.ShippedToCustomer, "-5", "5")]
+    [InlineData(MovementType.ShippedToCustomer, "-5", "-5")]
+    [InlineData(MovementType.ShippedToCustomer, "0", null)]
     public async Task Ledger_refuses_a_movement_whose_shape_breaks_D2(MovementType type, string? warehouse, string? production)
     {
         var item = await CreateItemAsync(ItemType.RawMaterial);
@@ -642,6 +656,10 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     /// ConsumedInProduction and ProducedOutput, optional on ReturnedToWarehouse, not allowed on Received or Adjustment;
     /// ComplementaryOrderNumber only on SentToProduction. Note and Reason must be trimmed, not blank, and fit 500
     /// characters. <paramref name="fields"/> lists exactly the fields the movement carries.
+    /// (v1.1) T-026, AC-28.1, decision #157: SalesOrderNumber is required on ShippedToCustomer and refused on every other
+    /// type (the AC names Received, Adjustment and SentToProduction; the other three are covered too), and a shipment
+    /// carrying a production order, complementary order, return, receipt date, note or reason is refused. The sales
+    /// order named is real, so the only fault is the combination.
     /// </summary>
     [Theory]
     [InlineData(MovementType.Received, "", "ReceiptDate is required on Received")]
@@ -671,6 +689,19 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [InlineData(MovementType.Adjustment, "reason,complementary", "ComplementaryOrderNumber is not allowed on Adjustment")]
     [InlineData(MovementType.Adjustment, "reason,receiptDate", "ReceiptDate is not allowed on Adjustment")]
     [InlineData(MovementType.Adjustment, "reason,note", "Note is not allowed on Adjustment")]
+    [InlineData(MovementType.ShippedToCustomer, "", "SalesOrderNumber is required on ShippedToCustomer")]
+    [InlineData(MovementType.ShippedToCustomer, "salesOrder,order", "ProductionOrderNumber is not allowed on ShippedToCustomer")]
+    [InlineData(MovementType.ShippedToCustomer, "salesOrder,complementary", "ComplementaryOrderNumber is not allowed on ShippedToCustomer")]
+    [InlineData(MovementType.ShippedToCustomer, "salesOrder,return", "ReturnNumber is not allowed on ShippedToCustomer")]
+    [InlineData(MovementType.ShippedToCustomer, "salesOrder,receiptDate", "ReceiptDate is not allowed on ShippedToCustomer")]
+    [InlineData(MovementType.ShippedToCustomer, "salesOrder,note", "Note is not allowed on ShippedToCustomer")]
+    [InlineData(MovementType.ShippedToCustomer, "salesOrder,reason", "Reason is not allowed on ShippedToCustomer")]
+    [InlineData(MovementType.Received, "receiptDate,salesOrder", "SalesOrderNumber is not allowed on Received")]
+    [InlineData(MovementType.Adjustment, "reason,salesOrder", "SalesOrderNumber is not allowed on Adjustment")]
+    [InlineData(MovementType.SentToProduction, "order,salesOrder", "SalesOrderNumber is not allowed on SentToProduction")]
+    [InlineData(MovementType.ConsumedInProduction, "order,salesOrder", "SalesOrderNumber is not allowed on ConsumedInProduction")]
+    [InlineData(MovementType.ProducedOutput, "order,salesOrder", "SalesOrderNumber is not allowed on ProducedOutput")]
+    [InlineData(MovementType.ReturnedToWarehouse, "return,salesOrder", "SalesOrderNumber is not allowed on ReturnedToWarehouse")]
     public async Task Ledger_refuses_link_fields_that_do_not_fit_the_type(MovementType type, string fields, string expected)
     {
         var item = await CreateItemAsync(ItemType.RawMaterial);
@@ -687,7 +718,8 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 
     /// <summary>
     /// Architecture 3.2 and design 5.6: every combination the API will write is accepted, including the optional ones (a
-    /// receipt with a note, a complementary send naming its parent order, a return linked to an order).
+    /// receipt with a note, a complementary send naming its parent order, a return linked to an order), and (v1.1) a
+    /// shipment naming its sales order, the combination the ship (T-027) will write.
     /// </summary>
     [Theory]
     [InlineData(MovementType.Received, "receiptDate")]
@@ -699,6 +731,7 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     [InlineData(MovementType.ReturnedToWarehouse, "return")]
     [InlineData(MovementType.ReturnedToWarehouse, "return,order")]
     [InlineData(MovementType.Adjustment, "reason")]
+    [InlineData(MovementType.ShippedToCustomer, "salesOrder")]
     public async Task Ledger_accepts_every_link_combination_the_api_writes(MovementType type, string fields)
     {
         var item = await CreateItemAsync(ItemType.RawMaterial);
@@ -718,6 +751,119 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         Assert.Equal(movement.ReceiptDate, stored.ReceiptDate);
         Assert.Equal(movement.Note, stored.Note);
         Assert.Equal(movement.Reason, stored.Reason);
+        Assert.Equal(movement.SalesOrderNumber, stored.SalesOrderNumber);
+    }
+
+    // ---- (v1.1) StockLedger: shipments (T-026) -----------------------------------------------------------------
+
+    /// <summary>
+    /// T-026, D-2, AC-28.1, AC-26.2 figures: the ledger accepts a ShippedToCustomer movement with a negative Warehouse
+    /// change, no production-storage change and the number of an existing sales order. With 1,001 in the Warehouse,
+    /// shipping 600 leaves 401; production storage is untouched; the stored row keeps its sales order number and has
+    /// none of the other links.
+    /// </summary>
+    [Fact]
+    public async Task Ledger_accepts_a_shipment_and_the_warehouse_goes_down_by_its_quantity()
+    {
+        var item = await CreateItemAsync(ItemType.FinishedProduct);
+        var user = await CreateUserAsync();
+        var salesOrder = await CreateSalesOrderForAsync(item.Id, 600m);
+        await LedgerAsync(factory, Change(MovementType.Adjustment, item.Id, warehouse: 1001m, userId: user));
+        var shipment = Shipment(item.Id, 600m, user, salesOrder);
+
+        await LedgerAsync(factory, shipment);
+
+        Assert.Equal(401m, await StockAsync(factory, item.Id, Location.Warehouse));
+        Assert.Equal(0m, await StockAsync(factory, item.Id, Location.ProductionStorage));
+        await using var scope = factory.Services.CreateAsyncScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Movements
+            .AsNoTracking().SingleAsync(candidate => candidate.Id == shipment.Id, Cancel);
+        Assert.Equal(MovementType.ShippedToCustomer, stored.Type);
+        Assert.Equal(-600m, stored.WarehouseChange);
+        Assert.Null(stored.ProductionStorageChange);
+        Assert.Equal(salesOrder, stored.SalesOrderNumber);
+        Assert.Null(stored.ProductionOrderNumber);
+        Assert.Null(stored.ComplementaryOrderNumber);
+        Assert.Null(stored.ReturnNumber);
+        Assert.Null(stored.ReceiptDate);
+        Assert.Null(stored.Note);
+        Assert.Null(stored.Reason);
+    }
+
+    /// <summary>
+    /// T-026, D-2, AC-12.3 pattern: a shipment larger than the Warehouse stock is refused with <c>409</c>
+    /// <c>insufficient-stock</c> and the ledger's own message, and nothing is saved (the receipt made earlier in the
+    /// same transaction is rolled back too). Shipping exactly what is there is allowed and leaves 0.
+    /// </summary>
+    [Fact]
+    public async Task Ledger_refuses_a_shipment_that_takes_the_warehouse_below_zero()
+    {
+        var item = await CreateItemAsync(ItemType.RawMaterial);
+        var user = await CreateUserAsync();
+        var salesOrder = await CreateSalesOrderForAsync(item.Id, 12.5m);
+        await LedgerAsync(factory, Change(MovementType.Received, item.Id, warehouse: 12m, userId: user));
+
+        var refused = await Assert.ThrowsAsync<ConflictException>(() => LedgerAsync(factory,
+            Change(MovementType.Received, item.Id, warehouse: 0.25m, userId: user),
+            Shipment(item.Id, 12.5m, user, salesOrder)));
+
+        Assert.Equal("insufficient-stock", refused.Code);
+        Assert.Equal($"Not enough stock: {item.Name} in Warehouse has 12.25 {item.UnitName}.", refused.Detail);
+        Assert.Equal(12m, await StockAsync(factory, item.Id, Location.Warehouse));
+        Assert.Equal(1, await CountMovementsAsync(factory, item.Id));
+
+        await LedgerAsync(factory, Shipment(item.Id, 12m, user, salesOrder));
+        Assert.Equal(0m, await StockAsync(factory, item.Id, Location.Warehouse));
+    }
+
+    /// <summary>
+    /// T-026, architecture 5.1 (v1.1), decision #157: the ledger does not read the sales order; the foreign key refuses a
+    /// shipment naming one that does not exist (<see cref="DbUpdateException"/>, "FOREIGN KEY constraint failed"), and
+    /// the whole transaction rolls back, so the adjustment saved before it in the same transaction is gone too.
+    /// </summary>
+    [Fact]
+    public async Task Database_refuses_a_shipment_naming_an_unknown_sales_order()
+    {
+        var item = await CreateItemAsync(ItemType.FinishedProduct);
+        var user = await CreateUserAsync();
+        await LedgerAsync(factory, Change(MovementType.Adjustment, item.Id, warehouse: 50m, userId: user));
+
+        var refused = await Assert.ThrowsAsync<DbUpdateException>(() => LedgerAsync(factory,
+            Change(MovementType.Adjustment, item.Id, warehouse: 5m, userId: user),
+            Shipment(item.Id, 10m, user, salesOrderNumber: 999_999)));
+
+        Assert.Contains("FOREIGN KEY constraint failed", refused.InnerException?.Message);
+        Assert.Equal(1, await CountMovementsAsync(factory, item.Id));
+        Assert.Equal(50m, await StockAsync(factory, item.Id, Location.Warehouse));
+    }
+
+    /// <summary>
+    /// T-026, AC-26.10 backstop, decision #157: a second shipment movement for the same sales order and item is refused
+    /// by <c>IX_Movements_OneShipmentPerLine</c> (<see cref="DbUpdateException"/>, UNIQUE), even when stock would cover
+    /// it, and its transaction saves nothing. Another item of the same sales order (another line) is fine.
+    /// </summary>
+    [Fact]
+    public async Task Database_refuses_a_second_shipment_for_the_same_sales_order_and_item()
+    {
+        var item = await CreateItemAsync(ItemType.FinishedProduct);
+        var other = await CreateItemAsync(ItemType.RawMaterial);
+        var user = await CreateUserAsync();
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var customer = await CreateCustomerAsync(manager);
+        var salesOrder = await CreateSalesOrderAsync(manager, customer.Id, (item.Id, 10m), (other.Id, 3m));
+        await LedgerAsync(factory,
+            Change(MovementType.Adjustment, item.Id, warehouse: 100m, userId: user),
+            Change(MovementType.Received, other.Id, warehouse: 100m, userId: user));
+        await LedgerAsync(factory, Shipment(item.Id, 10m, user, salesOrder), Shipment(other.Id, 3m, user, salesOrder));
+
+        var refused = await Assert.ThrowsAsync<DbUpdateException>(() => LedgerAsync(factory,
+            Change(MovementType.Adjustment, item.Id, warehouse: 5m, userId: user),
+            Shipment(item.Id, 10m, user, salesOrder)));
+
+        Assert.Contains("UNIQUE constraint failed: Movements.SalesOrderNumber, Movements.ItemId", refused.InnerException?.Message);
+        Assert.Equal(2, await CountMovementsAsync(factory, item.Id));
+        Assert.Equal(90m, await StockAsync(factory, item.Id, Location.Warehouse));
+        Assert.Equal(97m, await StockAsync(factory, other.Id, Location.Warehouse));
     }
 
     /// <summary>
@@ -877,7 +1023,7 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
                 line.CarriedLeftover = 0m;
                 line.ComplementarySends = 0m;
                 await ledger.AddAsync(Change(MovementType.SentToProduction, cheese.Id, warehouse: -950m, production: 950m,
-                    userId: user.Id, links: new Links(orderNumber, 0, 0)), Cancel);
+                    userId: user.Id, links: new Links(orderNumber, 0, 0, 0)), Cancel);
             }, Cancel);
         };
         var reader = await app.CreateClientAsAsync(Roles.Production);
@@ -1021,7 +1167,8 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     /// <summary>
     /// A new movement with a UTC whole-second time and the link fields its type needs (StockLedger.CheckLinks): a
     /// receipt date on Received, a reason on Adjustment, the order of <paramref name="links"/> on a send, consumption or
-    /// output, its return on ReturnedToWarehouse. Without <paramref name="userId"/> it has no user yet;
+    /// output, its return on ReturnedToWarehouse, (v1.1) its sales order on ShippedToCustomer. Without
+    /// <paramref name="userId"/> it has no user yet;
     /// <see cref="InsertMovementsAsync"/> fills one in.
     /// </summary>
     private static Movement Change(MovementType type, int itemId, decimal? warehouse = null, decimal? production = null,
@@ -1034,16 +1181,44 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         ProductionOrderNumber = type is MovementType.SentToProduction or MovementType.ConsumedInProduction or MovementType.ProducedOutput
             ? links?.Order : null,
         ReturnNumber = type == MovementType.ReturnedToWarehouse ? links?.Return : null,
+        SalesOrderNumber = type == MovementType.ShippedToCustomer ? links?.SalesOrder : null,
     };
 
-    /// <summary>Real order, complementary-order and return numbers for movements to link to (the links are foreign keys).</summary>
-    private sealed record Links(int Order, int Complementary, int Return);
+    /// <summary>
+    /// (v1.1) A ShippedToCustomer movement of <paramref name="quantity"/> (taken from the Warehouse, so the change is
+    /// negative) for <paramref name="salesOrderNumber"/>, at a UTC whole-second time: the shape the ship (T-027) writes,
+    /// architecture 5.3 step 6.
+    /// </summary>
+    private static Movement Shipment(int itemId, decimal quantity, string userId, int salesOrderNumber) => new()
+    {
+        Type = MovementType.ShippedToCustomer, ItemId = itemId, WarehouseChange = -quantity,
+        OccurredAt = WholeSecondsNow(), UserId = userId, SalesOrderNumber = salesOrderNumber,
+    };
+
+    /// <summary>
+    /// (v1.1) Creates a customer and a sales order with one line (<paramref name="quantity"/> of
+    /// <paramref name="itemId"/>) through the API (T-024, T-025), and returns the sales order's number.
+    /// </summary>
+    private async Task<int> CreateSalesOrderForAsync(int itemId, decimal quantity)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var customer = await CreateCustomerAsync(manager);
+        return await CreateSalesOrderAsync(manager, customer.Id, (itemId, quantity));
+    }
+
+    /// <summary>
+    /// Real order, complementary-order, return and (v1.1) sales order numbers for movements to link to (the links are
+    /// foreign keys).
+    /// </summary>
+    private sealed record Links(int Order, int Complementary, int Return, int SalesOrder);
 
     /// <summary>
     /// Creates a Created production order (for a new finished product), a PendingApproval complementary order under it,
     /// and a Pending return of <paramref name="itemId"/>, straight in the database, each inside a write transaction as a
     /// service's writes would be (the return through <see cref="OrderFlow.InsertPendingReturnAsync"/>). Created, not
     /// InProduction, because the shared database allows only one InProduction order; the ledger does not look at statuses.
+    /// (v1.1) Also a Created sales order with one line of <paramref name="itemId"/>, through the API (T-025), so a
+    /// shipment movement can name it; a Created status is enough, for the same reason.
     /// </summary>
     private static async Task<Links> CreateLinksAsync(TestApiFactory app, int itemId, string userId)
     {
@@ -1070,7 +1245,9 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             (orderNumber, complementaryNumber) = (order.Number, complementary.Number);
         });
         var returnNumber = await InsertPendingReturnAsync(app, itemId, 1m, userId);
-        return new Links(orderNumber, complementaryNumber, returnNumber);
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var salesOrderNumber = await CreateSalesOrderAsync(manager, (await CreateCustomerAsync(manager)).Id, (itemId, 5m));
+        return new Links(orderNumber, complementaryNumber, returnNumber, salesOrderNumber);
     }
 
     /// <summary>Adds movements straight to the database, bypassing the ledger, to set up a stock history.</summary>
@@ -1191,6 +1368,7 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             MovementType.SentToProduction => ((decimal?)-5m, (decimal?)5m),
             MovementType.ConsumedInProduction => (null, -5m),
             MovementType.ReturnedToWarehouse => (5m, -5m),
+            MovementType.ShippedToCustomer => (-5m, null),
             _ => (5m, null), // Received, ProducedOutput, and a Warehouse Adjustment
         };
 
@@ -1209,6 +1387,7 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             ProductionOrderNumber = set.Contains("order") ? links.Order : null,
             ComplementaryOrderNumber = set.Contains("complementary") ? links.Complementary : null,
             ReturnNumber = set.Contains("return") ? links.Return : null,
+            SalesOrderNumber = set.Contains("salesOrder") ? links.SalesOrder : null,
             Note = Text("note", "blankNote", "untrimmedNote", "longNote", "Delivery note 4471"),
             Reason = Text("reason", "blankReason", "untrimmedReason", "longReason", "Count correction"),
         };
