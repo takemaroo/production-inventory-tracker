@@ -76,6 +76,9 @@ Later, follow-ons to version 1.1 sales orders (v1.1; "Sales orders that remove f
 - Tighter name rules after v1.1 (SEC-25, decision #176): refuse invisible characters at the start or end of a name, count blank-looking characters (Hangul fillers, U+2800) as blank, refuse noncharacters, NUL and tab; joining characters (ZWJ, ZWNJ) stay allowed between letters. A small task right after the v1.1 release, before the web front end.
 - "Last changed by" columns on customers (SEC-26, decision #177). v1.1 records changes in the log only.
 - A rule that the person who created a sales order cannot ship it (SEC-29, decision #178).
+- Escaping HTML-sensitive characters in the API's JSON output and adding `nosniff` (SEC-27, SEC-11); the web front end's own rules (text binding only, strict Content-Security-Policy, ids shown next to customer names) go into its requirements when it is planned.
+- The sign-in rate limit above (SEC-05) also covers sales order creation (SEC-30).
+- A Development port for the sample requests (`InventoryTracker.Api.http`) that `run.ps1` never uses, so the walk-through cannot write to the real instance (SEC-31).
 
 ## 4. User stories and acceptance criteria
 
