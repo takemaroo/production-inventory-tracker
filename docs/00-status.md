@@ -31,7 +31,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` |
 | 4 | Build | done | code (tasks done: 11 of 11, T-022 to T-032, plus one fix) |
 | 5 | QA | done | `docs/05-test-plan.md` (Part 2: verdict PASS; BUG-002 fixed and closed) |
-| 6 | Security | not started | `docs/06-security-review.md` |
+| 6 | Security | in progress | `docs/06-security-review.md` (Part 2: clear to release localhost-only, 5 phase 7 conditions; owner questions SEC-24/25/26/29 open) |
 | 7 | Release | not started | `docs/09-release-notes.md`, README |
 
 ## Waiting on the owner
@@ -109,6 +109,7 @@ v1.1 phase 5: `qa-engineer` traces every v1.1 AC, adds acceptance tests, explore
 - 2026-11-24 Fix approved by `code-reviewer`: sales order detail and ship loads use AsSplitQuery and the index; GET in a read transaction (#169); query-plan regression tests. p95 detail 37→2 ms, ship 92→23 ms. Committed and pushed. Started T-032.
 - 2026-11-25 T-032 approved by `code-reviewer` (OpenAPI 62 operations pinned; v1.1 .http walk-through replayed, 83 requests as expected), committed and pushed. v1.1 build phase complete. Disk was full: cleared the git-ignored TestResults build output (7.3 GB). Started v1.1 QA.
 - 2026-11-25 Phase 5 QA (v1.1): verdict PASS; 2 acceptance files added (item race, open-demand zero form). BUG-002 (minor, look-alike Unicode names) settled with the owner in a grilling session (Q82-Q86, #170-#172): NFC names, invisible-only names refused, no data migration, fix before release. Fixed for customers, units and items in a shared NameRules helper (#173-#174, U+FFFE refused with 400), approved by `code-reviewer` after two rounds; design and architecture updated; QA re-tested (287 live checks) and closed it. 2,503 tests pass. Next: phase 6.
+- 2026-11-25 `security-reviewer` (v1.1): clear to release localhost-only; no critical/high/medium findings; SEC-24..SEC-31 (low/info); 5 phase 7 conditions (report 13.2). Owner questions put in a grilling session.
 
 ## Follow-ups to route
 

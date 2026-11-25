@@ -1,5 +1,7 @@
 # Security review: Production & Inventory Tracker API
 
+**Version 1.1:** Part 2 (sections 8 to 13, at the end) is the v1.1 review of 2026-11-25 at commit `2492e42`. Its verdict is **clear to release** for a localhost-only v1.1 (section 13). Part 1 below is the version 1 review, unchanged.
+
 Phase 6, `security-reviewer`, 2026-11-21, at commit `14c60fb` (main). **Re-check** of the SEC-01 and SEC-02 fixes, and of the owner decisions, the same day at commit `a3c1d66` (main); see section 6. **Final check of the phase 7 release** on 2026-11-22, at commit `8dbdbe7` plus the uncommitted working tree listed in section 6.6. **Signing-key re-check** of an uncommitted change on 2026-11-22, on top of `1e820b4`; see section 6.12.
 
 ## Summary
@@ -646,3 +648,284 @@ Each condition below was set at the re-check and is marked as found in the final
    **Met.** `src/InventoryTracker.Api/appsettings.Production.json:4` (#130), included in `publish\win-x64` (identical file). Verified live: a 2 MB body gave `413` and no log line.
 
 Everything else belongs on the PRD's Later list: SEC-05, SEC-08 to SEC-11, the rest of SEC-13, SEC-17's remaining points, SEC-18, SEC-21's design examples and SEC-22. SEC-23 is a cheap wording fix that can be done now. SEC-10 is a requirement for the future front end. SEC-19 and SEC-20 are fixed (section 6.11).
+
+---
+
+# Part 2: Version 1.1 (sales orders)
+
+Phase 6, `security-reviewer`, 2026-11-25, at commit `2492e42` (main, clean working tree). Part 1 (sections 1 to 7) is the version 1 review and is unchanged. New findings continue its numbering: SEC-24 to SEC-31.
+
+## 8. Summary (v1.1)
+
+Version 1.1 holds up. The authorisation matches the design on all 62 endpoints. Live, 671 calls from 10 role combinations (Seller included) and with no token gave 0 deviations, and 20 alternative spellings of refused routes did not get past the `403`. Production cannot read customers, sales orders or the reports. A Seller cannot read movements, recipes, production or complementary orders, returns, users or notifications. Class and action `[Authorize]` attributes never stack in a way that changes who gets in (#156). The new way for Warehouse to remove goods, shipping a sales order, is constrained as designed. Only Warehouse or Manager can ship. The ledger requires `SalesOrderNumber` on `ShippedToCustomer`, allows it nowhere else, and allows only a Warehouse decrease. Every line is checked before anything is written. In forced races (30 shipments of one order; 10 orders competing for the same stock; ship against cancel; ship against an adjustment), exactly one request won each time and stock never went below zero. Direct inserts that skip the API are refused by the filtered unique index and the foreign key. The 1 MB, 500-line and 100-message caps apply to the new endpoints, and `401`/`403` still come before any body is read. The hand-edited migration runs as one transaction: when I made it fail part-way on a scratch v1 database, the database was left exactly as v1 had it. A second start then upgraded it cleanly. No secret is in the 26 new commits, the NuGet audit is clean, and the full suite passes (2,503 of 2,503). The log holds no customer names, notes, reasons, emails, passwords or tokens. I found no critical, high or medium issue. Four low findings: shipping a 500-line sales order holds the database's single write lock for 4 to 8 seconds (SEC-24); customer names that look identical or blank are still accepted (SEC-25); customer edits record no author (SEC-26); and free text written by Sellers and Warehouse reaches every reader unescaped (SEC-27, a front-end requirement). Four info items cover customer notes as personal data (SEC-28), one person holding both Warehouse and Seller (SEC-29), Created sales orders a Seller can pile up (SEC-30), and the sample-request file sharing the release port (SEC-31). The v1 decisions on lock-out and the missing sign-in rate limit (#120) stay valid on localhost, now for Seller accounts too. Sales staff are the users most likely to ask for remote access, and that access would make SEC-03 and SEC-05 blocking. **Recommendation: clear to release** v1.1 on localhost only, with the phase 7 conditions in section 13.2.
+
+## 9. Scope and method (v1.1)
+
+**What v1.1 adds to what the product exposes.**
+- 14 new endpoints (62 in all): customers, sales orders and two reports.
+- A fourth role, Seller, and for the first time reads that differ by role.
+- Customer records with free-text notes. These notes may contain other people's contact details.
+- A second way for a non-Manager to take goods out of the Warehouse: shipping a sales order (`ShippedToCustomer`).
+- One migration that runs on the owner's real v1 database at the first v1.1 start.
+
+**What I did.**
+- Read the v1.1 parts of `docs/01-prd.md` (US-24 to US-33, sections 7 to 13), `docs/02-design.md` section 4 and the v1.1 shapes and messages, `docs/03-architecture.md` (v1.1 sections 3.4, 3.5 and 4.1 items 13 to 20), `docs/decisions.md` #137 to #174, and `docs/05-test-plan.md` Part 2.
+- Read every v1.1 file the brief named. That is `Features/Customers`, `Features/SalesOrders`, `Features/Reports`, `StockLedger`, `StockQueries`, `Auth/Roles.cs`, `NameRules`, `BoolParser`, `DayRange`, `DateParser`, `RequestLimits`, `Text`, `PageQuery`, `WriteTransaction` and the `SalesOrders` migration. I also read every controller's routes and `[Authorize]` attributes, and `git diff 71bc12c..HEAD` of `Auth/`, `Program.cs`, `appsettings*.json` and `Common/Errors`. Apart from comments, v1.1 changed only `Roles.cs`, the unknown-role message and the Seller line of the last-Manager rule there, so the v1 authentication findings (section 3.1) still apply.
+- Ran the full suite: `dotnet test --artifacts-path TestResults/sec11`: **2,503 total, 2,503 passed, 0 failed, 0 skipped** (6 min 03 s; 7 min 06 s with the build). I deleted `TestResults/sec11` afterwards. `TestResults/dm-art` was there before me and I left it alone.
+- Ran `dotnet list InventoryTracker.slnx package --vulnerable --include-transitive` and `dotnet sdk check` (section 11.7).
+- Live probing. I built into `C:\Users\erick\AppData\Local\Temp\claude\0422f218cc2700ed\3fa433b3-adfa-4ff0-b327-6d52555ccac1\scratchpad\sec11\art` and ran it in **Production** on `127.0.0.1:5291` (`sec11\start.sh`). It used throwaway `ADMIN_EMAIL`, `ADMIN_PASSWORD` and `JWT_SIGNING_KEY` values, a scratch database (`sec11\db\sec11.db`), and `APPDATA` and `LOCALAPPDATA` under `sec11\`. Those two folders ended with only NuGet's cache in them, so no user-secrets were read.
+  - The probes are `sec11\probes\p1_authz.py` to `p8_delete_race.py` (`api.py`, `setup.py` and `raw.py` are helpers). Each output is next to its probe as `pN_out.txt`. Every number below comes from those runs on this machine.
+  - A second instance ran on `127.0.0.1:5292` for the migration test (section 11.6).
+  - I stopped each instance by its process id, after checking its command line. Afterwards nothing listened on 5291 or 5292.
+  - One false start: my first launch passed an argument that swallowed `--urls`, so it listened on the default `localhost:5000`. That is still loopback only. It ran for about a minute, I stopped it the same way and deleted its scratch database.
+- The owner's database, user-secrets, `src/InventoryTracker.Api/.env` and the user-scope `JWT_SIGNING_KEY` were not read or changed. Each instance got its key from the environment I set. One slip: while checking my scratch folders I listed the names in the owner's `%LOCALAPPDATA%\InventoryTracker` folder (`backups`, `inventory.db`). No file there was opened. Running `dotnet ef migrations script` built the project into `src/InventoryTracker.Api/bin` and `obj`, which is git-ignored build output. `git status` stayed clean.
+
+**Not applicable (v1.1).** The same as section 1: there is no CSRF exposure (bearer header, no cookies), no CORS policy, no uploads, file paths, templates or shell commands, no reset by email, and no XML. The new text fields are stored and returned as JSON only.
+
+## 10. Findings (v1.1)
+
+Severities as in section 2. None is critical, high or medium.
+
+### SEC-24 (low): shipping a sales order with many lines holds the single write lock for seconds, and the time grows faster than the line count
+
+**Where.**
+- `Features/SalesOrders/ShipSalesOrderService.cs:247-258` adds one movement per line through `StockLedger.AddAsync`.
+- Each call (`Features/Stock/StockLedger.cs:168`, `:179`, `:185`) scans the change tracker, runs a stock `SUM` for the item and calls `SaveChangesAsync`. All of this happens inside the write transaction, which holds SQLite's one write lock.
+- The lines, items and units are loaded tracked (`:110`).
+- The all-lines check before the loop (`:125`) has already read every line's stock in one query, so the per-line sums repeat work while every other writer waits.
+
+**Measured** (`p5_cost.py`, `p6_shipscale.py`). A receipt alone took 4 ms. Shipping took:
+
+| Lines on the sales order | Ship time (median of 3) |
+|--------------------------|-------------------------|
+| 1 | 17 ms |
+| 10 | 45 ms |
+| 100 | 595 ms |
+| 250 | 1,854 ms |
+| 500 | 4,306 to 4,394 ms on a fresh database; 8,334 ms after 300,000 more sales order lines existed |
+
+While a 500-line shipment ran, another user's receipts waited up to **4.4 s** each. Creating the same 500-line sales order took 113 to 311 ms, and the other writer's worst wait then was 177 ms.
+
+**How it is exploited.** Shipping needs a Created sales order (Seller or Manager) and the Warehouse or Manager role. Quantities can be 0.001, so almost no stock is used. One user who holds Warehouse and Seller, or any Manager, can repeat "create a 500-line sales order, ship it" and keep the write lock busy about 97% of the time. During that time every write by every user waits seconds. A genuine large order causes the same pause once. The PRD's volume is 1 to 10 lines per sales order (under 50 ms), and a sales order can have at most as many lines as there are items, so this matters only for large catalogues or deliberate abuse. It is visible afterwards: each sales order records who created and shipped it. No request failed in my runs. A wait longer than SQLite's 30-second command timeout would turn into `500`s for the waiting writers; I did not reach that.
+
+**Not measured:** v1's production send and complete use the same per-line ledger pattern, with lines a Manager sets in the recipe (at most 500). They are probably similar.
+
+**Fix (`backend-developer`, Later; before any non-localhost exposure).** In `WriteShipmentAsync`, keep the existing all-lines check and write all the movements in one batch: add a ledger method that checks each item once against the sums already read and then saves once, inside the same transaction. Load the lines, items and units with `AsNoTracking()` and track only the sales order. Add a test with a time bound (for example 500 lines in under 1 s) next to `SalesPerformanceTests`. Reducing the sales order line cap would also work, but it changes AC-24.5, so the owner would have to decide.
+
+### SEC-25 (low): customer names that look identical or blank are still accepted (residual of SEC-09 after BUG-002)
+
+**Where.** `Common/Validation/NameRules.cs:135-147` treats only White_Space, Cc and Cf as invisible, and only when *every* code point is invisible (#173). `Text.Clean` trims White_Space only. The same rule serves units and items.
+
+**Verified** (`p3_names.py`, as a Seller).
+
+| Name sent | Result |
+|-----------|--------|
+| `U+3164`, `U+3164 U+3164 U+3164`, `U+2800`, `U+115F U+1160`, `U+FFA0`, `U+FFFF`, `U+FDD0`, a lone combining accent, a lone variation selector | **201**: names that show as blank or as a box |
+| `U+FFFE`; `U+200B` alone | `400`, as BUG-002 intended |
+| "Deli Norte …" followed by `U+3164`, `U+2800`, `U+200B` or `U+034F`; with `U+200B` in front; with `U+200D` inside | **201**: six new customers, all accepted next to the existing "Deli Norte …" |
+| The same name with a Cyrillic "е"; with a no-break space inside | 201 |
+| NUL, tab or a line break inside a name; a right-to-left override (`"Milk\u202Egnp.exe…"`) | 201 |
+
+A Warehouse user's customer list then showed **7 customers that display as the same name**.
+
+**How it is exploited.** A Seller creates a twin of a trusted customer whose notes hold a different delivery address, then takes a sales order for the twin. Warehouse sees "Deli Norte" on the order and in the customer list, and ships to the address in the twin's notes. The per-customer report also splits one customer's totals across names that look the same. A blank-looking customer is hard to spot in a list. NUL in a name would also break the planned PostgreSQL port, which refuses NUL in text (SEC-09). It takes the Seller or Manager role, and every sales order records who created it.
+
+**Fix (`backend-developer`, after an owner decision; see QUESTIONS; not blocking for localhost).** In `NameRules`:
+- Refuse a name that starts or ends with a Default_Ignorable_Code_Point or a Hangul filler. This covers U+034F, U+115F, U+1160, U+3164, U+FFA0, U+200B to U+200F, U+2060 to U+206F, U+FEFF and the variation selectors. Some scripts need ZWJ and ZWNJ *between* letters (#171), and they stay allowed there.
+- Count the Hangul fillers and U+2800 as invisible in the "Name is required." check.
+- Refuse noncharacters (U+FDD0 to U+FDEF, and any code point ending in FFFE or FFFF) and Cc (control) characters anywhere in a name, with the existing "Name contains a character that is not allowed."
+- Look-alikes from other scripts (the Cyrillic "е") cannot be refused without breaking real names. The front end should show the customer id beside the name wherever a customer is chosen (SEC-27).
+
+### SEC-26 (low): customer changes record no author; a Seller can change a customer's name or delivery notes without trace
+
+**Where.** `Features/Customers/CustomerService.cs:128-147` (rename and notes), `:186-200` (delete) and `:210-219` (deactivate and reactivate). `Customer` has only `CreatedAt` and `CreatedById` (architecture 3.2: no "updated" columns). Customer changes write no log line (#163). `PUT` replaces the notes, so the old text is gone.
+
+**How it is exploited.** This is an insider risk, and it needs no technical skill.
+- A Seller changes the address in a customer's notes and has a sales order shipped. Then the Seller restores the address. Nothing records that the notes were ever different, or who changed them.
+- Renames rewrite history too. Every sales order and report shows the current name (AC-29.3, by design), so renaming "Deli Norte" to "Cafe Sur 2" makes all past shipments read as Cafe Sur 2.
+- A Seller can delete a never-used customer, or deactivate one, so that other Sellers cannot use it, with no record of who did it.
+
+**Fix (`backend-developer`; the log line is cheap and could be done now, the columns are Later).** Log "Customer {CustomerId} updated by user {UserId}.", "... deactivated ...", "... reactivated ...", "... deleted ..." after the commit. Log the id and the user id only, never the name or notes, which keeps the spirit of #163. Later: `UpdatedAt` and `UpdatedById` columns, or a small change history of name and notes, shown in the customer detail.
+
+### SEC-27 (low, front-end requirement; extends SEC-10): free text from Sellers and Warehouse reaches every reader, and HTML characters leave the API unescaped
+
+**Verified** (`p3_names.py`, raw bytes of `GET /customers/{id}`).
+- The name `</script><script>alert(1)</script>…` and the notes `<b>bold</b> & 'quote'` came back byte for byte. `<`, `>`, `&`, `'` and the right-to-left override U+202E are not escaped. NUL, tab and U+FFFF are escaped (`\u0000`, `\t`, `\uFFFF`).
+- `Program.cs:39-47` sets no JSON `Encoder`, so ASP.NET Core's relaxed default applies.
+- The responses have `Content-Type: application/json; charset=utf-8` and no `X-Content-Type-Options` or `Cache-Control` (SEC-11 is still open).
+
+**Why it matters more in v1.1.** In v1, only Managers (names) and Production (reasons) wrote free text. Now Sellers write customer names, notes, customer references and cancellation reasons, and Warehouse writes shipment notes. These reach Managers, Warehouse and other Sellers. As JSON this is correct and not exploitable. In a front end that inserts text as HTML, or that embeds JSON in a `<script>` block (where a raw `</script>` ends the block), any Seller could run script in a Manager's browser and take their token.
+
+**Fix.**
+- The SEC-10 rules go into the front-end requirements unchanged: text binding only, a strict Content-Security-Policy, the token in memory, and CORS for the exact origin only. Extend the list of fields to every v1.1 text field. Show ids next to customer names (SEC-25). Show U+202E and other bidirectional controls visibly, or strip them, when displaying.
+- Optional server hardening (`backend-developer`, Later): `options.JsonSerializerOptions.Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)` escapes the HTML-sensitive characters but leaves accented letters readable. Clients see the same strings after parsing, but tests that compare raw bytes would need updating. Add `nosniff` (SEC-11) with it.
+
+### SEC-28 (info; the owner should know): customer notes are other people's data
+
+The PRD invites "address and phone" in notes (AC-29.1). Notes are shown, in full, to every Warehouse, Manager and Seller user (AC-29.6). Production is refused (verified, section 11.1).
+
+When notes name a contact person, or when the customer is a sole trader whose business name is their own name, they are personal data of people outside the company. What I verified:
+- The notes are never logged. The test `No_log_line_contains_customer_notes` passes, and my run's log had 0 matches for the notes and names I sent.
+- They are not shown inside sales orders or reports. `CustomerSummary` carries only the id, name and active flag.
+- They stay on the owner's machine (row 22).
+
+**What the owner should know and decide:**
+1. Keep notes to the business contact details needed to deliver. Do not record private remarks about people, ID numbers or payment details. Put this one sentence in the user guide (`technical-writer`, phase 7).
+2. Erasure: notes can be cleared with `PUT` (it replaces them). A customer that ever had a sales order cannot be deleted (AC-29.5), so its name stays for ever. If the name is a person's, the only way to erase it is to rename the customer (Later, owner decision). Old text can survive in the SQLite file's free pages and write-ahead log for a while, and in **every backup** for as long as backups are kept. The SEC-16 protection of the file and its backups covers this.
+3. Sellers also see staff emails (`createdBy`, `shippedBy` and `cancelledBy` in sales orders and customers), as every role did in v1 (SEC-16).
+
+### SEC-29 (info; the owner should know): one person holding Warehouse and Seller can sell and ship alone
+
+**Verified** (`p2_ship.py` H). A user with Warehouse and Seller created a customer and a sales order, then shipped it (`200 Shipped`). Any finished product or raw material in the Warehouse can leave stock this way, with only that user's name on every record. A Manager can do the same (SEC-15). Decision #146 allows it ("one person can hold both roles"), and the trail is complete. But the separation of duties the owner chose (Sellers do not ship) protects only when the two roles are held by different people. **Owner:** give one person both roles only when needed. Later option: refuse shipping a sales order one created oneself.
+
+### SEC-30 (info): a Seller can pile up Created sales orders without limit, and that slows the stock view for everyone
+
+**Verified** (`p5_cost.py`). A Seller created 600 sales orders of 500 lines each (300,000 Created lines) in 102 s, at 149 ms median each. `GET /stock?pageSize=100`, which every role uses, went from 9 ms to 25 ms at 50,000 lines, 37 ms at 100,000 and **146 ms at 300,000**. The reports and lists stayed under 20 ms. One item's open demand read 599,999,999,999.4 against a Warehouse stock of 999,997. The scratch database grew to 19 MB plus a 6 MB write-ahead log.
+
+Reaching the PRD's 1-second limit would take millions of lines, and every sales order names the Seller who created it. Nothing needs to change for localhost. The Later rate limit (SEC-05) should cover sales order creation too.
+
+### SEC-31 (info): the sample-request walk-through uses the release port and now ships stock
+
+`InventoryTracker.Api.http:37` targets `http://localhost:5133`, the default port of `scripts\run.ps1` (`:49`). The file's header warns about this (`:16-18`). v1.1 adds sections 12 to 17:
+- they create `seller.user@example.com` with the password from `.env`;
+- they ship 600 Bag and 120 kg of Cheese, which takes real stock out of the Warehouse;
+- records are never deleted.
+
+Run against the real instance, they leave a working Seller account whose password sits in a plain-text file, plus false shipments. **Later (`devops-engineer`):** give the Development profile and the `.http` file a port that `run.ps1` never uses (for example 5135), so this cannot happen by mistake.
+
+## 11. The brief's questions, answered
+
+### 11.1 Authorisation (point 1)
+
+- **Attributes match the design.** I compared every controller action with design section 4 (62 endpoints: sign-in plus 61 that need a token). Each action carries one `[Authorize(Roles = ...)]` with the design's roles. Units, items and stock reads and change-password carry none and fall to the authenticated fallback policy (`AuthSetup.cs:189`). Sign-in, `/health` and the Development-only OpenAPI document are the only anonymous endpoints.
+- **AND combination (#156).** Only `UsersController` and `NotificationsController` have a class-level attribute. Both are Manager, and every action in them is Manager-only, so the AND changes nothing. No other controller has one, so no action is narrowed or widened by accident.
+- **Live** (`p1_authz.py`, Production instance):
+  - 61 endpoints × 10 callers (Warehouse, Production, Manager, Seller, W+P, P+S, W+S, W+P+S, W+M+S, P+M), plus no token: **671 calls, 0 deviations**. Every refusal was `403`, and no allowed caller got `401`, `403` or `5xx`.
+  - 20 spellings of refused routes gave `403`, `404` or `405`, never `200`. Examples: `/API/V1/SALES-ORDERS`, a trailing slash, `/./`, `/x/../`, `%31`, `%2F`, `HEAD`, `OPTIONS`, `;x`.
+  - A Production user gets `403` for both an existing and a missing sales order, so a refused user cannot tell whether a number exists.
+- **Production and sales orders (Q71).** Refused on `/customers`, `/sales-orders` and `/reports`, reads included. Production still sees `ShippedToCustomer` movements, with item, quantity, time and sales order number but no customer, and open demand on the stock view. That is by design (AC-28.7, AC-31.4).
+- **Sellers and stock (Q61).** The only item types are RawMaterial and FinishedProduct (`Domain/ItemType.cs`), so a Seller's stock view is all stock, the one view of decision #147. It includes the committed production order number, which the Seller cannot open (`403`, AC-30.7). A Seller is refused on movements, recipes, production and complementary orders, returns, users and notifications.
+- **IDOR.** In v1.1 no record belongs to a user: any Seller may cancel any Created sales order and edit any customer (decision #146), and no endpoint takes a user id from the body. The creator, shipper and canceller always come from the token (`SalesOrdersController.cs`, `User.FindFirstValue(...)`).
+
+### 11.2 The ShippedToCustomer path (point 2)
+
+- **Who.** Ship is Warehouse or Manager only. Seller gets `403` (verified, `p2_ship.py` H).
+- **Ledger rules.** `ShippedToCustomer` must have a Warehouse change below zero and no production storage change (`StockLedger.cs` `CheckShape`). `SalesOrderNumber` is required on it and refused on every other type (`CheckLinks`, #157). No endpoint lets a client choose a movement type: a receipt sent with `"type":"ShippedToCustomer","salesOrderNumber":N` was stored as `Received` with `salesOrderNumber: null` (`p2_ship.py` G).
+- **All-lines check.** A sales order with one covered and one short line got `409 insufficient-stock` naming only the short line. 0 movements were written and the covered item's stock was unchanged (`p2_ship.py` E).
+- **Database backstops** (direct SQL on the scratch file, `p2_ship.py` I):
+  - a second shipment movement for the same sales order and item: `UNIQUE constraint failed: Movements.SalesOrderNumber, Movements.ItemId`;
+  - a movement naming a sales order that does not exist: `FOREIGN KEY constraint failed`.
+- **Races** (`p2_ship.py`, threads released together by a barrier):
+
+| Race | Result |
+|------|--------|
+| 30 shipments of one two-line sales order | 1 × `200`, 29 × `409 already-shipped`; exactly 2 movements |
+| Stock 1,000; 10 sales orders of 600 shipped at once | 1 × `200`, 9 × `409 insufficient-stock`; stock 400 |
+| 10 ships against 10 cancels of one order, 5 rounds | one winner each round (4 Shipped with 1 movement, 1 Cancelled with 0); never both |
+| Ship 600 against a Manager adjustment of −500, stock 1,000, 5 rounds in both orders | 1 success each round; stock 400 or 500, never below zero |
+| Customer delete against 3 sales order creates for it, 10 rounds (`p8`) | either `204` and the creates `400`/`404`, or the creates `201` and the deletes `409`; 0 sales orders without a customer |
+
+### 11.3 Customer notes (point 3)
+
+See SEC-28. Showing the notes to Warehouse, Manager and Seller is what the PRD asks for (section 11): Warehouse needs the delivery details. The exposure is acceptable for a localhost-only product, provided the notes hold business contact details only. Notes are never logged (verified), they are not shown in sales orders or reports, and Production cannot read them (verified). The owner should know the erasure limits listed in SEC-28 and the missing edit trail (SEC-26).
+
+### 11.4 Names (point 4)
+
+- **BUG-002 holds.** NFC look-alikes are refused, invisible-only names (`U+200B`) get "Name is required.", and `U+FFFE` gets `400` (verified, `p3`).
+- **Still accepted** (verified):
+  - Names made only of `U+3164`, `U+2800`, `U+115F U+1160`, `U+FFA0`, `U+FFFF`, `U+FDD0`, a combining mark or a variation selector.
+  - Invisible characters at the start or end of a real name, which create look-alike twins.
+  - NUL, tab, line breaks and bidirectional overrides inside a name.
+
+  Risk: SEC-25 (twins and blank-looking names; low). The PostgreSQL port would refuse NUL (SEC-09).
+- **HTML-like text.** It is stored and returned raw in `application/json`, which is correct for a JSON API and harmless in a browser that does not sniff. For the planned web front end it is a requirement, not optional (SEC-27). The front end must bind text, never HTML, and must never embed raw JSON in a `<script>` block.
+
+### 11.5 Reports, filters, caps and transactions (point 5)
+
+- **Caps on the new endpoints** (`p4_limits.py`). The 1 MB limit, the 500-line cap and the 100-message cap all hold for the new endpoints, and refused or unauthorised bodies are never read:
+
+| Request | Result |
+|---------|--------|
+| `POST /sales-orders` with 501 null lines | `400 too-many-lines` in 3 ms, 288 B |
+| With 150,000 null lines (0.9 MB) | the same `400` in 33 ms |
+| With 500 null lines | `400 validation`, 100 messages, 6.6 KB, "900 more problems are not shown." |
+| A body just over 1 MB | `413` |
+| `Content-Length: 31,000,000` header only | `413` in 2 ms |
+| 2 MB with no token | `401` in 1 ms, body not read |
+| 2 MB as Production (to sales orders or customers) or as Seller (to ship) | `403` in 1 to 4 ms, body not read |
+| Notes, reference, shipment note or reason one character over its limit, up to 990,000 characters | `400` in 2 to 11 ms |
+
+  The ship carries no lines. The longest ship `409` is bounded by the 500 lines a sales order can have, as in section 6.4.
+- **Query values.** No query value gave a `500`:
+  - From `0001-01-01` to `9999-12-31`, `to=0001-01-01` and `from=9999-12-31`: `200`.
+  - `from=10000-01-01`, `2026-1-1`, `from` after `to`, `itemType=3`, `pageSize=101`, `customerId=2147483648`, `isActive=1`, `isActive=%20true`: `400` with the design wording.
+  - `page=2147483647`: `200`, empty (`PageQuery.Skip` is capped).
+  - 240 repeated bad keys: one `400` of 596 B. A query string over 8 KB: `414`.
+  - With a repeated key (`customerId=1&customerId=2`, `status=Created&status=Shipped`), the first value is used. That is harmless.
+- **Query cost.** At and well above the PRD volume, the reports took 6 to 11 ms and the lists 3 to 16 ms (`p5_cost.py`). The stock view grows with Created lines (SEC-30). Reads run outside the write lock (WAL), so they never delay writers.
+- **Transaction rules (#85).**
+  - `GET /stock` and `GET /stock/{id}` read their four figures, open demand included, in one deferred read transaction (`StockQueries.InReadTransactionAsync`).
+  - `GET /sales-orders/{n}` reads its split query in one too (#169). `ReadDetailAsync` refuses to run without a transaction.
+  - Every change uses `InWriteTransactionAsync`, which refuses nesting, rolls back on any exception and clears the change tracker: create, ship and cancel of sales orders, and create, update, deactivate, reactivate and delete of customers.
+  - The ship's stock check reads inside its own write transaction, on the same connection.
+  - Lists and reports run their `COUNT` and their page as two statements outside a transaction, as in v1. A concurrent write can make `totalCount` differ by one from the page, which is harmless.
+  - The cost of holding the write lock is SEC-24.
+
+### 11.6 The hand-edited migration (point 6)
+
+- **Script** (`dotnet tool run dotnet-ef migrations script 20261114053033_PercentagePrecision 20261123155451_SalesOrders`; output in `sec11\salesorders.sql`). 73 lines: one `BEGIN TRANSACTION`, one `COMMIT`, the in-place `ALTER TABLE "Movements" ADD "SalesOrderNumber" INTEGER NULL ... REFERENCES "SalesOrders" ... ON DELETE RESTRICT`, the new tables and indexes, and the history insert. There is no `ef_temp_` table, `PRAGMA`, `DROP TABLE`, `UPDATE` or `DELETE`, so no existing row is touched.
+- **Failure part-way** (scratch database, `sec11\mig\v1.db`). I built it to `PercentagePrecision` with `dotnet ef database update` and added a user, a unit, an item and 2,000 movements. Then I created an index with the name of the migration's *last* index, so the migration would fail after its `ALTER TABLE` on `Movements`. v1.1 started, logged `index IX_SalesOrders_Status_ShippedAt already exists` and stopped without listening. Afterwards:
+  - the history held the same 4 migrations;
+  - `Movements` had no `SalesOrderNumber` column;
+  - no `Customers` or `SalesOrders` table existed;
+  - all 2,000 movements and all 7 indexes were still there, and `integrity_check` was ok.
+
+  This proves the single transaction.
+- **Retry.** With the trap removed, the next start applied `SalesOrders` and listened. Afterwards there were 5 migrations, 2,000 movements (none with a sales order number) and 8 indexes. `integrity_check` was ok, `foreign_key_check` was empty, the journal mode was still WAL, and the Seller role was seeded. QA's run with the real v1 application (test plan 12.2) and `UpgradeTests` cover real Identity data, a forced stop with the WAL file still in use, and the "no `ef_temp_`" guard.
+- **What remains for the owner's database.** The API migrates by itself at the first v1.1 start, and nothing forces a backup first. The way back is restoring the backup taken just before the upgrade (`docs/07-release.md` section 6, step 3, and section 8): `Down` is not for the owner's database, and v1 code cannot read `ShippedToCustomer` rows. Phase 7 must put "back up first" in the v1.1 release notes and upgrade steps (architecture 3.4, risk 13), see 13.2. Later option: `run.ps1` refuses to start when a migration is pending and no backup newer than the database file exists.
+
+### 11.7 Configuration, secrets and dependencies (point 7)
+
+- **`SAMPLE_SELLER_PASSWORD`.** `.env.example` lists the name with an empty value, and the `.http` file reads it with `{{$dotenv SAMPLE_SELLER_PASSWORD}}` (`:450`, `:457`), with a placeholder that fails the policy in the header (`:29`). The SEC-12/#135 pattern holds. The port risk is SEC-31.
+- **No secrets.** I scanned `git log -p 71bc12c..HEAD` (26 commits, 11.8 MB) for private keys, cloud and GitHub tokens, `AccountKey=`, SAS signatures, and `KEY=`/`PASSWORD=` with values. I also scanned for policy-passing quoted literals on lines about passwords or keys. Outside `tests/`, the only hit was a migration name (`20261114053033_PercentagePrecision`); in `tests/`, the known fixture `Initial2026` (SEC-21). No `.db`, `.env` or certificate file was added. `git ls-files` shows `.env.example` as the only env file. `.gitignore` covers `src/InventoryTracker.Api/.env`, `.env` and `inventory.db` (`git check-ignore`). `appsettings*.json` changed only in comments.
+- **Dependencies.** `dotnet list InventoryTracker.slnx package --vulnerable --include-transitive`: "no vulnerable packages given the current sources" for both projects. v1.1 adds no package (architecture 1).
+- **Runtime.** `dotnet sdk check`: SDK 10.0.404 and runtime 10.0.15 are installed and up to date (SEC-06 is now met on the machine too). SDK 10.0.401, runtime 10.0.12 and the unsupported 8.0.18 are still installed beside them. The app runs on the newest 10.0 patch present, so this is housekeeping only.
+
+### 11.8 Carry-over: lock-out, rate limit and sessions with Seller accounts (point 8)
+
+- **SEC-04 (lock-out denial of service).** It applies to Sellers unchanged. Verified (`p7_seller_sessions.py`): 5 wrong passwords lock a Seller for 15 minutes, and the right password is then refused. A real email answers `account-locked` on the sixth try and an unknown one `invalid-credentials`, so the existence check also covers Seller emails. Sellers cannot manage users, so locking out every Seller stops sales work but not administration, and a Manager can unlock them (#72). The owner's decision #120 still fits localhost-only.
+- **SEC-05 (no sign-in rate limit).** The same: more accounts mean more targets for guessing, with the same password policy. It does not change on localhost.
+- **SEC-07 (role removal keeps sessions).** It applies to Sellers. Verified: after a Manager changed a Seller's roles to Warehouse, the old token still **created a customer (201)**, while a new token was refused (403). After deactivation the old token got `401`. The README runbook (deactivate, then reactivate with the new roles) works for Sellers. `technical-writer` should name Sellers in it.
+- **What does change** is the pressure to expose the API. Sellers are sales staff, often away from the owner's machine, and the first request is likely to be "let the Seller reach it from their laptop or phone". Any such exposure ends this verdict: SEC-03 (HTTPS) and SEC-05 (rate limit) become blocking, SEC-04 must be revisited, and this review must be re-opened (section 7.1). The v1.1 release notes should say so in the Seller's terms (13.2).
+- **Other v1 findings.** These are unchanged and still open: SEC-08 (failed sign-ins not logged; SEC-26 adds customer changes), SEC-09 (partly addressed by BUG-002 for unit, item and customer names; reasons, notes and look-alikes remain, SEC-25), SEC-10 (widened by SEC-27), SEC-11 (no `nosniff` or `Cache-Control`, re-verified), SEC-13 (the rest), SEC-18, SEC-21 and SEC-22.
+
+## 12. Summary table (v1.1)
+
+| ID | Severity | Finding | Status | Before release? | Owner of the remaining work |
+|----|----------|---------|--------|-----------------|-----------------------------|
+| SEC-24 | low | Shipping a 500-line sales order holds the write lock 4 to 8 s; the time grows faster than the line count | open | no (Later; before any non-localhost exposure) | backend-developer |
+| SEC-25 | low | Look-alike and blank-looking names still accepted (edge invisibles, Hangul fillers, U+2800, noncharacters, controls) | open | no (owner decision, then Later) | owner, backend-developer, ux-designer (message) |
+| SEC-26 | low | Customer rename, notes, deactivate and delete record no author | open | no (log line is cheap and can be done now; columns Later) | owner, backend-developer |
+| SEC-27 | low | Seller and Warehouse free text reaches every reader; HTML characters unescaped | open | front-end requirement | product-manager, ux-designer, future frontend-developer |
+| SEC-28 | info | Customer notes are third-party personal data; erasure limits | owner awareness | user-guide sentence in phase 7 | owner, technical-writer |
+| SEC-29 | info | A Warehouse+Seller user can sell and ship alone | owner awareness | no | owner |
+| SEC-30 | info | Unlimited Created sales orders slow the stock view (146 ms at 300,000 lines) | accepted for localhost | no (covered by the SEC-05 rate limit) | backend-developer (later) |
+| SEC-31 | info | `.http` walk-through targets the release port and now ships stock | open | no (Later) | devops-engineer |
+
+No critical, high or medium finding is open in v1.1. The v1 table (section 4) is unchanged except as noted in 11.8.
+
+## 13. Release recommendation (v1.1)
+
+### 13.1 Verdict
+
+**Clear to release** v1.1 from a security standpoint, **on localhost only** (#119), on the conditions in 13.2. No critical or high finding is open, and no new medium. The four new low findings and four info items can follow later. The carried-over mediums (SEC-03, SEC-04) stay owner-accepted for localhost only. If the API is ever reachable from another machine, for Sellers or anyone else, this verdict no longer holds (section 7.1).
+
+### 13.2 Conditions for phase 7 (v1.1)
+
+1. **Back up before the first v1.1 start.** The v1.1 release notes and the upgrade steps of `docs/07-release.md` tell the owner to stop v1, run `scripts\backup-database.ps1`, and only then start v1.1, which migrates the database by itself. They also say that the way back is restoring that backup, because v1 cannot read v1.1 data. (`technical-writer`, `devops-engineer`)
+2. **Localhost only, in Seller terms.** The release notes and user guide say that Sellers, like everyone else, use the API on the owner's machine only, and that remote access for sales staff needs HTTPS, a sign-in rate limit and a new security review first. (`technical-writer`)
+3. **Customer notes (SEC-28).** The user guide says notes are visible to Warehouse, Manager and Seller users and should hold only the business contact details needed to deliver. (`technical-writer`)
+4. **Runbook covers Sellers (SEC-07).** The README runbook "remove someone's access now" names the Seller role. (`technical-writer`)
+5. **Start the released build.** Start the real instance as in v1: the published folder through `scripts\run.ps1 -Published` (section 7.2 items 1 to 3, re-checked by `devops-engineer` for the v1.1 build). Do not run the `.http` walk-through while the real instance is running (SEC-31).
+
+The Later items go on the PRD Later list: SEC-24, SEC-25 (after the owner's answer), the columns of SEC-26, SEC-27's server hardening, SEC-30 with SEC-05, and SEC-31. SEC-27's front-end rules belong in the front end's requirements when it is planned.
