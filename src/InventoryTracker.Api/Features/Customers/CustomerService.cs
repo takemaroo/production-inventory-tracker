@@ -24,13 +24,24 @@ namespace InventoryTracker.Api.Features.Customers;
 /// rules (<c>409</c>).
 /// </para>
 /// <para>
-/// <b>No logging here, on purpose</b> (decision #163, architecture 6 Logging). Customers are master data, and units and
-/// items are not logged either. More importantly, a customer's notes may hold business contact details (an address, a
-/// phone number), and log files are read and kept far more loosely than the database. So nothing in this class writes a
-/// log line, and the error messages it throws never quote the notes.
+/// <b>Who changed a customer: one log line, ids only</b> (SEC-26, decision #177). The table keeps only who
+/// <em>created</em> a customer (architecture 3.2), so without a log nothing would say who renamed one, rewrote its
+/// notes, deactivated, reactivated or deleted it. Each of those changes therefore writes one <c>Information</c> line
+/// after its commit, like the sales order and return services: the action, the customer id and the acting user id,
+/// nothing else. The name and the notes stay out on purpose (decision #163): the notes may hold business contact
+/// details (an address, a phone number), and log files are read and kept far more loosely than the database. The id is
+/// enough, because the current name can always be read from <c>GET /customers/{id}</c>. Creating a customer is not
+/// logged: <c>CreatedById</c> already records who did it. The error messages this class throws never quote the notes.
+/// </para>
+/// <para>
+/// <b>When there is no line.</b> A refused change (<c>400</c>, <c>404</c>, <c>409</c>) throws before the log call, and a
+/// <c>403</c> never reaches this class, so neither writes one. A request that changes nothing (a <c>PUT</c> with the
+/// values the customer already has, deactivating a deactivated customer) writes none either, as the user service does
+/// for a repeated deactivate: the log is the record of changes, and a line for a no-op would claim one that never
+/// happened.
 /// </para>
 /// </remarks>
-public sealed class CustomerService(AppDbContext db, Clock clock)
+public sealed class CustomerService(AppDbContext db, Clock clock, ILogger<CustomerService> logger)
 {
     /// <summary>Design 7.2: the code for a name another customer already has, ignoring case (AC-29.2).</summary>
     public const string CustomerNameTakenCode = "customer-name-taken";
@@ -122,11 +133,26 @@ public sealed class CustomerService(AppDbContext db, Clock clock)
     /// before any body check.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Sales orders store only the customer's id, never a copy of the name, so every sales order and report shows the new
     /// name at once, older ones included (AC-29.3, architecture 4.1 item 17). Nothing else needs updating here.
+    /// </para>
+    /// <para>
+    /// <b>One log line per request, naming the changed fields</b> (SEC-26, decisions #177 and #179). A rename and a notes
+    /// edit arrive in the same <c>PUT</c>, are saved in the same commit and answer as one change, so they are logged as
+    /// one line: "Customer 12 updated by user {id} (changed: name, notes)." This keeps the rule every other service follows,
+    /// one committed change, one line, and still tells the reader which field changed. Only the field <em>names</em> are
+    /// listed, never their old or new values.
+    /// </para>
     /// </remarks>
-    public Task<CustomerResponse> UpdateAsync(int id, CustomerRequest request, CancellationToken cancellationToken) =>
-        db.InWriteTransactionAsync(async () =>
+    /// <param name="id">The customer id from the URL.</param>
+    /// <param name="request">The new name and notes.</param>
+    /// <param name="userId">The signed-in Manager or Seller, from the token's <c>sub</c> claim; only logged.</param>
+    /// <param name="cancellationToken">Fires when the client disconnects.</param>
+    public async Task<CustomerResponse> UpdateAsync(
+        int id, CustomerRequest request, string userId, CancellationToken cancellationToken)
+    {
+        var (response, changedFields) = await db.InWriteTransactionAsync(async () =>
         {
             // Architecture 5.1: the record in the URL (404) comes before the body checks (400). FindAsync looks the row up
             // by primary key and keeps it tracked, so the changes below are saved by SaveChangesAsync.
@@ -137,33 +163,70 @@ public sealed class CustomerService(AppDbContext db, Clock clock)
             // Only *another* customer with the same normalized name counts, so "Deli Norte" can become "DELI NORTE".
             await ThrowIfNameTakenAsync(input.Name, exceptId: id, cancellationToken);
 
+            // Decision #177: compared before the values are overwritten, so the log line can say what changed.
+            var changed = ChangedFields(customer, input);
+
             customer.Name = input.Name.Name;
             customer.NameNormalized = input.Name.Normalized;
             customer.Notes = input.Notes;
 
             // Saved first, so the read below (a database query, not the tracked object) sees the new values.
             await db.SaveChangesAsync(cancellationToken);
-            return (await ReadAsync(id, cancellationToken))!;
+            return ((await ReadAsync(id, cancellationToken))!, changed);
         }, cancellationToken);
+
+        // SEC-26, decision #177: logged only after the commit, so the log never reports a change that was rolled back.
+        // A PUT that changed nothing writes no line (see the class remarks).
+        if (changedFields.Count > 0)
+        {
+            logger.LogInformation("Customer {CustomerId} updated by user {UserId} (changed: {ChangedFields}).",
+                id, userId, string.Join(", ", changedFields));
+        }
+
+        return response;
+    }
 
     /// <summary>
     /// AC-29.4: deactivates a customer, whatever its sales orders. A deactivated customer cannot be chosen for a new sales
     /// order, but stays listed and readable. Deactivating one already deactivated succeeds and changes nothing.
+    /// <paramref name="userId"/> (the caller) is only logged (SEC-26).
     /// </summary>
-    public Task<CustomerResponse> DeactivateAsync(int id, CancellationToken cancellationToken) =>
-        SetActiveAsync(id, active: false, cancellationToken);
+    public async Task<CustomerResponse> DeactivateAsync(int id, string userId, CancellationToken cancellationToken)
+    {
+        var (response, changed) = await SetActiveAsync(id, active: false, cancellationToken);
+
+        // SEC-26, decision #177: after the commit, and only when the status really changed (a repeat writes no line).
+        // Two literal messages rather than one with the action as a parameter, so each stays a fixed template that a log
+        // search can match.
+        if (changed)
+        {
+            logger.LogInformation("Customer {CustomerId} deactivated by user {UserId}.", id, userId);
+        }
+
+        return response;
+    }
 
     /// <summary>
     /// AC-29.4: reactivates a customer, so it can be chosen for new sales orders again. Reactivating an active customer
-    /// succeeds and changes nothing.
+    /// succeeds and changes nothing. <paramref name="userId"/> (the caller) is only logged (SEC-26).
     /// </summary>
-    public Task<CustomerResponse> ReactivateAsync(int id, CancellationToken cancellationToken) =>
-        SetActiveAsync(id, active: true, cancellationToken);
+    public async Task<CustomerResponse> ReactivateAsync(int id, string userId, CancellationToken cancellationToken)
+    {
+        var (response, changed) = await SetActiveAsync(id, active: true, cancellationToken);
+
+        // SEC-26, decision #177: as for deactivate.
+        if (changed)
+        {
+            logger.LogInformation("Customer {CustomerId} reactivated by user {UserId}.", id, userId);
+        }
+
+        return response;
+    }
 
     /// <summary>
     /// AC-29.5: deletes a customer that no sales order, in any status, has ever named. Otherwise <c>409</c>
     /// <c>customer-has-sales-orders</c> "{customer} has sales orders and cannot be deleted. Deactivate it instead.";
-    /// <c>404</c> for an unknown id.
+    /// <c>404</c> for an unknown id. <paramref name="userId"/> (the caller) is only logged (SEC-26).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -183,8 +246,9 @@ public sealed class CustomerService(AppDbContext db, Clock clock)
     /// id is never handed out again (AUTOINCREMENT, decision #162), so the old id stays <c>404</c> for ever.
     /// </para>
     /// </remarks>
-    public Task DeleteAsync(int id, CancellationToken cancellationToken) =>
-        db.InWriteTransactionAsync(async () =>
+    public async Task DeleteAsync(int id, string userId, CancellationToken cancellationToken)
+    {
+        await db.InWriteTransactionAsync(async () =>
         {
             var customer = await db.Customers.FindAsync([id], cancellationToken) ?? throw NotFound(id);
 
@@ -199,23 +263,32 @@ public sealed class CustomerService(AppDbContext db, Clock clock)
             db.Customers.Remove(customer);
         }, cancellationToken);
 
+        // SEC-26, decision #177: after the commit. The row, and so the name, is gone; the id is all the log keeps, and it
+        // is never handed out again (decision #162), so it still identifies this customer.
+        logger.LogInformation("Customer {CustomerId} deleted by user {UserId}.", id, userId);
+    }
+
     /// <summary>
     /// AC-29.4: the one implementation of deactivate and reactivate. <c>404</c> for an unknown id; nothing else can fail
     /// (architecture 5.1). Setting the value it already has is a no-op: EF Core compares the tracked values and sends no
     /// <c>UPDATE</c> when nothing changed, so a repeat changes nothing and still answers <c>200</c>.
     /// </summary>
     /// <remarks>
-    /// There is no "deactivated by whom and when" column: the PRD does not ask for one (architecture 3.2, Customer).
+    /// There is no "deactivated by whom and when" column: the PRD does not ask for one (architecture 3.2, Customer). The
+    /// callers log who did it instead (SEC-26), which is why this also returns whether the status changed.
     /// </remarks>
-    private Task<CustomerResponse> SetActiveAsync(int id, bool active, CancellationToken cancellationToken) =>
+    /// <returns>The customer's response, and true when its status was different before this call.</returns>
+    private Task<(CustomerResponse Response, bool Changed)> SetActiveAsync(
+        int id, bool active, CancellationToken cancellationToken) =>
         db.InWriteTransactionAsync(async () =>
         {
             var customer = await db.Customers.FindAsync([id], cancellationToken) ?? throw NotFound(id);
 
+            var changed = customer.IsActive != active;
             customer.IsActive = active;
 
             await db.SaveChangesAsync(cancellationToken);
-            return (await ReadAsync(id, cancellationToken))!;
+            return ((await ReadAsync(id, cancellationToken))!, changed);
         }, cancellationToken);
 
     /// <summary>
@@ -272,6 +345,32 @@ public sealed class CustomerService(AppDbContext db, Clock clock)
         {
             throw new ConflictException(CustomerNameTakenCode, $"A customer named '{name.Name}' already exists.");
         }
+    }
+
+    /// <summary>
+    /// SEC-26, decision #179: the names of the fields an edit changes, "name" and/or "notes", in that order; empty when the
+    /// edit sets the values the customer already has. Only the field names, never the values, go into the log line.
+    /// </summary>
+    /// <remarks>
+    /// Both sides are compared exactly (ordinal), as stored: the new values are already trimmed and in NFC, the same form
+    /// the stored ones were saved in. So a change of letter case ("Deli Norte" to "DELI NORTE") counts as a rename, because
+    /// every sales order and report will show the new spelling (AC-29.3).
+    /// </remarks>
+    private static List<string> ChangedFields(Customer customer, ValidCustomer input)
+    {
+        var changed = new List<string>();
+        if (!string.Equals(customer.Name, input.Name.Name, StringComparison.Ordinal))
+        {
+            changed.Add("name");
+        }
+
+        // string.Equals treats two nulls as equal, so "no notes" before and after is no change.
+        if (!string.Equals(customer.Notes, input.Notes, StringComparison.Ordinal))
+        {
+            changed.Add("notes");
+        }
+
+        return changed;
     }
 
     /// <summary>Design 7.2, AC-29.5, AC-29.6: the <c>404</c> for an unknown or deleted customer id.</summary>

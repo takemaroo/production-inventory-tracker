@@ -29,9 +29,9 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.1 part) |
 | 2 | Design | done | `docs/02-design.md` |
 | 3 | Architecture | done | `docs/03-architecture.md`, `docs/04-tasks.md` |
-| 4 | Build | done | code (tasks done: 11 of 11, T-022 to T-032, plus one fix) |
+| 4 | Build | done | code (tasks done: 12 of 12, T-022 to T-033, plus the T-031 fix and the BUG-002 fix) |
 | 5 | QA | done | `docs/05-test-plan.md` (Part 2: verdict PASS; BUG-002 fixed and closed) |
-| 6 | Security | in progress | `docs/06-security-review.md` (Part 2: clear to release localhost-only, 5 phase 7 conditions; owner questions SEC-24/25/26/29 open) |
+| 6 | Security | done | `docs/06-security-review.md` (Part 2: clear to release localhost-only, 5 phase 7 conditions; SEC-24/25/26/29 settled, #175-#178; SEC-26 log line done in T-033) |
 | 7 | Release | not started | `docs/09-release-notes.md`, README |
 
 ## Waiting on the owner
@@ -110,6 +110,7 @@ v1.1 phase 5: `qa-engineer` traces every v1.1 AC, adds acceptance tests, explore
 - 2026-11-25 T-032 approved by `code-reviewer` (OpenAPI 62 operations pinned; v1.1 .http walk-through replayed, 83 requests as expected), committed and pushed. v1.1 build phase complete. Disk was full: cleared the git-ignored TestResults build output (7.3 GB). Started v1.1 QA.
 - 2026-11-25 Phase 5 QA (v1.1): verdict PASS; 2 acceptance files added (item race, open-demand zero form). BUG-002 (minor, look-alike Unicode names) settled with the owner in a grilling session (Q82-Q86, #170-#172): NFC names, invisible-only names refused, no data migration, fix before release. Fixed for customers, units and items in a shared NameRules helper (#173-#174, U+FFFE refused with 400), approved by `code-reviewer` after two rounds; design and architecture updated; QA re-tested (287 live checks) and closed it. 2,503 tests pass. Next: phase 6.
 - 2026-11-25 `security-reviewer` (v1.1): clear to release localhost-only; no critical/high/medium findings; SEC-24..SEC-31 (low/info); 5 phase 7 conditions (report 13.2). Owner questions put in a grilling session.
+- 2026-11-25 Owner settled the security questions in a grilling session (Q87-Q90, #175-#178): SEC-24/25 and the stricter SEC-26/29 rules to the Later list; customer change log lines now. T-033 (log who changed a customer, #179) approved by `code-reviewer`, committed and pushed. Phase 6 done. Next: phase 7.
 
 ## Follow-ups to route
 
@@ -137,3 +138,5 @@ v1.1 phase 5: `qa-engineer` traces every v1.1 AC, adds acceptance tests, explore
 - technical-writer (v1.1 release, #172): release notes must say names stored before v1.1 are not rewritten; a name stored in decomposed form can gain one look-alike twin (QA, BUG-002 re-test).
 - Optional comment nit (later, BUG-002 review): NameNormalizer.Normalize remarks could say it throws ArgumentException on U+FFFE (#174), so request input must go through NameRules first.
 - security-reviewer (v1.1 phase 6): names made only of U+3164 (Hangul filler), U+2800, U+FFFF or U+FDD0 are accepted and can look blank (#173/#174 allow them); judge the risk.
+- Optional comment nit (later, T-033 review): CustomerService DeactivateAsync, ReactivateAsync and DeleteAsync could document userId with <param> tags, as UpdateAsync does.
+- security-reviewer (next review): SEC-26 in docs/06-security-review.md is still marked open; its log-line part was done in T-033 (#177, #179), the "last changed by" columns are on the Later list.

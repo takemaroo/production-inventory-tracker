@@ -41,7 +41,7 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-030 | (v1.1) Shipped-totals reports | backend-developer | T-028 | done |
 | T-031 | (v1.1) End-to-end scenarios, cross-endpoint races, performance | backend-developer | T-029, T-030 | done |
 | T-032 | (v1.1) OpenAPI and sample requests | backend-developer | T-029, T-030 | done |
-| T-033 | (v1.1) Log who changed a customer (SEC-26, decision #177) | backend-developer | T-024 | in progress |
+| T-033 | (v1.1) Log who changed a customer (SEC-26, decision #177) | backend-developer | T-024 | done |
 
 **Build phase complete (2026-11-21):** 22 of 22 tasks done, each reviewed by `code-reviewer` and committed as `T-0NN: ...` (last: `d09c6db T-021`). No task is open. Nothing was added after the decision on a full "only writer" guard for movements (decision #112: not adopted, so no post-QA task).
 

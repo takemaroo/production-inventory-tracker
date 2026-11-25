@@ -84,8 +84,12 @@ public sealed class CustomersController(CustomerService customers) : ControllerB
     [Authorize(Roles = Roles.ManagerOrSeller)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`customer-name-taken`: another customer has this name, ignoring case (AC-29.2).")]
-    public Task<CustomerResponse> Update(int id, CustomerRequest request, CancellationToken cancellationToken) =>
-        customers.UpdateAsync(id, request, cancellationToken);
+    public Task<CustomerResponse> Update(int id, CustomerRequest request, CancellationToken cancellationToken)
+    {
+        // SEC-26, decision #177: the caller's id, from the checked token, so the service can log who made the change.
+        var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
+        return customers.UpdateAsync(id, request, userId, cancellationToken);
+    }
 
     /// <summary>
     /// <c>POST /api/v1/customers/{id}/deactivate</c>: the customer can no longer be chosen for a new sales order, but stays
@@ -97,8 +101,12 @@ public sealed class CustomersController(CustomerService customers) : ControllerB
     [HttpPost("{id:int}/deactivate")]
     [Authorize(Roles = Roles.ManagerOrSeller)]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public Task<CustomerResponse> Deactivate(int id, CancellationToken cancellationToken) =>
-        customers.DeactivateAsync(id, cancellationToken);
+    public Task<CustomerResponse> Deactivate(int id, CancellationToken cancellationToken)
+    {
+        // SEC-26: who deactivated it goes into the log line, taken from the token as for every change.
+        var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
+        return customers.DeactivateAsync(id, userId, cancellationToken);
+    }
 
     /// <summary>
     /// <c>POST /api/v1/customers/{id}/reactivate</c>: the customer can be chosen for new sales orders again (AC-29.4).
@@ -107,8 +115,12 @@ public sealed class CustomersController(CustomerService customers) : ControllerB
     [HttpPost("{id:int}/reactivate")]
     [Authorize(Roles = Roles.ManagerOrSeller)]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public Task<CustomerResponse> Reactivate(int id, CancellationToken cancellationToken) =>
-        customers.ReactivateAsync(id, cancellationToken);
+    public Task<CustomerResponse> Reactivate(int id, CancellationToken cancellationToken)
+    {
+        // SEC-26: who reactivated it goes into the log line.
+        var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
+        return customers.ReactivateAsync(id, userId, cancellationToken);
+    }
 
     /// <summary>
     /// <c>DELETE /api/v1/customers/{id}</c>: deletes a customer that has never had a sales order (AC-29.5). <c>204</c>
@@ -120,7 +132,9 @@ public sealed class CustomersController(CustomerService customers) : ControllerB
     [ProducesResponseType(StatusCodes.Status409Conflict, Description = "`customer-has-sales-orders`: a sales order, in any status, names the customer (AC-29.5).")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
-        await customers.DeleteAsync(id, cancellationToken);
+        // SEC-26: who deleted it goes into the log line; after the delete nothing else records it.
+        var userId = User.FindFirstValue(JwtTokenService.UserIdClaim)!;
+        await customers.DeleteAsync(id, userId, cancellationToken);
 
         // Design 2.2: a delete succeeds with 204 No Content, because there is nothing left to return.
         return NoContent();

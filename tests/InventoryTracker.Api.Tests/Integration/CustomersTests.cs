@@ -4,10 +4,12 @@ using System.Text.Json;
 using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Domain;
+using InventoryTracker.Api.Features.Customers;
 using InventoryTracker.Api.Tests.Infrastructure;
 using InventoryTracker.Api.Tests.Integration.Scenarios;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using static InventoryTracker.Api.Tests.Infrastructure.SalesFlow;
 
@@ -15,7 +17,8 @@ namespace InventoryTracker.Api.Tests.Integration;
 
 /// <summary>
 /// (v1.1) T-024: the seven <c>/api/v1/customers</c> endpoints (US-29, AC-29.1 to AC-29.7; AC-05.3 for who created a
-/// customer and when; design 3.12, 5.11 and 7.2 "Customers"; architecture 5.1 check order; decision #163 logging).
+/// customer and when; design 3.12, 5.11 and 7.2 "Customers"; architecture 5.1 check order; decision #163 logging). T-033
+/// adds the "who changed a customer" log lines (SEC-26, decisions #177 and #179).
 /// </summary>
 /// <remarks>
 /// Tests in this class share one database (<see cref="IClassFixture{TFixture}"/>), so they use unique names. A test that
@@ -809,7 +812,171 @@ public class CustomersTests(TestApiFactory factory) : IClassFixture<TestApiFacto
             || (entry.Exception?.ToString().Contains(marker, StringComparison.Ordinal) ?? false));
     }
 
+    // ---- SEC-26, decision #177: who changed a customer ------------------------------------------------------------
+
+    /// <summary>
+    /// SEC-26, decisions #177 and #179: an edit writes exactly one Information line after the commit, "Customer {id}
+    /// updated by user {userId} (changed: ...)", naming the acting user and only the fields that changed. A rename alone
+    /// says <c>name</c>, a notes edit alone says <c>notes</c>, and both in one <c>PUT</c> give one line saying
+    /// <c>name, notes</c>, not two lines.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, "name")]
+    [InlineData(false, true, "notes")]
+    [InlineData(true, true, "name, notes")]
+    public async Task Edit_is_logged_once_with_the_ids_and_the_changed_fields(bool rename, bool editNotes, string changed)
+    {
+        var (seller, user) = await OrderFlow.SignedInAsync(factory, Roles.Seller);
+        var customer = await CreateCustomerAsync(seller, notes: "Old notes");
+        var name = rename ? Seed.UniqueName("Renamed") : customer.Name;
+        var notes = editNotes ? "New notes" : "Old notes";
+
+        var response = await seller.PutAsJsonAsync($"{CustomersPath}/{customer.Id}", new { name, notes }, Cancel);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var line = Assert.Single(CustomerLines(customer.Id));
+        Assert.Equal(LogLevel.Information, line.Level);
+        Assert.Equal($"Customer {customer.Id} updated by user {user.Id} (changed: {changed}).", line.Message);
+    }
+
+    /// <summary>
+    /// SEC-26, decision #177: deactivate, reactivate and delete each write one Information line after the commit with the
+    /// customer id and the acting user id. A Manager's changes name the Manager, a Seller's the Seller. Repeating a
+    /// deactivate or reactivate changes nothing and writes no second line.
+    /// </summary>
+    [Fact]
+    public async Task Deactivate_reactivate_and_delete_are_logged_once_each_with_the_ids()
+    {
+        var (seller, sellerUser) = await OrderFlow.SignedInAsync(factory, Roles.Seller);
+        var (manager, managerUser) = await OrderFlow.SignedInAsync(factory, Roles.Manager);
+        var customer = await CreateCustomerAsync(seller);
+
+        await PostActionAsync(seller, customer.Id, "deactivate");
+        await PostActionAsync(manager, customer.Id, "deactivate"); // no-op: already deactivated
+        await PostActionAsync(manager, customer.Id, "reactivate");
+        await PostActionAsync(seller, customer.Id, "reactivate"); // no-op: already active
+        Assert.Equal(HttpStatusCode.NoContent, (await seller.DeleteAsync($"{CustomersPath}/{customer.Id}", Cancel)).StatusCode);
+
+        var lines = CustomerLines(customer.Id);
+        Assert.Equal(
+            [
+                $"Customer {customer.Id} deactivated by user {sellerUser.Id}.",
+                $"Customer {customer.Id} reactivated by user {managerUser.Id}.",
+                $"Customer {customer.Id} deleted by user {sellerUser.Id}.",
+            ],
+            lines.Select(line => line.Message));
+        Assert.All(lines, line => Assert.Equal(LogLevel.Information, line.Level));
+    }
+
+    /// <summary>
+    /// SEC-26, decision #177: a <c>PUT</c> with the values the customer already has changes nothing, so it writes no line,
+    /// like a repeated deactivate. (A change of letter case only is a real rename; see
+    /// <see cref="Change_lines_never_contain_the_customer_name_or_notes"/>.)
+    /// </summary>
+    [Fact]
+    public async Task Edit_that_changes_nothing_writes_no_line()
+    {
+        var seller = await factory.CreateClientAsAsync(Roles.Seller);
+        var customer = await CreateCustomerAsync(seller, notes: "Same notes");
+
+        // Sent with spaces around both: trimming makes them equal to what is stored, so nothing changes.
+        var response = await seller.PutAsJsonAsync($"{CustomersPath}/{customer.Id}",
+            new { name = $"  {customer.Name} ", notes = " Same notes " }, Cancel);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(CustomerLines(customer.Id));
+    }
+
+    /// <summary>
+    /// SEC-26, decision #177 ("no name, no notes"): with unique markers in the old and new name and the old and new notes,
+    /// a case-only rename (still logged as a rename), a notes edit, deactivate, reactivate and delete are all logged, and
+    /// no log entry anywhere, message or exception, contains any of the four values. The refused delete of a customer with
+    /// a sales order is included, because its <c>409</c> sentence quotes the name: the sentence goes to the client only.
+    /// </summary>
+    [Fact]
+    public async Task Change_lines_never_contain_the_customer_name_or_notes()
+    {
+        var (manager, user) = await OrderFlow.SignedInAsync(factory, Roles.Manager);
+        var oldName = $"Name {Guid.NewGuid():N}";
+        var oldNotes = $"Old address {Guid.NewGuid():N}";
+        var newNotes = $"New address {Guid.NewGuid():N}";
+        var newName = oldName.ToUpperInvariant();
+        var customer = await CreateCustomerAsync(manager, oldName, oldNotes);
+        var used = await CreateCustomerAsync(manager, $"Used {Guid.NewGuid():N}", oldNotes);
+        var item = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
+        await InsertSalesOrderAsync(factory, used.Id, item.Id, 5m, SalesOrderStatus.Created, user.Id);
+
+        Assert.Equal(HttpStatusCode.OK, (await manager.PutAsJsonAsync($"{CustomersPath}/{customer.Id}",
+            new { name = newName, notes = newNotes }, Cancel)).StatusCode);
+        await PostActionAsync(manager, customer.Id, "deactivate");
+        await PostActionAsync(manager, customer.Id, "reactivate");
+        Assert.Equal(HttpStatusCode.Conflict, (await manager.DeleteAsync($"{CustomersPath}/{used.Id}", Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await manager.DeleteAsync($"{CustomersPath}/{customer.Id}", Cancel)).StatusCode);
+
+        // The lines were written, so the check below is not passing on an empty log.
+        Assert.Equal(4, CustomerLines(customer.Id).Count);
+        Assert.Equal($"Customer {customer.Id} updated by user {user.Id} (changed: name, notes).", CustomerLines(customer.Id)[0].Message);
+        foreach (var secret in new[] { oldName, newName, oldNotes, newNotes, used.Name })
+        {
+            Assert.DoesNotContain(factory.Logs.Entries, entry =>
+                entry.Message.Contains(secret, StringComparison.Ordinal)
+                || (entry.Exception?.ToString().Contains(secret, StringComparison.Ordinal) ?? false));
+        }
+    }
+
+    /// <summary>
+    /// SEC-26, decision #177: a refused change writes no line. Tried on one customer: <c>400</c> (blank name, notes too
+    /// long), <c>409</c> (another customer's name; delete with a sales order), <c>403</c> (a Warehouse user's edit,
+    /// deactivate, reactivate and delete) and <c>404</c> (every change endpoint on an unknown id). Afterwards the customer
+    /// service has logged nothing at all, and the customer is unchanged.
+    /// </summary>
+    [Fact]
+    public async Task Refused_changes_write_no_line()
+    {
+        var (manager, user) = await OrderFlow.SignedInAsync(factory, Roles.Manager);
+        var warehouse = await factory.CreateClientAsAsync(Roles.Warehouse);
+        var customer = await CreateCustomerAsync(manager, notes: "Kept");
+        var other = await CreateCustomerAsync(manager);
+        var item = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
+        await InsertSalesOrderAsync(factory, customer.Id, item.Id, 5m, SalesOrderStatus.Cancelled, user.Id);
+        var before = await ReadCustomerAsync(manager, customer.Id);
+        var path = $"{CustomersPath}/{customer.Id}";
+        var linesBefore = ServiceLineCount();
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await manager.PutAsJsonAsync(path, new { name = "   ", notes = "New" }, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await manager.PutAsJsonAsync(path, new { name = customer.Name, notes = new string('n', 501) }, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await manager.PutAsJsonAsync(path, new { name = other.Name }, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await manager.DeleteAsync(path, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await warehouse.PutAsJsonAsync(path, new { name = Seed.UniqueName("Refused") }, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await warehouse.PostAsync($"{path}/deactivate", content: null, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await warehouse.PostAsync($"{path}/reactivate", content: null, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await warehouse.DeleteAsync(path, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await manager.PutAsJsonAsync($"{CustomersPath}/999999", new { name = Seed.UniqueName("Gone") }, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await manager.PostAsync($"{CustomersPath}/999999/deactivate", content: null, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await manager.PostAsync($"{CustomersPath}/999999/reactivate", content: null, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await manager.DeleteAsync($"{CustomersPath}/999999", Cancel)).StatusCode);
+
+        Assert.Equal(linesBefore, ServiceLineCount());
+        Assert.Equal(before.GetRawText(), (await ReadCustomerAsync(manager, customer.Id)).GetRawText());
+    }
+
     // ---- Helpers ----------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// SEC-26: the lines <see cref="CustomerService"/> logged about customer <paramref name="id"/>,
+    /// oldest first. Filtered by the logger's category and the "Customer {id} " prefix (with the space, so customer 12
+    /// does not match 123).
+    /// </summary>
+    private List<CapturingLoggerProvider.LogEntry> CustomerLines(int id) =>
+        factory.Logs.Entries
+            .Where(entry => entry.Category == typeof(CustomerService).FullName
+                && entry.Message.StartsWith($"Customer {id} ", StringComparison.Ordinal))
+            .ToList();
+
+    /// <summary>How many lines the customer service has logged so far, about any customer.</summary>
+    private int ServiceLineCount() =>
+        factory.Logs.Entries.Count(entry => entry.Category == typeof(CustomerService).FullName);
 
     /// <summary><c>GET /customers/{id}</c>, checked for <c>200</c>; returns the body.</summary>
     private static async Task<JsonElement> ReadCustomerAsync(HttpClient client, int id)
