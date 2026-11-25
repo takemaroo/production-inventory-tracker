@@ -1,8 +1,12 @@
 # Test plan and results: Production & Inventory Tracker API
 
-**Verdict: PASS** as of 2026-11-21, round 1 (re-test after the BUG-001 fix)
+**Verdict (version 1.1): PASS** as of 2026-11-25, v1.1 round 1 (BUG-002 re-test; working tree on fa99834 with the uncommitted BUG-002 fix)
 
-Open bugs: 0 blocker, 0 major, 0 minor (BUG-001 closed in round 1)
+Open bugs: 0 blocker, 0 major, 0 minor (BUG-002 closed in round 1)
+
+Version 1.1 (sales orders, customers, the Seller role, open demand, shipped reports) is in **Part 2**, sections 9 to 16. Part 1 below is the version 1 record (verdict PASS, 2026-11-21, round 1), kept as it was; its results are still current because the full suite, version 1 tests included, passed again in v1.1 rounds 0 and 1 (section 15). The BUG-002 fix also changed the version 1 unit and item name rules (AC-06.2, AC-07.1); see section 13.
+
+# Part 1: Version 1
 
 Scope (decision #111, owner): focused QA. Every PRD acceptance criterion and the section 5 non-functional requirements are mapped to the existing automated tests that prove them, after reading each test to confirm it checks the criterion and not only names it. New acceptance tests close the gaps found. A time-boxed exploratory pass ran against the real app. Round 1 re-tested the BUG-001 fix (decision #116) and the related password-length fix (decision #118), then ran the whole suite again. Paths of test files below are relative to `tests/InventoryTracker.Api.Tests/`.
 
@@ -271,3 +275,240 @@ No test is skipped. The two BUG-001 tests in `Acceptance/TextLengthAcceptanceTes
 - **Tests added by QA**: 14 test methods (33 test cases) in 8 classes in `tests/InventoryTracker.Api.Tests/Acceptance/`. In round 0, 31 passed and the 2 BUG-001 tests were skipped because they failed; in round 1 all 33 pass. The fixes for #116 and #118 added developer tests, now listed in section 2: `Integration/TextLengthLimitTests`, `Unit/Common/TextLengthTests`, `Integration/PasswordLengthValidatorTests`, and emoji cases in `UsersTests` and `StartupTests`. The suite is now 1,695 tests, 0 skipped. After them, every criterion and non-functional requirement is covered, except the parallel-writer load case in section 5.
 - **Bugs found**: 0 blocker, 0 major, 1 minor (BUG-001), now closed. Open bugs: none.
 - **Verdict (round 1): PASS. Ready for security review.**
+
+---
+
+# Part 2: Version 1.1
+
+## 9. Scope and approach (v1.1)
+
+Same focused approach as version 1 (decision #111): every v1.1 acceptance criterion (US-24 to US-33, 67 criteria), every version 1 criterion that v1.1 changed or relies on (PRD section 12) and the v1.1 additions to section 5 are mapped to the automated tests that prove them, after reading the tests to confirm they check the criterion and not only name it. A QA index of all 926 test methods by the criterion ids in their comments was the starting point. Acceptance tests were added only for real gaps and for the open-demand zero form the T-029 developer routed to QA. An exploratory pass ran against throwaway running instances, including a real version 1 app upgraded to version 1.1. Paths are relative to `tests/InventoryTracker.Api.Tests/`; abbreviations as in section 2 (`I/`, `S/`, `U/`, `A/`).
+
+Coverage status ("Before QA") is before QA's work; the Result column is after it, from the runs in section 15.
+
+## 10. How the product was run (v1.1)
+
+Following `docs/03-architecture.md` section 8, with the departures the delivery manager asked for: one artifacts folder for every build and test run, throwaway secrets as environment variables, a scratch database, and `APPDATA`/`LOCALAPPDATA` pointed into the QA scratchpad so no user-secrets or owner data could be read. The owner's database, user-secrets and `.env` were never touched.
+
+```
+dotnet build --artifacts-path TestResults/qa11-art                 # 0 warnings, 0 errors
+dotnet test  --no-build --artifacts-path TestResults/qa11-art      # baseline: 2,411 of 2,411 passed (3 min 23 s)
+
+# exploratory instance (bash syntax), run from TestResults/qa11-art/bin/InventoryTracker.Api/debug
+APPDATA=<scratch>/appdata LOCALAPPDATA=<scratch>/localappdata ASPNETCORE_ENVIRONMENT=Development \
+ADMIN_EMAIL=qa11.admin@example.test ADMIN_PASSWORD=<throwaway> JWT_SIGNING_KEY=<throwaway, 54 chars> \
+ASPNETCORE_URLS=http://127.0.0.1:5241 ConnectionStrings__Default="Data Source=<scratch>/db/explore.db" \
+dotnet InventoryTracker.Api.dll
+curl http://127.0.0.1:5241/health                                  # Healthy
+```
+
+The app was started from the build output rather than with `dotnet run`, so that it did not build a second copy into `bin/` and `obj/` (disk space). Start-up applied all five migrations to the empty file, created the first Manager from the variables and listened on port 5241 in Development. For the upgrade test the version 1 code (commit `dc155f7`, the last before T-022) was extracted with `git archive` into the scratchpad, built into `TestResults/qa11-art/v1` and run on port 5242; version 1.1 then ran on port 5243 on the same file (section 12.2). Every instance was stopped afterwards by the PID listening on its port, after checking the PID was this session's `dotnet InventoryTracker.Api.dll`; the scratch databases, the version 1 source and its build were deleted.
+
+Round 1 (BUG-002 re-test, 2026-11-25): built with `dotnet build --artifacts-path TestResults/qa11-retest` (0 warnings, 0 errors) and run the same way from `TestResults/qa11-retest/bin/InventoryTracker.Api/debug` on port 5251, with a new scratch database and scratch `APPDATA`/`LOCALAPPDATA`. It was stopped by its PID after checking it was this session's `dotnet InventoryTracker.Api.dll`. Afterwards `TestResults/qa11-retest` and the round 0 folder `TestResults/qa11-art` were deleted.
+
+Environment: Windows 11 Home 10.0.26300, local time zone Tokyo (UTC+9, which put the local date one day ahead of the UTC date during the run, useful for the day-boundary checks), .NET SDK 10.0.401, xUnit v3 on Microsoft.Testing.Platform, Python 3.14 `urllib` scripts for the exploratory HTTP calls.
+
+## 11. Acceptance criteria (v1.1)
+
+### 11.1 US-24 to US-27: sales orders, shipment, cancellation
+
+| Criterion | Tests that prove it | Before QA | Result | Notes |
+|-----------|--------------------|-----------|--------|-------|
+| AC-24.1 | `I/SalesOrdersTests` `Seller_creates_sales_order_1_with_the_design_detail` (number 1, Created, who and when, lines in entry order with item, type, unit, quantity), `Customer_reference_is_optional_and_blank_becomes_null`; `I/RequestLinesLimitTests` `A_sales_order_of_500_lines_is_accepted` | Covered | pass | |
+| AC-24.2 | `I/SalesOrdersTests` `Sales_order_for_an_item_without_stock_is_created_and_moves_nothing` (the PRD's 0 Bag / 600 Bag example) | Covered | pass | |
+| AC-24.3 | `I/SalesOrdersTests` `Missing_or_unknown_customer_is_rejected`, `Customer_reference_up_to_100_characters_is_accepted`, `Missing_or_empty_lines_are_rejected`, `Null_line_gets_both_required_messages`, `Missing_or_unknown_item_is_rejected`, `Same_item_twice_is_flagged_on_every_later_line`, `Bad_quantity_is_rejected`, `Largest_quantity_and_trailing_zeros_are_accepted`, `Every_problem_is_reported_in_one_response`; `I/DataModelTests` `Second_line_for_the_same_item_on_a_sales_order_is_refused` | Covered | pass | Exploratory: 0, −0, −1, 4 decimals, 1,000,000,000, `"5"`, `true`, `1e30`, 2^96, `[1]` refused with the design 7.2 messages; 0.001, 999,999,999.999, `1e3`, `0.1e1`, `12.5000` accepted. |
+| AC-24.4 | `I/SalesOrdersTests` `Sales_order_for_a_deactivated_customer_is_409` (PRD message), `Bad_line_with_a_deactivated_customer_gives_the_400_only` | Covered | pass | |
+| AC-24.5 | `I/SalesOrdersTests` `Too_many_lines_is_answered_on_its_own`; `I/RequestLinesLimitTests` `Too_many_lines_are_refused_without_the_write_lock`, `A_sales_order_of_500_lines_is_accepted` | Covered | pass | |
+| AC-24.6 | `I/SalesOrdersTests` `Several_sales_orders_for_the_same_customer_and_items_are_all_created`; `S/SalesScenarioTests` `Sales_chain_from_an_empty_database_end_to_end` | Covered | pass | |
+| AC-24.7 | `I/SalesOrdersTests` `Put_and_delete_are_405`; `S/RoleMatrixTests` `Table_lists_every_endpoint_the_app_serves_with_its_roles` (no other endpoint exists) | Covered | pass | Exploratory: PUT, PATCH, DELETE on a sales order all `405`. |
+| AC-24.8 | `I/SalesOrdersTests` `Raw_materials_are_sold_alone_or_with_finished_products`; `I/ShipSalesOrderTests` `Every_line_becomes_one_movement_at_the_one_shipment_time` | Covered | pass | |
+| AC-24.9 | `I/SalesOrdersTests` `Users_without_Seller_or_Manager_cannot_create`; `S/RoleMatrixTests` `Caller_gets_the_allowed_result_or_403` | Covered | pass | |
+| AC-25.1 | `I/SalesOrdersTests` `Sales_orders_are_listed_newest_first_in_pages`, `List_filters_by_status_item_and_customer_and_they_combine`, `Unknown_status_is_400_together_with_paging_errors`, `Id_filter_that_is_not_a_number_is_400` | Covered | pass | |
+| AC-25.2 | `I/SalesOrdersTests` `Seller_creates_sales_order_1_with_the_design_detail`, `Detail_shows_every_status_reached_with_who_when_and_note` (Created, Shipped, Cancelled); `I/OpenApiTests` `V1_1_response_field_is_required` | Covered | pass | |
+| AC-25.3 | `I/SalesOrdersTests` `Unknown_number_is_404`; `I/ShipSalesOrderTests` `Unknown_number_is_404`; `I/CancelSalesOrderTests` `Unknown_number_is_404` | Covered | pass | Exploratory: `#0`, `#-3` give "Sales order #0 not found."; `abc` and a number past the integer range give the generic "No endpoint matches this path." (still `404`, as in v1, section 3.2). |
+| AC-25.4 | `I/SalesOrdersTests` `Production_only_gets_403_on_the_reads_before_404_and_400`; `I/MovementsTests` `Production_cannot_open_the_sales_order_and_a_seller_cannot_list_shipments`; `S/RoleMatrixTests` | Covered | pass | |
+| AC-26.1 | `I/ShipSalesOrderTests` `Warehouse_user_ships_sales_order_1_with_the_design_detail_and_one_movement`, `Every_line_becomes_one_movement_at_the_one_shipment_time` | Covered | pass | |
+| AC-26.2 | `I/ShipSalesOrderTests` `Warehouse_user_ships_sales_order_1_...` (1,001 → 401 Bag, one −600 movement); `I/MovementsTests` `A_shipment_movement_matches_the_design_example_field_for_field`; `S/SalesScenarioTests` `Sales_chain_from_an_empty_database_end_to_end` (HTTP only, from worked example A) | Covered | pass | |
+| AC-26.3 | `I/ShipSalesOrderTests` `Short_line_refuses_the_whole_shipment_and_names_only_that_line` (PRD message word for word), `Two_short_lines_are_both_named_in_line_order`; `S/SalesScenarioTests` | Covered | pass | |
+| AC-26.4 | `I/ShipSalesOrderTests` `Shortfall_resolved_by_production_then_stock_equal_to_the_quantity_is_enough`; `S/SalesScenarioTests` | Covered | pass | Exploratory: stock of exactly 999,999,999.999 ships a line of 999,999,999.999; 0.001 less is refused naming both figures. |
+| AC-26.5 | `I/ShipSalesOrderTests` `Newer_sales_order_ships_before_an_older_one` | Covered | pass | |
+| AC-26.6 | `I/ShipSalesOrderTests` `Shipping_a_material_of_the_running_order_changes_only_the_Warehouse`; `S/CrossEndpointRaceTests` `Ship_and_production_send_...`, `Ship_and_complementary_send_...` | Covered | pass | |
+| AC-26.7 | `I/ShipSalesOrderTests` `Shipped_sales_order_cannot_ship_again`, `Cancelled_sales_order_never_ships`; `I/CancelSalesOrderTests` `Cancelled_sales_order_never_ships` | Covered | pass | |
+| AC-26.8 | `I/ShipSalesOrderTests` `Note_over_500_characters_is_400`, `Note_of_500_characters_is_saved_trimmed`, `Missing_empty_or_blank_note_ships_without_a_note`, `Long_note_is_400_before_the_status_409` | Covered | pass | Exploratory: 500 emoji accepted, 501 refused; no body, `{}`, a JSON `null` body and an all-spaces note all ship without a note (design 5.12: the body is optional). |
+| AC-26.9 | `I/ShipSalesOrderTests` `Users_without_Warehouse_or_Manager_cannot_ship`; `S/RoleMatrixTests` | Covered | pass | |
+| AC-26.10 | All five bullets, each ordering forced: `I/ShipSalesOrderTests` `Two_shipments_of_one_sales_order_exactly_one_succeeds`, `Simultaneous_shipments_of_one_sales_order_never_both_succeed`, `Two_shipments_wanting_the_same_stock_exactly_one_succeeds`, `Simultaneous_shipments_wanting_the_same_stock_never_both_succeed`; `I/CancelSalesOrderTests` `Ship_and_cancel_at_once_exactly_one_succeeds`, `Simultaneous_ship_and_cancel_never_both_succeed`; `S/CrossEndpointRaceTests` (ship against write-off, production send, complementary send); `I/DataModelTests`, `I/StockTests` (one-shipment-per-line index backstop) | Covered | pass | Exploratory, live: 10 simultaneous ships of one 2-line sales order → one `200`, nine `409` `already-shipped`, 2 movements; 2 × 600 against 1,000, five times → one `200`, one `insufficient-stock`, 400 left each time; 5 sales orders of 3 against 10 → three `200`, 1 left; ship against cancel, eight times → always exactly one, no movement when Cancelled; ship against a −50 adjustment on 100 → never below zero. |
+| AC-26.11 | `I/ShipSalesOrderTests` `Raw_material_ships_from_the_Warehouse_only_and_a_pending_return_does_not_count` (all three bullets) | Covered | pass | |
+| AC-26.12 | `I/ShipSalesOrderTests` `Shipping_may_take_material_a_created_production_order_needs` | Covered | pass | |
+| AC-26.13 | `I/ShipSalesOrderTests` `Sales_order_of_a_deactivated_customer_still_ships` | Covered | pass | Also live after a rename and a deactivation. |
+| AC-27.1 | `I/CancelSalesOrderTests` `Seller_cancels_a_sales_order_a_Manager_created`, `Manager_or_Seller_cancels_whoever_created_it`, `Cancel_moves_no_stock`, `Sales_order_of_a_deactivated_customer_can_be_cancelled`, `Reason_of_1_to_500_characters_is_saved_trimmed`; `I/StockTests` `Open_demand_follows_the_sales_orders_through_ship_and_cancel`. Added: `A/StockZeroFormsAcceptanceTests` `AC_31_2_open_demand_returns_to_a_plain_zero_after_its_sales_orders_ship_and_cancel` | Covered | pass | |
+| AC-27.2 | `I/CancelSalesOrderTests` `Shipped_sales_order_cannot_be_cancelled`, `Cancelled_sales_order_cannot_be_cancelled_again`, `Missing_or_blank_reason_is_400`, `Reason_over_500_characters_is_400`, `Bad_reason_is_400_before_the_status_409` | Covered | pass | Exploratory: every message word for word; no body without a Content-Type is `415` (decision #165). |
+| AC-27.3 | `I/CancelSalesOrderTests` `Cancelled_sales_order_never_ships`; `I/ShipSalesOrderTests` `Cancelled_sales_order_never_ships` | Covered | pass | |
+| AC-27.4 | `I/CancelSalesOrderTests` `Users_without_Manager_or_Seller_cannot_cancel`; `S/RoleMatrixTests` | Covered | pass | |
+
+### 11.2 US-28 to US-30: shipments in the history, customers, Seller role
+
+| Criterion | Tests that prove it | Before QA | Result | Notes |
+|-----------|--------------------|-----------|--------|-------|
+| AC-28.1 | `I/MovementsTests` `A_shipment_movement_matches_the_design_example_field_for_field`, `Every_movement_has_a_sales_order_number_set_only_on_shipments`; `I/StockTests` `Ledger_accepts_a_shipment_...`, `Ledger_refuses_a_shipment_that_takes_the_warehouse_below_zero`; `I/DataModelTests` `Enum_names_match_design_section_2_3`, `Movement_naming_an_unknown_sales_order_is_refused` | Covered | pass | |
+| AC-28.2 | `I/MovementsTests` `Sales_order_and_type_filters_return_the_matching_shipments_newest_first`, `Order_number_filter_never_returns_a_shipment_even_when_a_sales_order_has_the_same_number`, `No_matching_shipment_is_200_with_an_empty_list`, `Number_filter_that_is_not_a_whole_number_is_400` | Covered | pass | |
+| AC-28.3 | `I/MovementsTests` `Listed_changes_including_shipments_add_up_to_the_stock`; `S/CrossEndpointRaceTests` `Simultaneous_ship_and_write_off_never_both_succeed`; `S/SalesScenarioTests` | Covered | pass | |
+| AC-28.4 | `I/StockTests` `Two_created_sales_orders_add_up_and_leave_the_warehouse_alone` (1,001 Bag, open demand 1,200); `S/SalesScenarioTests` | Covered | pass | |
+| AC-28.5 | `I/ItemsTests` `Item_in_use_keeps_its_type_and_unit_and_cannot_be_deleted`, `Item_in_use_check_covers_every_foreign_key_to_items` (sales order lines in every status). Added: `A/SalesOrderItemRaceAcceptanceTests` `AC_28_5_item_delete_racing_a_new_sales_order_for_it_lets_exactly_one_succeed`, `AC_28_5_type_change_racing_a_new_sales_order_never_changes_an_item_in_use` (both orderings forced) | **Partly**: nothing raced an item delete or type change against a new sales order for that item (PRD section 5: complete fully or save nothing) | pass | Live, unforced: 8 delete races and 28 type-change races, always consistent (when both succeed, the sales order's own `201` already shows the new type and unit, so the change committed first). |
+| AC-28.6 | `I/MovementsTests` `A_shipment_movement_cannot_be_edited_or_deleted`; `I/ReportsTests` `Adjustments_and_unshipped_sales_orders_do_not_count` (the correcting adjustment) | Covered | pass | |
+| AC-28.7 | `I/MovementsTests` `Every_role_that_lists_movements_sees_and_filters_shipments`, `Production_cannot_open_the_sales_order_and_a_seller_cannot_list_shipments`; `S/RoleMatrixTests` `Seller_gets_403_on_the_reads_of_AC_30_6` | Covered | pass | Live: a Production user's shipment row carries `salesOrderNumber` and nothing about the customer. |
+| AC-29.1 | `I/CustomersTests` `Seller_creates_a_customer_with_the_design_body`, `Notes_are_optional_and_blank_becomes_null`, `Name_up_to_100_and_notes_up_to_500_are_accepted` | Covered | pass | |
+| AC-29.2 | `I/CustomersTests` `Name_another_customer_has_ignoring_case_is_409` (PRD message), `Missing_or_blank_name_is_rejected`, `Lengths_count_code_points_so_an_emoji_is_one_character`, `Simultaneous_creates_of_one_name_save_only_one_customer`, `Duplicate_that_gets_past_the_check_is_409_concurrent_change_and_saves_nothing`; `I/DataModelTests` `Customer_names_differing_only_in_case_cannot_both_be_saved`. `I/NameUnicodeTests` (BUG-002 fix, all three name lists). Added by QA: `A/CustomerNameAcceptanceTests` `AC_29_2_BUG_002_same_name_in_another_unicode_form_is_a_duplicate` (skipped in round 0, un-skipped in round 1); round 1: `A/NameLengthAfterNfcAcceptanceTests` `Design_2_6_name_that_NFC_makes_longer_than_the_limit_is_refused` | Covered | pass (round 1) | The letter of the criterion holds: names differing only in case (incl. "Café"/"CAFÉ", "istanbul"/"ISTANBUL") or padding are refused, and the limits count code points (decision #116). **BUG-002** (round 0): the same name typed with a decomposed accent was a second customer. Round 1: fixed by NFC conversion (decisions #170 to #174) and closed (section 13). |
+| AC-29.3 | `I/CustomersTests` `Edit_changes_name_and_notes`, `Edit_to_its_own_name_in_another_case_is_allowed`, `Edit_without_notes_clears_them`, `Edit_follows_the_same_rules_as_create`; `I/SalesOrdersTests` `Renamed_customer_shows_its_new_name_on_older_sales_orders`; `I/ReportsTests` `Renamed_customer_shows_and_sorts_by_its_new_name` | Covered | pass | Live: new name on the list rows, the detail and both reports. |
+| AC-29.4 | `I/CustomersTests` `Deactivate_and_reactivate_are_repeatable_and_keep_the_customer_listed`; `I/SalesOrdersTests` `Sales_order_for_a_deactivated_customer_is_409`, `Deactivated_customer_is_shown_inactive_on_its_sales_orders`; `I/ShipSalesOrderTests` `Sales_order_of_a_deactivated_customer_still_ships`; `I/CancelSalesOrderTests` `Sales_order_of_a_deactivated_customer_can_be_cancelled`; `I/ReportsTests` `Deactivated_customer_rows_still_appear_marked_inactive` | Covered | pass | |
+| AC-29.5 | `I/CustomersTests` `Deleting_an_unused_customer_frees_its_name_but_not_its_id`, `Deleting_a_customer_with_a_cancelled_sales_order_is_409` (PRD message), `Deleting_a_customer_with_a_sales_order_in_any_status_is_409`, `Has_sales_orders_check_covers_every_foreign_key_to_customers`, `Unknown_customer_is_404`; `I/DataModelTests` `Database_refuses_to_delete_a_customer_that_a_sales_order_names`, `Deleted_customer_id_is_never_reused` | Covered | pass | |
+| AC-29.6 | `I/CustomersTests` `Customers_are_listed_newest_first_in_pages`, `List_filters_by_active_status_in_any_letter_case`, `Is_active_that_is_not_true_or_false_is_rejected`, `Unknown_customer_is_404` | Covered | pass | |
+| AC-29.7 | `I/CustomersTests` `Production_only_user_cannot_read_customers`, `Changes_by_users_without_manager_or_seller_are_403`, `Role_check_comes_before_the_404_and_400`; `S/RoleMatrixTests` | Covered | pass | |
+| AC-29.8 | `I/SalesOrdersTests` `Customer_delete_and_new_sales_order_exactly_one_succeeds` (4 forced orderings); `I/DataModelTests` `Database_refuses_to_delete_a_customer_that_a_sales_order_names` | Covered | pass | Live, unforced, eight times: always one `204` + `400`, or `201` + `409`. |
+| AC-30.1 | `I/UsersTests` `Manager_creates_users_with_the_Seller_role`, `Manager_changes_a_users_roles_to_Seller`, `Invalid_create_input_gives_400_validation` (four roles in the message), `Every_user_endpoint_gives_403_without_the_Manager_role` | Covered | pass | |
+| AC-30.2 | `I/AuthTests` `Sign_in_returns_all_four_roles_in_role_order`; `I/UsersTests` `Manager_creates_users_with_the_Seller_role` | Covered | pass | |
+| AC-30.3 | `I/UpgradeTests` (11 tests: migration applied and nothing pending, every v1 table's rows and values, Seller role exists and no user got it, a second start changes nothing, foreign keys, the eight movement indexes, new rules on the upgraded data, the one-transaction upgrade script, stock figures); `I/StartupTests` `Empty_database_gets_one_active_manager_who_can_sign_in` | Covered | pass | Also proved by QA with a **real version 1 app** writing the data (section 12.2). |
+| AC-30.4 | `S/RoleMatrixTests` `Caller_gets_the_allowed_result_or_403` (Seller caller on all 62 endpoints); `S/SalesScenarioTests` `A_sellers_day_end_to_end` | Covered | pass | |
+| AC-30.5 | `I/UsersTests` `Seller_does_not_count_as_a_Manager` | Covered | pass | |
+| AC-30.6 | `S/RoleMatrixTests` `Seller_gets_403_on_the_reads_of_AC_30_6` (exact `403` message on each read); `I/MovementsTests` `Production_cannot_open_..._a_seller_cannot_list_shipments` | Covered | pass | |
+| AC-30.7 | `S/RoleMatrixTests` `Seller_reads_units_items_and_stock_and_changes_own_password`, `Seller_sees_the_committed_order_number_but_cannot_open_the_order`; `I/UsersTests` `Every_role_may_change_its_own_password` | Covered | pass | |
+| AC-30.8 | `S/RoleMatrixTests` `Production_plus_Seller_reads_movements_and_production_orders`, `Caller_gets_the_allowed_result_or_403` (Production+Seller caller) | Covered | pass | The live sweep also covered Warehouse+Seller and Warehouse+Production+Seller (section 12.1). |
+
+### 11.3 US-31 to US-33: open demand and the shipped reports
+
+| Criterion | Tests that prove it | Before QA | Result | Notes |
+|-----------|--------------------|-----------|--------|-------|
+| AC-31.1 | `I/StockTests` `Item_without_movements_has_zero_stock_and_every_role_can_read_it`, `Finished_product_has_null_leftover_figures`, `Item_type_filter_still_works_and_every_row_has_open_demand`, `Only_created_sales_orders_count_in_open_demand`. Added: `A/StockZeroFormsAcceptanceTests` `AC_31_1_item_on_no_sales_order_shows_open_demand_as_a_plain_zero_number` | Covered | pass | Routed item (T-029): the zero is now pinned as a plain JSON number, never `null` or `-0`, for both item types, single and list rows, for Manager, Production and Seller. |
+| AC-31.2 | `I/StockTests` `Open_demand_follows_the_sales_orders_through_ship_and_cancel`; `S/SalesScenarioTests` `Sales_chain_from_an_empty_database_end_to_end`. Added: `A/StockZeroFormsAcceptanceTests` `AC_31_2_open_demand_returns_to_a_plain_zero_after_its_sales_orders_ship_and_cancel` | Covered | pass | Live: open demand of 0.1 + 0.2 + 0.001 + 0.003 is exactly 0.304; 2 × 999,999,999.999 + 0.001 is exactly 1,999,999,999.999 (a sum may pass the per-entry maximum). |
+| AC-31.3 | `I/StockTests` `Open_demand_larger_than_stock_changes_no_other_figure_and_blocks_nothing`, `Two_created_sales_orders_add_up_...`, `Open_demand_reads_the_same_snapshot_as_the_stock_even_when_a_ship_commits_in_between` | Covered | pass | |
+| AC-31.4 | `I/StockTests` `Every_role_sees_open_demand`, `Item_without_movements_has_zero_stock_and_every_role_can_read_it`; `S/RoleMatrixTests` (stock reads open to all) | Covered | pass | |
+| AC-32.1 | `I/ReportsTests` `December_by_item_gives_the_PRD_rows_A_to_Z`, `Reports_are_paged_with_the_total_row_count`, `Item_type_filter_keeps_one_type`, `Names_are_ordered_ordinally_ignoring_case` | Covered | pass | Live ordering: `1abc`, `apple`, `Banana`, `Deli`, `zed`, `_under`, `Ábaco`, `émile`, `Émile2`: ordinal on upper case, as design 2.5 states (accented first letters after Z). |
+| AC-32.2 | `I/ReportsTests` `Created_and_cancelled_sales_orders_never_count`, `Adjustments_and_unshipped_sales_orders_do_not_count` | Covered | pass | |
+| AC-32.3 | `I/ReportsTests` `December_by_item_gives_the_PRD_rows_A_to_Z`, `December_by_item_for_Deli_Norte_and_from_the_3rd` (all three bullets, shipments made through the real ship endpoint on a fake clock); `S/SalesScenarioTests` | Covered | pass | |
+| AC-32.4 | `I/ReportsTests` `Shipped_quantity_equals_minus_the_shipment_movements` (7 periods); `S/SalesPerformanceTests` (at full volume) | Covered | pass | |
+| AC-32.5 | `I/ReportsTests` `No_matching_shipment_is_an_empty_200`, `Customer_without_shipments_gives_empty_reports`, `Bad_query_value_is_400_with_the_list_message`, `Every_bad_query_value_is_reported_in_one_400`, `Periods_are_whole_UTC_days_with_optional_ends` (23:59:59 and 00:00:00 edges) | Covered | pass | Live on a UTC+9 machine (section 12.4). |
+| AC-32.6 | `I/ReportsTests` `Production_only_user_gets_403`, `Warehouse_Manager_and_Seller_get_200`; `S/RoleMatrixTests` | Covered | pass | |
+| AC-33.1 | `I/ReportsTests` `December_by_customer_gives_the_PRD_rows_A_to_Z`, `Reports_are_paged_with_the_total_row_count`, `Customer_and_item_filters_combine` | Covered | pass | Round 0: BUG-002 could split one real customer into two rows; closed in round 1, so a look-alike name can no longer create a second row (except a twin of a name stored decomposed before the fix, decision #172, section 13). |
+| AC-33.2 | `I/ReportsTests` `Shipped_quantity_equals_minus_the_shipment_movements`, `No_matching_shipment_is_an_empty_200`, `Bad_query_value_is_400_with_the_list_message`, `Production_only_user_gets_403`, `Warehouse_Manager_and_Seller_get_200` | Covered | pass | |
+| AC-33.3 | `I/ReportsTests` `December_by_customer_gives_the_PRD_rows_A_to_Z` (incl. the Grated cheese filter); `S/SalesScenarioTests` | Covered | pass | |
+| AC-33.4 | `I/ReportsTests` `Deactivated_customer_rows_still_appear_marked_inactive` | Covered | pass | Also live. |
+
+### 11.4 Version 1 criteria that version 1.1 changed or relies on (PRD section 12)
+
+| Criterion | What v1.1 changed | Tests that prove it | Before QA | Result |
+|-----------|-------------------|--------------------|-----------|--------|
+| AC-03.1 | Seller can be given | `I/UsersTests` `Manager_creates_users_with_the_Seller_role`, `Manager_creates_a_user_who_can_sign_in_with_exactly_those_roles` | Covered | pass |
+| AC-03.3 | "Unknown role" lists four roles | `I/UsersTests` `Invalid_create_input_gives_400_validation`, `Invalid_role_change_gives_400_and_changes_nothing` (`ExpectedMessages.RolesAre`) | Covered | pass |
+| AC-03.9 | A Seller gets `403` on user management | `I/UsersTests` `Every_user_endpoint_gives_403_without_the_Manager_role`; `S/RoleMatrixTests` | Covered | pass |
+| AC-05.1, AC-05.2 | Seller column, split View row, four new rows; reads limited by role | `S/RoleMatrixTests` `Caller_gets_the_allowed_result_or_403` (62 endpoints × Warehouse, Production, Manager, Seller, Warehouse+Production, Production+Seller: success on a real record or the exact `403`), `Table_lists_every_endpoint_the_app_serves_with_its_roles`, `Endpoint_without_a_token` | Covered | pass |
+| AC-05.3 | Sales order status changes record who and when | `I/SalesOrdersTests` `Detail_shows_every_status_reached_with_who_when_and_note`; `I/ShipSalesOrderTests` `Warehouse_user_ships_sales_order_1_...`; `I/CancelSalesOrderTests` `Seller_cancels_a_sales_order_a_Manager_created`; `I/CustomersTests` `Seller_creates_a_customer_with_the_design_body` | Covered | pass |
+| AC-07.3, AC-07.4 | Sales order lines count as use | `I/ItemsTests` `Item_in_use_keeps_its_type_and_unit_and_cannot_be_deleted`, `Item_in_use_check_covers_every_foreign_key_to_items`. Added: `A/SalesOrderItemRaceAcceptanceTests` (races, see AC-28.5) | Partly (races) | pass |
+| AC-10.5 | Open demand on the stock view | as AC-31.1 to AC-31.4; `I/StockTests` `Every_role_sees_open_demand` | Covered | pass |
+| AC-11.1 | Seller-only `403`; a movement shows its sales order | `I/MovementsTests` `Every_movement_has_a_sales_order_number_set_only_on_shipments`, `A_movement_shows_every_design_field`, `Every_role_can_list_and_read_movements`; `S/RoleMatrixTests` `Seller_gets_403_on_the_reads_of_AC_30_6` | Covered | pass |
+| AC-11.2 | Filter by sales order | `I/MovementsTests` `Sales_order_and_type_filters_return_the_matching_shipments_newest_first`, `Filters_combine_with_and` | Covered | pass |
+| AC-11.3, AC-11.4 | Shipments are never edited; stock still equals the movements | `I/MovementsTests` `A_shipment_movement_cannot_be_edited_or_deleted`, `Listed_changes_including_shipments_add_up_to_the_stock` | Covered | pass |
+| AC-14.1 | Seller-only `403` on the order list | `S/RoleMatrixTests` `Seller_gets_403_on_the_reads_of_AC_30_6`; `I/ProductionOrdersTests` `Every_role_can_list_and_view_orders` | Covered | pass |
+| AC-15.7 | A send refused after a shipment took the stock | `I/ShipSalesOrderTests` `Shipping_may_take_material_a_created_production_order_needs` | Covered | pass |
+| AC-22.6 | Seller-only `403` on returns | `S/RoleMatrixTests` `Seller_gets_403_on_the_reads_of_AC_30_6`; `I/ReturnsTests` `Production_only_user_can_view_returns_but_not_act_on_them` | Covered | pass |
+| AC-23.2, AC-23.6 | Still five types; Seller `403` on every notification endpoint | `I/NotificationsTests` `Users_without_the_Manager_role_get_403_on_every_endpoint`; `S/RoleMatrixTests`; `A/NotificationEventsAcceptanceTests` (v1) | Covered | pass. Live: creating, shipping and cancelling sales orders and editing customers created no notification. |
+| Every other v1 criterion | Unchanged | The version 1 tests in Part 1, sections 2 and 7 | Covered | pass (all ran again in section 15) |
+
+### 11.5 Non-functional requirements (v1.1 additions, PRD section 11)
+
+| Requirement | Tests that prove it | Before QA | Result | Notes |
+|-------------|--------------------|-----------|--------|-------|
+| Performance: + 500 customers, 5,000 sales orders of 1 to 10 lines; reports and stock with open demand under 1 s at p95 | `S/SalesPerformanceTests` `PRD_5_v1_1_reads_and_writes_meet_the_target_at_the_v1_1_volume`; `I/SalesOrdersTests` `Detail_finds_its_lines_through_the_index_without_reading_every_line`; `I/ShipSalesOrderTests` `Ship_finds_the_lines_through_the_index_without_reading_every_line` (decision #169) | Covered | pass | Ran in both full-suite runs. Same limits as v1: in-process server, writes timed one at a time. |
+| Consistency: two ships, ship vs cancel, customer delete vs new sales order | AC-26.10 and AC-29.8 rows. Added: `A/SalesOrderItemRaceAcceptanceTests` | Covered | pass | |
+| Data: sales orders never deleted; customers only if never used | `I/SalesOrdersTests` `Put_and_delete_are_405`; AC-29.5 row | Covered | pass | |
+| Security: customer notes seen by Warehouse, Manager and Seller only; every read `200` or `403` per role | `S/RoleMatrixTests`; `I/CustomersTests` `Production_only_user_cannot_read_customers`, `No_log_line_contains_customer_notes`; `I/SalesOrdersTests` `Created_sales_order_is_logged_with_number_and_user_and_notes_are_not` | Covered | pass | Live sweep: no leak (section 12.1). Depth review is phase 6. |
+| Platforms: OpenAPI lists every endpoint | `I/OpenApiTests` (62 endpoints, `DesignEndpointCount`) | Covered | pass | |
+
+## 12. Exploratory testing (v1.1)
+
+### 12.1 Permissions
+
+A live sweep called each of the 61 token-protected endpoints of design section 4 (sign-in excluded) as eight callers, Warehouse, Production, Manager, Seller, Warehouse+Production, Production+Seller, Warehouse+Seller and Warehouse+Production+Seller, and once with no token, using an unknown id or an empty body so allowed callers could not change anything: **488 role cases and 61 no-token cases, 0 deviations**. Every refused caller got `403` with the exact design 7.1 sentence for that roles set (for example "It needs the Warehouse, Manager or Seller role."); no allowed caller got `403` or a `5xx`; no-token was `401` everywhere. Specific checks: a Production-only user asking for sales order #999999 gets `403`, not `404` (roles before existence); a Seller gets `403` on `GET /items/{id}/recipe`; a Production user's `ShippedToCustomer` movement shows the sales order number and no customer data.
+
+### 12.2 Upgrade path, with a real version 1 app
+
+`UpgradeTests` builds its v1 database from the v1 migrations and plain SQL. QA added the case it cannot: data written by the **real version 1 application** (commit `dc155f7`, built from `git archive`) through its own API, with real Identity rows, password hashes, lock-out state, tokens and a full order flow, then version 1.1 started on the same file.
+
+1. v1 on an empty scratch database: 6 users (one per role, Warehouse+Production, one deactivated), units, a raw material and a product with a recipe, a receipt, order #1 sent, a complementary order approved and sent, #1 completed with leftover (3 notifications, one marked read), order #2 cancelled, order #3 left Created, a received return and a Pending one, an adjustment, and one user locked out by 5 wrong passwords. 18 reads saved.
+2. v1 stopped **by force** (`taskkill /F`), so every change was still in the WAL file (main file 4 KB, WAL 1.4 MB): the harshest realistic stop.
+3. v1.1 started on that file **without `ADMIN_EMAIL` and `ADMIN_PASSWORD`** (users exist, AC-02.2). It applied only `SalesOrders` and started.
+
+Results: all **18 version 1 reads identical** except the two new fields (`openDemand` 0 on every stock row, `salesOrderNumber` null on every movement); every user's roles exactly as before and no one holding Seller (AC-30.3); the Seller role present; a token issued by the v1 app still accepted (same signing key); the locked-out user still locked (`account-locked`, stored in the database) and the deactivated user still refused; `PRAGMA integrity_check` ok, `foreign_key_check` empty, five migrations recorded, journal mode still WAL. Version 1.1 then worked on the upgraded data: the first customer got id 1 and the first sales order number 1; a sales order mixing the v1 product and the v1 raw material shipped from v1 stock, with production storage, pending return and free leftover unchanged; the v1 Pending return still blocked the v1 Created order's send (`pending-return`) and could be received; the v1 raw material was still "in use". **Nothing missing from `UpgradeTests` was found**: what this run adds (WAL recovery, real Identity data, lock-out and tokens across the upgrade) behaved correctly. No automated test was added for it, because it needs the v1 build.
+
+### 12.3 Other areas
+
+| Area | What was tried | Result |
+|------|----------------|--------|
+| Text limits, code points (decision #116) | Customer name 100 and 101 emoji, 50 × (e + combining accent) = 100 code points and 101; notes 500/501 emoji; customer reference 100/101 emoji; shipment note 500/501 emoji; cancellation reason 500/501 emoji, blank, 1 character | pass: each limit at exactly its number of code points, one more refused with the design message; blank optional texts stored as `null` |
+| Odd names | Name with NBSP around it, tab only, ideographic space only, zero-width space only, NUL inside | NBSP trimmed; tab and U+3000 only are "Name is required."; Round 0: **zero-width space only is accepted** (a format character, not white space) and NUL inside is accepted, as for v1 items (section 3.2): noted in BUG-002, not filed separately. Round 1: invisible-only names (17 forms, U+200B among them) are "Name is required."; NUL among visible letters is still accepted, as decision #173 defines |
+| Customer name casing | "Café Sur" then upper, lower, padded copies; "istanbul"/"İstanbul"/"ISTANBUL"; "Straße"/"STRASSE"; rename to own name in upper case; rename to another's name in lower case; precomposed vs decomposed "é" | Case and padding refused with the PRD message quoting the name as sent; dotted İ and ß are different names under invariant upper-casing (reasonable, not filed); own-name rename `200`, other's name `409`. **BUG-002** (round 0): decomposed "é" accepted as a second customer; round 1: `409`, see section 13 |
+| Quantities | Lines and ships at 0.001 and 999,999,999.999; just over each; stock one thousandth short of a maximum line; stock grown past the maximum by adjustments; tiny lines summed | pass, see the AC-24.3, AC-26.4 and AC-31.2 notes; the reports and movements give exactly 1,999,999,999.999 for the item, and the shortfall message formats 999,999,999.998 per design 6.1 |
+| Customer id forms | `customerId` 0, −1, unknown, `"1"`, 1.5, `null`, 2,147,483,648 | `400` "Customer {id} does not exist." / "customerId has the wrong type." / "Customer is required." |
+| Wrong order of steps | Ship twice; cancel a Shipped one (blank reason and with reason); cancel twice; ship a Cancelled one (also with a 501-character note); sales order for a deactivated, then a deleted customer; delete a customer with a Shipped order; recreate a deleted name | pass: the design 7.2 code and message each time, in the design 2.2 check order (reason before status on cancel, note before status on ship) |
+| Body forms | Ship with no body and no Content-Type, invalid JSON, array, `null`, `{"note":5}`, `text/plain`; cancel with no body, `{}`, `{"reason":null}`, `{"reason":5}`, `null` | pass per design 7.2; `null` on ship means no note (optional body), `null` on cancel is "A request body is required." |
+| Lists and filters | `status=shipped`, `status=Done`, `customerId=abc`, `isActive=TRUE`/`yes`, `salesOrderNumber=abc`, `type=shippedtocustomer`, `orderNumber` equal to a sales order number | pass (framework wording for non-numbers, decision #113) |
+| Concurrency | See the AC-26.10, AC-28.5 and AC-29.8 notes; also two customers renamed to one new name at once while a third request creates it (6 tries: always one success and two `409` `customer-name-taken`), and a deactivation racing a new sales order (6 tries: `201` or `409` `customer-inactive`, never a `500`) | pass; the application log has no error or exception line |
+
+### 12.4 Day boundaries in the reports
+
+The run machine was on UTC+9, so during the run the local date (2026-11-25) was one day after the UTC date (2026-11-24). A sales order shipped at 2026-11-24T18:21:06Z counted in `from=2026-11-24&to=2026-11-24`, `from=2026-11-24` and `to=2026-11-24`, and **not** in the local day `2026-11-25`, nor in `to=2026-11-23` or `from=2026-11-25`, identically in both reports and in the movement date filter. Date-time values, `2026-11-24Z`, `20261124` and a leading space are `400` "'from' must be a date in the format yyyy-MM-dd."; an empty `from=` or `itemType=` is treated as left out. The 23:59:59 / 00:00:00 UTC edges are covered by `I/ReportsTests` `Periods_are_whole_UTC_days_with_optional_ends` on a fake clock.
+
+## 13. Bugs (v1.1)
+
+| ID | Severity | Summary | Status |
+|----|----------|---------|--------|
+| [BUG-002](bugs/BUG-002-look-alike-customer-names.md) | minor | The same customer name typed in two Unicode forms ("é" vs "e" + combining accent) is accepted as two customers, so the list and the per-customer report show two identical names. Units and items (v1) behave the same | closed (round 1) |
+
+No blocker or major bug. Documents vs. build: no disagreement found between the v1.1 PRD, the design and the build. Round 0 found one gap in the documents: neither the PRD nor design 2.6 said whether names are compared after Unicode normalisation (BUG-002). The owner decided it (decisions #170 to #172), the developer and delivery manager recorded the details (#173, #174), and design 2.6 and the units, items and customers error tables now say it.
+
+**Round 1 (2026-11-25), BUG-002 re-test: closed.** Full detail in the bug file. In short, for units, items and customers, on create and on rename:
+
+| Area | Result |
+|------|--------|
+| BUG-002 steps, as a Seller | Decomposed "Café Sur" `409` `customer-name-taken`, message quoting the name in NFC; one customer in the list |
+| Look-alikes | NFD vs NFC either way round, upper case, padded, sent as `\u` escapes and as raw UTF-8, ANGSTROM SIGN, KELVIN SIGN, conjoining Hangul jamo: `409` with each list's code; own name in another form `200`; stored in NFC |
+| Invisible-only names | 17 forms (U+200B, U+FEFF, U+2060, U+00AD, LRM/RLM, ZWJ, ZWNJ, tab, NUL, DEL, U+0085, U+180E, U+061C, U+E0001, and mixtures with white space): `400` "Name is required." |
+| U+FFFE | Alone, inside, padded, with other faults (over the limit, invisible): `400` "Name contains a character that is not allowed." first; lone surrogate `400` |
+| Invisible among visible | ZWJ, ZWNJ, leading U+200B, soft hyphen, NUL inside, LRM: kept exactly as sent |
+| Length after NFC | Names that NFC shortens (e + accent, jamo) and lengthens (U+0958, U+FB2C): limit after NFC accepted, one over refused |
+| Race | 8 simultaneous creates of one name in four forms, 6 times per list: exactly one `201`, the rest `409`, never `5xx` |
+
+Observed and not filed, because the decisions define it: a name stored decomposed before the fix (no migration, #172) can still gain one NFC look-alike twin; other noncharacters .NET can normalize (U+FFFF, U+FDD0, U+10FFFF) and the Hangul filler U+3164 alone are accepted (#173, #174). One acceptance test was added for the gap the developer's tests left: a name that NFC makes longer than the limit.
+
+## 14. Not tested (v1.1)
+
+- **Writes under many parallel clients at the v1.1 volume**: as in v1 (section 5), `SalesPerformanceTests` times writes one at a time; the live races used at most 10 simultaneous requests on a small database.
+- **An upgrade of a large version 1 database** (100,000 movements): the upgrade ran on a small real v1 database and, in `UpgradeTests`, on a SQL-built one. The migration adds a column in place (decision #154), so its time should not depend on the row count, but it was not measured. Would need the v1 build and the performance seed together.
+- **The release start (`scripts\run.ps1`, Production) on an upgraded database**: the upgrade was exercised in Development from the build output. `run.ps1` defaults to `%LOCALAPPDATA%\InventoryTracker\inventory.db`; it was left out so nothing could touch the owner's paths. Phase 7 (`devops-engineer`) owns that script.
+- **Security in depth**: phase 6, `security-reviewer`.
+
+## 15. Running the automated tests (v1.1)
+
+```
+dotnet test --artifacts-path TestResults/qa11-retest
+```
+
+Results, 2026-11-25. Round 0 with `--artifacts-path TestResults/qa11-art`, round 1 with `--artifacts-path TestResults/qa11-retest` (both folders deleted afterwards):
+
+| Run | Command | Result |
+|-----|---------|--------|
+| Baseline, before QA's tests | `dotnet build`, then `dotnet test --no-build` | build 0 warnings, 0 errors; **2,411 total, 2,411 passed**, 0 failed, 0 skipped (3 min 23 s) |
+| Acceptance tests only | `dotnet test --no-build --filter-namespace "InventoryTracker.Api.Tests.Acceptance"` | 40 total, 39 passed, 0 failed, 1 skipped (BUG-002) |
+| BUG-002 test with `Skip` removed | `dotnet test --no-build --filter-class "...Acceptance.CustomerNameAcceptanceTests"` | 1 total, 1 failed: `Expected: Conflict`, `Actual: Created` (the defect); `Skip` then restored |
+| Final build and full suite | `dotnet build`, then `dotnet test --no-build` | build 0 warnings, 0 errors; **2,418 total, 2,417 passed, 0 failed, 1 skipped** (BUG-002) (3 min 16 s) |
+| Round 1: acceptance tests | `dotnet test --artifacts-path TestResults/qa11-retest --filter-namespace "InventoryTracker.Api.Tests.Acceptance"` | 43 total, 43 passed, 0 failed, 0 skipped (26 s). Run after an earlier full run in which QA's new NameLengthAfterNfc test failed 3 of 3 on a fault in the test itself (a culture-aware `Assert.DoesNotContain` treats U+0958 and U+0915 U+093C as equal; the 2,500 other tests passed); the assertion now compares ordinally |
+| Round 1: build and full suite (BUG-002 fix, QA's un-skipped and new tests) | `dotnet test --artifacts-path TestResults/qa11-retest` | build 0 warnings, 0 errors; **2,503 total, 2,503 passed, 0 failed, 0 skipped (5 min 51 s)** |
+
+Run only the acceptance tests with `dotnet test --artifacts-path TestResults/qa11-retest --filter-namespace "InventoryTracker.Api.Tests.Acceptance"`. No test is skipped: the BUG-002 test runs every time and guards the fix.
+
+## 16. Summary (v1.1)
+
+- **Before QA's work**, of the 67 v1.1 acceptance criteria: **66 covered, 1 partly covered** (AC-28.5: no race between an item delete or type change and a new sales order), **0 not covered**. Of the 15 version 1 rows touched by v1.1: 14 covered, 1 partly (AC-07.3/07.4, the same race). The 5 v1.1 non-functional additions: all covered. The developer tests are thorough: every PRD example is reproduced with its exact figures and messages, every race has both orderings forced, and the role matrix covers all 62 endpoints.
+- **Tests added by QA**: 5 test methods (7 test cases) in 3 classes in `tests/InventoryTracker.Api.Tests/Acceptance/`: two open-demand zero-form tests in `StockZeroFormsAcceptanceTests` (the routed T-029 item), `SalesOrderItemRaceAcceptanceTests` (2 theories, 4 forced orderings) and `CustomerNameAcceptanceTests` (1 test, skipped in round 0 while BUG-002 was open, un-skipped in round 1). Round 1 added `NameLengthAfterNfcAcceptanceTests` (1 theory, 3 cases: a name NFC makes longer than the limit, for units, items and customers): **6 test methods (10 test cases) in 4 classes** in all. No product code was changed.
+- **Exploratory**: permission sweep (549 calls, no leak), a real v1-to-v1.1 upgrade (no data change; nothing missing in `UpgradeTests`), text limits, casing, quantities, day boundaries on a UTC+9 machine, and live races. One finding.
+- **Bugs found**: 0 blocker, 0 major, 1 minor (BUG-002, closed in round 1). Open: none.
+- **Verdict (v1.1 round 0): PASS.** No blocker or major bug was open; BUG-002 went to the delivery manager, and the owner chose the NFC fix.
+- **Verdict (v1.1 round 1): PASS.** BUG-002 re-tested and closed; full suite passed with no test skipped; no bug of any severity is open.

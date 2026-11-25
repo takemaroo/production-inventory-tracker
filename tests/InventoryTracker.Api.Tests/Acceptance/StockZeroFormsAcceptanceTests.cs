@@ -6,6 +6,7 @@ using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Domain;
 using InventoryTracker.Api.Tests.Infrastructure;
 using static InventoryTracker.Api.Tests.Infrastructure.OrderFlow;
+using static InventoryTracker.Api.Tests.Infrastructure.SalesFlow;
 
 namespace InventoryTracker.Api.Tests.Acceptance;
 
@@ -15,6 +16,9 @@ namespace InventoryTracker.Api.Tests.Acceptance;
 /// must not rely on trailing zeros, <c>1000</c> and <c>1000.000</c> mean the same). These tests pin what matters to a
 /// client: both are JSON numbers equal to zero, neither is a negative zero or a string, and the movements still add up
 /// to the stock shown (AC-10.1, AC-10.2, AC-11.4).
+/// (v1.1, QA phase 5) The same for <c>openDemand</c> (AC-10.5, AC-31.1, design 5.5: "0, never null"), which the T-029
+/// developer noted this class did not check: an item on no sales order, and an item whose sales orders have all been
+/// shipped or cancelled, show open demand as a plain zero number, for every role (AC-31.4).
 /// </summary>
 public class StockZeroFormsAcceptanceTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
 {
@@ -72,6 +76,81 @@ public class StockZeroFormsAcceptanceTests(TestApiFactory factory) : IClassFixtu
         Assert.Equal(4, movements.Count);
         Assert.Equal(0m, movements.Sum(m => Change(m, "warehouseChange")));
         Assert.Equal(0m, movements.Sum(m => Change(m, "productionStorageChange")));
+    }
+
+    /// <summary>
+    /// (v1.1) AC-10.5, AC-31.1, AC-31.4: a raw material and a finished product that are on no sales order show
+    /// <c>openDemand</c> as a plain zero JSON number (design 5.5: <c>0</c>, never <c>null</c>, for both item types), the
+    /// same to a Manager, a Production-only user and a Seller-only user, in the single-item read and in the list row.
+    /// </summary>
+    [Fact]
+    public async Task AC_31_1_item_on_no_sales_order_shows_open_demand_as_a_plain_zero_number()
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var production = await factory.CreateClientAsAsync(Roles.Production);
+        var seller = await factory.CreateClientAsAsync(Roles.Seller);
+        var material = await Seed.CreateItemAsync(manager, ItemType.RawMaterial);
+        var product = await Seed.CreateItemAsync(manager, ItemType.FinishedProduct);
+
+        foreach (var client in new[] { manager, production, seller })
+        {
+            foreach (var itemId in new[] { material.Id, product.Id })
+            {
+                var stock = await StockAsync(client, itemId);
+                AssertPlainZero(stock, "openDemand");
+                Assert.Equal(stock.GetRawText(), (await StockRowAsync(client, itemId)).GetRawText());
+            }
+        }
+    }
+
+    /// <summary>
+    /// (v1.1) AC-31.1, AC-31.2, AC-27.1: open demand goes back to a plain zero once every sales order for the item has
+    /// left the Created status. A finished product with 10.5 in the Warehouse is on sales order A (0.25) and sales order
+    /// B (10.25): open demand 10.5. A is shipped (Warehouse 10.25, open demand 10.25), then B is cancelled. Open demand
+    /// is then a JSON number equal to zero, written as a plain zero (not <c>null</c>, not <c>-0</c>), for the Manager,
+    /// Production and the Seller alike, and the list row equals the single read. The Warehouse keeps 10.25: cancelling
+    /// moves no stock.
+    /// </summary>
+    [Fact]
+    public async Task AC_31_2_open_demand_returns_to_a_plain_zero_after_its_sales_orders_ship_and_cancel()
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var production = await factory.CreateClientAsAsync(Roles.Production);
+        var seller = await factory.CreateClientAsAsync(Roles.Seller);
+        var warehouse = await factory.CreateClientAsAsync(Roles.Warehouse);
+        var product = await ProductAsync(manager, warehouse: 10.5m);
+        var customer = await CreateCustomerAsync(seller);
+        var first = await CreateSalesOrderAsync(seller, customer.Id, (product.Id, 0.25m));
+        var second = await CreateSalesOrderAsync(seller, customer.Id, (product.Id, 10.25m));
+        Assert.Equal(10.5m, await OpenDemandAsync(production, product.Id));
+
+        Assert.Equal(HttpStatusCode.OK, (await ShipAsync(warehouse, first)).StatusCode);
+        Assert.Equal(10.25m, await OpenDemandAsync(seller, product.Id));
+        Assert.Equal(HttpStatusCode.OK, (await CancelSalesOrderAsync(seller, second)).StatusCode);
+
+        foreach (var client in new[] { manager, production, seller })
+        {
+            var stock = await StockAsync(client, product.Id);
+            AssertPlainZero(stock, "openDemand");
+            Assert.Equal(10.25m, stock.GetProperty("warehouse").GetDecimal());
+            Assert.Equal(stock.GetRawText(), (await StockRowAsync(client, product.Id)).GetRawText());
+        }
+    }
+
+    /// <summary>The item's row in <c>GET /stock</c>, searching every page (the shared factory holds many items).</summary>
+    private static async Task<JsonElement> StockRowAsync(HttpClient client, int itemId)
+    {
+        for (var page = 1; ; page++)
+        {
+            var body = await ApiJson.ReadAsync(await client.GetAsync($"/api/v1/stock?pageSize=100&page={page}", Cancel));
+            var rows = body.GetProperty("items").EnumerateArray().ToList();
+            Assert.NotEmpty(rows);
+            var row = rows.FirstOrDefault(r => r.GetProperty("itemId").GetInt32() == itemId);
+            if (row.ValueKind != JsonValueKind.Undefined)
+            {
+                return row;
+            }
+        }
     }
 
     private static void AssertPlainZero(JsonElement body, string field)
