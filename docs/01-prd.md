@@ -80,6 +80,8 @@ Later, follow-ons to version 1.1 sales orders (v1.1; "Sales orders that remove f
 - The sign-in rate limit above (SEC-05) also covers sales order creation (SEC-30).
 - A Development port for the sample requests (`InventoryTracker.Api.http`) that `run.ps1` never uses, so the walk-through cannot write to the real instance (SEC-31).
 - A start-up check that refuses to start when the database has migrations this version of the code does not know (an older version started on a newer database), and optionally `run.ps1` refusing a pending migration without a fresh backup (v1.1 release rehearsal).
+- A persistent log file (for example a daily rolling file next to the database), so log lines such as the customer-change line of T-033 survive after the API window closes (final v1.1 security check, F1).
+- Explicit ASP.NET Core DataProtection configuration (fixed application name, a chosen key folder that is backed up, a shared store in the cloud) before the web front end or the cloud path adds cookies, antiforgery or emailed tokens; and an optional key-folder setting so scratch and test runs do not read the owner's key folder (final v1.1 security check).
 
 ## 4. User stories and acceptance criteria
 

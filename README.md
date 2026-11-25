@@ -1,13 +1,13 @@
 # Production & Inventory Tracker API
 
-An HTTP API for a small food manufacturer that turns bulk raw materials into packaged products. It tracks stock in the Warehouse and in production storage, plans how much raw material each production order should use, nets leftover in production storage against the next order, and records and flags every difference between what was planned, used and produced. It is for the production and inventory manager, and for the warehouse and production line staff who record what they receive, send, produce and have left over.
+An HTTP API for a small food manufacturer that turns bulk raw materials into packaged products. It tracks stock in the Warehouse and in production storage, plans how much raw material each production order should use, nets leftover in production storage against the next order, and records and flags every difference between what was planned, used and produced. Version 1.1 adds sales: a customer list, sales orders, and shipments that take goods out of Warehouse stock, with totals shipped per item and per customer. It is for the production and inventory manager, for the warehouse and production line staff who record what they receive, send, produce, have left over and ship, and for the sales staff who keep the customer list and take customers' orders.
 
-Version 1 is an API only, with no user interface. The full rules are in the product requirements, [`docs/01-prd.md`](docs/01-prd.md). How to use the API day to day is in the [user guide](docs/08-user-guide.md). What is in this version is in the [release notes](docs/09-release-notes.md).
+Version 1.1 is an API only, with no user interface. The full rules are in the product requirements, [`docs/01-prd.md`](docs/01-prd.md). How to use the API day to day is in the [user guide](docs/08-user-guide.md). What is in each version, and what is known not to work yet, is in the [release notes](docs/09-release-notes.md).
 
 ## Terms used here
 
 - **Warehouse** and **production storage** are the two stock locations. Stock in each is the sum of its movements and never goes below zero.
-- **Manager**, **Warehouse** and **Production** are the three roles. One user can hold several.
+- **Warehouse**, **Production**, **Manager** and **Seller** are the four roles. One user can hold several. Seller (new in version 1.1) keeps customers and takes and cancels sales orders; it cannot ship.
 - **First Manager**: the one account the API creates by itself, on its first start, from `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 - **Signing key**: `JWT_SIGNING_KEY`, the secret that signs every sign-in token.
 
@@ -30,7 +30,7 @@ Every command runs in PowerShell from the repository root.
 
 **Why the long form of every script command.** Windows' default execution policy refuses to run script files, so `.\scripts\test.ps1` fails with "running scripts is disabled on this system". `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1` allows scripts for that one command only and changes no setting on your machine. `-NoProfile` skips your personal PowerShell profile, so the script runs the same way everywhere.
 
-1. **Get the code and run the tests** (about 2 to 4 minutes; no secrets needed):
+1. **Get the code and run the tests** (about 3 to 7 minutes; no secrets needed):
 
    ```powershell
    git clone <repository-url> production-inventory-tracker
@@ -101,11 +101,15 @@ Every command runs in PowerShell from the repository root.
 
 More detail, including later starts, upgrades and troubleshooting: [`docs/07-release.md`](docs/07-release.md), sections [2 (commands)](docs/07-release.md#2-commands), [3 (configuration)](docs/07-release.md#3-configuration) and [6 (deploying on the owner's machine)](docs/07-release.md#6-deploying-on-the-owners-machine).
 
+## Upgrading from version 1
+
+If version 1 already runs on this machine, do not use the quick start. Follow [`docs/07-release.md` section 6, "Upgrading from version 1 to version 1.1 (once)"](docs/07-release.md#upgrading-from-version-1-to-version-11-once). In short: stop version 1, **back up the database first** (`scripts\backup-database.ps1`), keep the version 1 folder, publish version 1.1, and start it with `scripts\run.ps1 -Published`. Version 1.1 upgrades the database by itself on its first start, and version 1 cannot use the upgraded file. The way back is to restore that backup and swap the publish folders back, as the same section describes. Version 1 does not refuse an upgraded file: started on one by mistake, it starts without a warning, and then the movement list fails (`500`) once anything has shipped. Users, passwords and roles do not change; nobody holds the Seller role until a Manager gives it.
+
 ## Localhost only
 
-Version 1 runs on this machine only. `scripts\run.ps1` binds the API to `http://127.0.0.1:5133` and `http://[::1]:5133` and offers no way to choose another address. Traffic is plain HTTP, which is acceptable only because it never leaves the machine (owner decision #119).
+Version 1.1, like version 1, runs on this machine only. `scripts\run.ps1` binds the API to `http://127.0.0.1:5133` and `http://[::1]:5133` and offers no way to choose another address. Traffic is plain HTTP, which is acceptable only because it never leaves the machine (owner decision #119).
 
-Before the API is reachable from any other machine (another PC, the office network, the internet, a cloud host), these are **required**: HTTPS, HSTS and a sign-in rate limit. All three need product changes. The security review ([`docs/06-security-review.md`](docs/06-security-review.md)) must then be re-opened. See [`docs/07-release.md` section 9](docs/07-release.md#9-before-the-api-is-reachable-from-any-other-machine).
+**That includes Sellers.** Sales staff, like everyone else, use the API on this machine. It cannot be used from a laptop, a phone or another PC, and must not be opened up for them. Before the API is reachable from any other machine, for sales staff or anyone else, it needs HTTPS, HSTS and a sign-in rate limit (all three are product changes), and then a new security review ([`docs/06-security-review.md`](docs/06-security-review.md)). See [`docs/07-release.md` section 9](docs/07-release.md#9-before-the-api-is-reachable-from-any-other-machine).
 
 ## First password
 
@@ -160,7 +164,7 @@ Create the second Manager right after the first sign-in: [user guide, "Add peopl
 
 ## Runbook: remove someone's access now
 
-A role change takes effect at the user's **next sign-in** (AC-03.5). A token issued before the change keeps the old roles until it expires, up to 8 hours later. So:
+This applies to every role: Warehouse, Production, Manager and Seller. A role change takes effect at the user's **next sign-in** (AC-03.5). A token issued before the change keeps the old roles until it expires, up to 8 hours later. For example, a Seller whose Seller role is removed can still add and edit customers and take and cancel sales orders with the token they hold. So:
 
 - **To remove someone's access now, deactivate them** (`POST /api/v1/users/{id}/deactivate`). Every token they hold stops working at once, and they cannot sign in.
 - **If they should continue with fewer roles**, set the new roles (`PUT /api/v1/users/{id}/roles`) and then reactivate them (`POST /api/v1/users/{id}/reactivate`). They sign in again and get only the new roles.
@@ -198,7 +202,7 @@ Users are never deleted, so their name stays on every record they touched. Examp
 ## Data
 
 - **Where it is.** One SQLite file, `%LOCALAPPDATA%\InventoryTracker\inventory.db` (for example `C:\Users\<you>\AppData\Local\InventoryTracker\inventory.db`), unless `ConnectionStrings__Default` points elsewhere. While the API runs, SQLite also keeps `inventory.db-wal` and `inventory.db-shm` next to it; they are part of the database.
-- **Protect it.** The file and every backup of it hold each user's email and password hash, and the whole stock and order history. The file is not encrypted. Keep it and its backups in your user profile or on a BitLocker-encrypted drive, never in a shared folder, a cloud-synced folder, the repository or `publish\`, and never email them.
+- **Protect it.** The file and every backup of it hold each user's email and password hash, the whole stock and order history, and the customer list with its notes (delivery contacts of other businesses). The file is not encrypted. Keep it and its backups in your user profile or on a BitLocker-encrypted drive, never in a shared folder, a cloud-synced folder, the repository or `publish\`, and never email them.
 - **Stopped means stopped.** Only "stop the API" (Ctrl+C in its window) counts as stopped. An idle API is still running: after some idle minutes it may let go of the file, but it opens it again on the next request. So never copy, move or replace the file while the API runs, however quiet it is. The backup and restore scripts refuse to run while any copy of the API is running.
 - **One copy at a time.** Only one copy of the API may run at a time. `run.ps1` refuses to start a second one.
 - **Backup and restore**: stop the API, then `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\backup-database.ps1`. Restoring, testing a restore and where backups go: [`docs/07-release.md` section 7](docs/07-release.md#7-data-backup-and-restore).
@@ -225,7 +229,7 @@ dotnet run --project src/InventoryTracker.Api
 
 This runs in the **Development** environment through the launch profile, on `http://localhost:5133`. It reads secrets from `dotnet user-secrets` (set them as in [`docs/03-architecture.md` section 8](docs/03-architecture.md#8-running-locally)), uses its own database, `src/InventoryTracker.Api/inventory.db`, and publishes the OpenAPI description at `http://localhost:5133/openapi/v1.json`. Never use it as the real instance: that is what `scripts\run.ps1` is for.
 
-The sample requests in [`src/InventoryTracker.Api/InventoryTracker.Api.http`](src/InventoryTracker.Api/InventoryTracker.Api.http) walk through every endpoint, for VS Code's REST Client or Visual Studio. They read every password from **`src/InventoryTracker.Api/.env`**, next to the `.http` file, not from a `.env` at the repository root. Create that file yourself (git ignores it) with these five lines, replacing each placeholder with a value of your own:
+The sample requests in [`src/InventoryTracker.Api/InventoryTracker.Api.http`](src/InventoryTracker.Api/InventoryTracker.Api.http) walk through every endpoint, for VS Code's REST Client or Visual Studio. Sections 1 to 11 are the version 1 production cycle; sections 12 to 17 are the version 1.1 sales chain (a Seller, customers, sales orders and open demand, a shipment, the reports, a cancellation). They read every password from **`src/InventoryTracker.Api/.env`**, next to the `.http` file, not from a `.env` at the repository root. Create that file yourself (git ignores it) with these six lines, replacing each placeholder with a value of your own:
 
 ```
 ADMIN_EMAIL=owner@example.com
@@ -233,11 +237,12 @@ ADMIN_PASSWORD=<choose-your-own-strong-password>
 SAMPLE_USER_PASSWORD=<choose-a-password-for-the-sample-user>
 SAMPLE_USER_RESET_PASSWORD=<choose-a-second-password>
 SAMPLE_USER_NEW_PASSWORD=<choose-a-third-password>
+SAMPLE_SELLER_PASSWORD=<choose-a-password-for-the-sample-seller>
 ```
 
-`ADMIN_EMAIL` and `ADMIN_PASSWORD` are the first Manager's, the values you stored with `dotnet user-secrets`. The three `SAMPLE_USER_` passwords are for the Warehouse user that section 11 of the walk-through creates, then resets, then changes. Each must pass the password policy, and the three must differ. The names are also in [`.env.example`](.env.example) (decision #135). The API itself never reads this file.
+`ADMIN_EMAIL` and `ADMIN_PASSWORD` are the first Manager's, the values you stored with `dotnet user-secrets`. The three `SAMPLE_USER_` passwords are for the Warehouse user that section 11 of the walk-through creates, then resets, then changes. `SAMPLE_SELLER_PASSWORD` is for the Seller user that section 12 creates and signs in as. Each must pass the password policy, and the three `SAMPLE_USER_` ones must differ. The names are also in [`.env.example`](.env.example) (decision #135). The API itself never reads this file.
 
-The walk-through creates fixed names and users, and records are never deleted, so run it once against a fresh Development database, never against your real one. Port 5133 is also the port of the Production API that `scripts\run.ps1` starts, so check which one is running before you send anything.
+The walk-through creates fixed names, users and customers, ships stock out of the Warehouse, and records are never deleted, so run it once against a fresh Development database, never against your real one. Port 5133 is also the port of the Production API that `scripts\run.ps1` starts, so stop the real API before you send anything. To see which one answers on 5133, use the check in [`docs/07-release.md`, the note after section 6 step 8](docs/07-release.md#6-deploying-on-the-owners-machine) (SEC-31).
 
 ## Tests
 
@@ -245,11 +250,11 @@ The walk-through creates fixed names and users, and records are never deleted, s
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1
 ```
 
-It builds in Release with warnings as errors, then runs the whole suite (unit, integration and acceptance tests; 1,721 tests, about 2 minutes on the owner's machine). The tests set their own throwaway secrets and temporary databases, so they never touch your variables, user-secrets or data. If two builds run at once in one working tree, give each its own `-ArtifactsPath` folder ([`docs/07-release.md` section 2](docs/07-release.md#2-commands)).
+It builds in Release with warnings as errors, then runs the whole suite (unit, integration and acceptance tests; 2,510 tests, about 3 to 7 minutes on the owner's machine). The tests set their own throwaway secrets and temporary databases, so they never touch your variables, user-secrets or data. If two builds run at once in one working tree, give each its own `-ArtifactsPath` folder ([`docs/07-release.md` section 2](docs/07-release.md#2-commands)).
 
 ## Continuous integration
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) restores, builds with warnings as errors and runs the whole suite on GitHub's Windows machines, on every push and pull request to `main`. It has not run on GitHub yet, so this README shows no status badge.
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) restores, builds with warnings as errors and runs the whole suite on GitHub's Windows machines, on every push and pull request to `main`. Its first run on GitHub, for version 1, passed in about 7 minutes. The results of the version 1.1 runs have not been checked from this machine: see the repository's **Actions** tab ([`docs/07-release.md` section 4](docs/07-release.md#4-continuous-integration)).
 
 ## Project structure
 
@@ -276,8 +281,8 @@ Details: [`docs/03-architecture.md` section 2](docs/03-architecture.md#2-project
 | [`docs/06-security-review.md`](docs/06-security-review.md) | Security review and its release conditions. |
 | [`docs/07-release.md`](docs/07-release.md) | Release guide: commands, configuration, deploying, backup, upgrade, rollback, troubleshooting. |
 | [`docs/07a-cloud-guide.md`](docs/07a-cloud-guide.md) | Cloud tutorial (Azure App Service). **Guidance only**: it needs product changes first, notably moving from SQLite to PostgreSQL, plus HTTPS, HSTS, a rate limit and a new security review. |
-| [`docs/08-user-guide.md`](docs/08-user-guide.md) | User guide: how each role does its daily work through the API. |
-| [`docs/09-release-notes.md`](docs/09-release-notes.md) | Release notes for v1. |
+| [`docs/08-user-guide.md`](docs/08-user-guide.md) | User guide: how each role does its daily work through the API, production cycle and sales chain. |
+| [`docs/09-release-notes.md`](docs/09-release-notes.md) | Release notes for v1.1 and v1: what is included, known issues, planned next. |
 | [`docs/decisions.md`](docs/decisions.md) | Every decision, numbered (#1, #2, ...). |
 
 `CLAUDE.md`, `company/` and `.claude/` describe the AI company that built this project, not the product.

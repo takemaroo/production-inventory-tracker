@@ -154,7 +154,7 @@ Content-Type: application/json
 
 { "name": "Spare label roll", "type": "RawMaterial", "unitId": {{kgId}} }
 
-### Delete an item that has no movements, recipe lines or order lines (Manager): 204.
+### Delete an item that has no movements, recipe lines, order lines or sales order lines (Manager): 204.
 DELETE {{api}}/items/{{createSpare.response.body.$.id}}
 Authorization: Bearer {{token}}
 
