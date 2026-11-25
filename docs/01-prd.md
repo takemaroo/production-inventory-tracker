@@ -72,6 +72,10 @@ Later, follow-ons to version 1.1 sales orders (v1.1; "Sales orders that remove f
 - Exports (for example CSV) of the shipped-totals reports, and reports of open demand per customer.
 - Linking a production order to the sales order it is made for (make to order).
 - A notification when a shipment is refused for lack of stock.
+- Writing a shipment's movements in one batch, so a sales order with hundreds of lines does not hold the database for seconds (SEC-24, decision #175). Before the web front end.
+- Tighter name rules after v1.1 (SEC-25, decision #176): refuse invisible characters at the start or end of a name, count blank-looking characters (Hangul fillers, U+2800) as blank, refuse noncharacters, NUL and tab; joining characters (ZWJ, ZWNJ) stay allowed between letters. A small task right after the v1.1 release, before the web front end.
+- "Last changed by" columns on customers (SEC-26, decision #177). v1.1 records changes in the log only.
+- A rule that the person who created a sales order cannot ship it (SEC-29, decision #178).
 
 ## 4. User stories and acceptance criteria
 

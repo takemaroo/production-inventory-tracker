@@ -41,6 +41,7 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-030 | (v1.1) Shipped-totals reports | backend-developer | T-028 | done |
 | T-031 | (v1.1) End-to-end scenarios, cross-endpoint races, performance | backend-developer | T-029, T-030 | done |
 | T-032 | (v1.1) OpenAPI and sample requests | backend-developer | T-029, T-030 | done |
+| T-033 | (v1.1) Log who changed a customer (SEC-26, decision #177) | backend-developer | T-024 | in progress |
 
 **Build phase complete (2026-11-21):** 22 of 22 tasks done, each reviewed by `code-reviewer` and committed as `T-0NN: ...` (last: `d09c6db T-021`). No task is open. Nothing was added after the decision on a full "only writer" guard for movements (decision #112: not adopted, so no post-QA task).
 
@@ -760,3 +761,7 @@ Every one of the 23 user stories in the PRD is served by at least one task, and 
 | (v1.1 changes) US-10 Current stock | T-029 (`openDemand`, AC-10.5) | AC-10.5 |
 | (v1.1 changes) US-11 Movement history | T-026 (sales order link and filter) | AC-11.1, AC-11.2 (v1.1) |
 | PRD sections 5 and 11 (performance, consistency, data) | T-022 (backstops, upgrade), T-027, T-028, T-025 (races), T-031 (performance and the remaining races), T-032 (OpenAPI lists every endpoint) | |
+
+### T-033: (v1.1) Log who changed a customer
+
+From the v1.1 security review (SEC-26) and owner decision #177. Every customer change (rename, notes edit, deactivate, reactivate, delete) writes one `Information` log line after the commit, naming the action, the customer id and the acting user id only: no customer name, no notes. Follow the existing after-commit logging pattern of the other services. No schema change, no change to any response. Done when a test per action shows the line is written with the ids and without the name or notes, a refused change (400/403/404/409) writes no line, and the full suite passes.
