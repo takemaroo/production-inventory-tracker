@@ -100,8 +100,9 @@ public sealed class CustomerService(AppDbContext db, Clock clock)
 
             var customer = new Customer
             {
-                Name = input.Name,
-                NameNormalized = NameNormalizer.Normalize(input.Name),
+                // Decision #170: the NFC, trimmed name from NameRules, and its key.
+                Name = input.Name.Name,
+                NameNormalized = input.Name.Normalized,
                 Notes = input.Notes,
                 IsActive = true, // AC-29.1: a new customer is active
                 CreatedAt = clock.UtcNow,
@@ -136,8 +137,8 @@ public sealed class CustomerService(AppDbContext db, Clock clock)
             // Only *another* customer with the same normalized name counts, so "Deli Norte" can become "DELI NORTE".
             await ThrowIfNameTakenAsync(input.Name, exceptId: id, cancellationToken);
 
-            customer.Name = input.Name;
-            customer.NameNormalized = NameNormalizer.Normalize(input.Name);
+            customer.Name = input.Name.Name;
+            customer.NameNormalized = input.Name.Normalized;
             customer.Notes = input.Notes;
 
             // Saved first, so the read below (a database query, not the tracked object) sees the new values.
@@ -236,20 +237,12 @@ public sealed class CustomerService(AppDbContext db, Clock clock)
     {
         var errors = new ValidationErrors();
 
-        // Design 2.6: trimmed first; a name of only spaces counts as missing.
-        var name = Text.Clean(request.Name);
-        if (name is null)
-        {
-            errors.Add("name", "Name is required.");
-        }
-        // Decision #116: both limits count Unicode code points (Text.Length), so an emoji is one character and the limit
-        // agrees with how PostgreSQL would count a varchar(100) after the planned port.
-        else if (Text.Length(name) > ColumnRules.CustomerNameLength)
-        {
-            errors.Add("name", $"Name must be {ColumnRules.CustomerNameLength} characters or fewer.");
-        }
+        // Decisions #170, #171, design 2.6: the name rule shared with units and items (NFC, trim, a name with no visible
+        // character counts as missing, length in code points after both).
+        var name = NameRules.Validate(request.Name, ColumnRules.CustomerNameLength, errors);
 
-        // AC-29.1, design 2.6: optional; blank becomes null, so "no notes" is stored one way only.
+        // AC-29.1, design 2.6: optional; blank becomes null, so "no notes" is stored one way only. Decision #116: the
+        // limit counts Unicode code points (Text.Length), as PostgreSQL would count a varchar(500) after the planned port.
         var notes = Text.Clean(request.Notes);
         if (Text.Length(notes) > ColumnRules.TextLength)
         {
@@ -262,28 +255,31 @@ public sealed class CustomerService(AppDbContext db, Clock clock)
 
     /// <summary>
     /// AC-29.2: <c>409</c> <c>customer-name-taken</c> "A customer named '{name}' already exists." when another customer
-    /// has this name, ignoring letter case. <paramref name="name"/> is quoted as sent, trimmed (design 7.2).
+    /// has this name, ignoring letter case and Unicode form (decision #170). The name is quoted as sent, trimmed and in
+    /// NFC (design 7.2), so it looks exactly as typed.
     /// </summary>
     /// <remarks>
     /// The comparison is on <c>NameNormalized</c>, the column the unique index covers (architecture 3.1). Writers run one
     /// at a time, so this check normally decides; if a duplicate ever got past it, the index would refuse the insert and
     /// the shared handler would answer <c>409</c> <c>concurrent-change</c> (architecture 4.1 item 11).
     /// </remarks>
-    private async Task ThrowIfNameTakenAsync(string name, int? exceptId, CancellationToken cancellationToken)
+    private async Task ThrowIfNameTakenAsync(CleanName name, int? exceptId, CancellationToken cancellationToken)
     {
-        var normalized = NameNormalizer.Normalize(name);
         var taken = await db.Customers.AnyAsync(
-            customer => customer.NameNormalized == normalized && customer.Id != exceptId, cancellationToken);
+            customer => customer.NameNormalized == name.Normalized && customer.Id != exceptId, cancellationToken);
 
         if (taken)
         {
-            throw new ConflictException(CustomerNameTakenCode, $"A customer named '{name}' already exists.");
+            throw new ConflictException(CustomerNameTakenCode, $"A customer named '{name.Name}' already exists.");
         }
     }
 
     /// <summary>Design 7.2, AC-29.5, AC-29.6: the <c>404</c> for an unknown or deleted customer id.</summary>
     private static NotFoundException NotFound(int id) => new($"Customer {id} not found.");
 
-    /// <summary>A customer body that passed every field check: the trimmed name and the trimmed notes or null.</summary>
-    private sealed record ValidCustomer(string Name, string? Notes);
+    /// <summary>
+    /// A customer body that passed every field check: the cleaned name with its key (NameRules) and the trimmed notes
+    /// or null.
+    /// </summary>
+    private sealed record ValidCustomer(CleanName Name, string? Notes);
 }

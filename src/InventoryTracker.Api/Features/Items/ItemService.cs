@@ -92,8 +92,9 @@ public sealed class ItemService(AppDbContext db, Clock clock)
 
             var item = new Item
             {
-                Name = input.Name,
-                NameNormalized = NameNormalizer.Normalize(input.Name),
+                // Decision #170: the NFC, trimmed name from NameRules, and its key.
+                Name = input.Name.Name,
+                NameNormalized = input.Name.Normalized,
                 Description = input.Description,
                 Type = input.Type,
                 UnitId = input.Unit.Id,
@@ -130,8 +131,8 @@ public sealed class ItemService(AppDbContext db, Clock clock)
                 throw new ConflictException(ItemInUseCode, TypeAndUnitLockedMessage);
             }
 
-            item.Name = input.Name;
-            item.NameNormalized = NameNormalizer.Normalize(input.Name);
+            item.Name = input.Name.Name;
+            item.NameNormalized = input.Name.Normalized;
             item.Description = input.Description;
             item.Type = input.Type;
             item.UnitId = input.Unit.Id;
@@ -191,19 +192,12 @@ public sealed class ItemService(AppDbContext db, Clock clock)
     {
         var errors = new ValidationErrors();
 
-        // Design 2.6: trimmed first; a name of only spaces counts as missing.
-        var name = Text.Clean(request.Name);
-        if (name is null)
-        {
-            errors.Add("name", "Name is required.");
-        }
-        // Decision #116: both limits are counted in Unicode code points, so an emoji is one character (Text.Length).
-        else if (Text.Length(name) > ColumnRules.ItemNameLength)
-        {
-            errors.Add("name", $"Name must be {ColumnRules.ItemNameLength} characters or fewer.");
-        }
+        // Decisions #170, #171, design 2.6: the name rule shared with units and customers (NFC, trim, a name with no
+        // visible character counts as missing, length in code points after both).
+        var name = NameRules.Validate(request.Name, ColumnRules.ItemNameLength, errors);
 
         var description = Text.Clean(request.Description);
+        // Decision #116: counted in Unicode code points, so an emoji is one character (Text.Length).
         if (Text.Length(description) > ColumnRules.TextLength)
         {
             errors.Add("description", $"Description must be {ColumnRules.TextLength} characters or fewer.");
@@ -232,23 +226,25 @@ public sealed class ItemService(AppDbContext db, Clock clock)
     }
 
     /// <summary>
-    /// AC-07.1, AC-07.2: <c>409</c> when another item already has this name, ignoring letter case. The unique index on
-    /// <c>NameNormalized</c> is the database's backstop (decision #30).
+    /// AC-07.1, AC-07.2: <c>409</c> when another item already has this name, ignoring letter case and Unicode form
+    /// (decision #170). The unique index on <c>NameNormalized</c> is the database's backstop (decision #30).
     /// </summary>
-    private async Task ThrowIfNameTakenAsync(string name, int? exceptId, CancellationToken cancellationToken)
+    private async Task ThrowIfNameTakenAsync(CleanName name, int? exceptId, CancellationToken cancellationToken)
     {
-        var normalized = NameNormalizer.Normalize(name);
         var taken = await db.Items.AnyAsync(
-            item => item.NameNormalized == normalized && item.Id != exceptId, cancellationToken);
+            item => item.NameNormalized == name.Normalized && item.Id != exceptId, cancellationToken);
 
         if (taken)
         {
-            throw new ConflictException(ItemNameTakenCode, $"An item named '{name}' already exists.");
+            throw new ConflictException(ItemNameTakenCode, $"An item named '{name.Name}' already exists.");
         }
     }
 
     private static NotFoundException NotFound(int id) => new($"Item {id} not found.");
 
-    /// <summary>An item body that passed every field check: trimmed text, a parsed type and the loaded unit.</summary>
-    private sealed record ValidItem(string Name, string? Description, ItemType Type, UnitOfMeasure Unit);
+    /// <summary>
+    /// An item body that passed every field check: the cleaned name with its key (NameRules), the trimmed description,
+    /// a parsed type and the loaded unit.
+    /// </summary>
+    private sealed record ValidItem(CleanName Name, string? Description, ItemType Type, UnitOfMeasure Unit);
 }

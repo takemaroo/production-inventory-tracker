@@ -117,7 +117,8 @@ Two consequences worth stating. A Production-only user asking for a sales order 
 ### 2.6 Text inputs
 
 - Names and reasons have leading and trailing spaces removed before they are checked. A value that is empty after trimming counts as missing.
-- Uniqueness checks on names and emails ignore letter case. The value is stored as entered.
+- Uniqueness checks on names and emails ignore letter case. Emails are stored as entered.
+- (BUG-002, decisions #170, #171, #173, #174) Customer, unit and item names are first converted to one standard Unicode form (NFC), so a letter such as "é" typed as one character or as "e" plus an accent mark is the same name; a look-alike of an existing name is a duplicate. The name is stored in that form, trimmed, and its length is counted after conversion. A name with no visible characters (only white space, control or invisible format characters such as a zero-width space) counts as missing ("Name is required."); invisible characters among visible ones are kept. A name that cannot be converted (in practice only U+FFFE) is refused with "Name contains a character that is not allowed.", checked before the other name rules. Names stored before v1.1 are not rewritten (#172).
 - Limits: unit name 1–50 (PRD); reasons and notes up to 500 (PRD); item name 1–100 and item description up to 500 (not in the PRD; default chosen here, see section 9); email up to 256 (the Identity default, decision #66). Length limits apply after trimming. Passwords are never trimmed.
 - (v1.1) Limits (PRD row 34): customer name 1–100; customer notes up to 500; customer reference on a sales order up to 100; shipment note up to 500; sales order cancellation reason 1–500. Optional texts (customer notes, customer reference, shipment note) that are empty after trimming are stored as `null` (AC-26.8).
 
@@ -1284,7 +1285,8 @@ Placeholders are in braces. Messages marked PRD are exact. The rows marked "any 
 
 | Status | Code | When | Message |
 |--------|------|------|---------|
-| 400 | `validation` | Empty name | Name is required. |
+| 400 | `validation` | Empty name, or no visible characters (decision #171) | Name is required. |
+| 400 | `validation` | Name contains a character that cannot be put in NFC, e.g. U+FFFE (decision #174) | Name contains a character that is not allowed. |
 | 400 | `validation` | Longer than 50 | Name must be 50 characters or fewer. |
 | 409 | `unit-name-taken` | AC-06.2 | A unit named '{name}' already exists. |
 | 409 | `unit-in-use` | AC-06.4 | Unit is used by one or more items. (PRD) |
@@ -1294,7 +1296,8 @@ Placeholders are in braces. Messages marked PRD are exact. The rows marked "any 
 
 | Status | Code | When | Message |
 |--------|------|------|---------|
-| 400 | `validation` | Missing name | Name is required. |
+| 400 | `validation` | Missing name, or no visible characters (decision #171) | Name is required. |
+| 400 | `validation` | Name contains a character that cannot be put in NFC, e.g. U+FFFE (decision #174) | Name contains a character that is not allowed. |
 | 400 | `validation` | Name longer than 100 (decision #69) | Name must be 100 characters or fewer. |
 | 400 | `validation` | Description longer than 500 (decision #69) | Description must be 500 characters or fewer. |
 | 400 | `validation` | Missing or unknown type | Type must be RawMaterial or FinishedProduct. |
@@ -1433,10 +1436,11 @@ Marking an already-read notification read again succeeds (`204`). A missing or e
 | Status | Code | When | Message |
 |--------|------|------|---------|
 | 404 | `not-found` | Unknown or deleted customer id in the URL (AC-29.5, AC-29.6) | Customer {id} not found. |
-| 400 | `validation` | Missing or blank name (AC-29.2) | Name is required. |
+| 400 | `validation` | Missing or blank name, or no visible characters (AC-29.2, decision #171) | Name is required. |
+| 400 | `validation` | Name contains a character that cannot be put in NFC, e.g. U+FFFE (decision #174) | Name contains a character that is not allowed. |
 | 400 | `validation` | Name longer than 100 (AC-29.2) | Name must be 100 characters or fewer. |
 | 400 | `validation` | Notes longer than 500 (AC-29.2) | Notes must be 500 characters or fewer. |
-| 409 | `customer-name-taken` | Another customer has the name, ignoring case (AC-29.2). `{name}` is the name as sent, trimmed, as for units and items | A customer named '{name}' already exists. (PRD) *(example: "A customer named 'Deli Norte' already exists.")* |
+| 409 | `customer-name-taken` | Another customer has the name, ignoring case (AC-29.2). `{name}` is the name as stored (NFC, trimmed; decision #170), as for units and items | A customer named '{name}' already exists. (PRD) *(example: "A customer named 'Deli Norte' already exists.")* |
 | 409 | `customer-has-sales-orders` | Delete a customer that has at least one sales order, in any status (AC-29.5) | {customer} has sales orders and cannot be deleted. Deactivate it instead. (PRD, #152) *(example: "Deli Norte has sales orders and cannot be deleted. Deactivate it instead.")* |
 | 400 | `validation` | `isActive` filter not exactly `true` or `false` (any letter case), as `unreadOnly` (decision #102) | isActive must be true or false. |
 
@@ -1602,7 +1606,7 @@ Not applicable in v1 (no user interface, PRD section 5): visual design system, m
 5. **Customer record** holds `id`, `name`, `notes`, `isActive`, `createdAt`, `createdBy` (AC-29.6). No "updated" or "deactivated" who-and-when: the PRD does not ask for them (AC-05.3 covers sales orders, not customers).
 6. **`PUT /customers/{id}` is a full replacement** of name and notes, like `PUT /items/{id}`: leaving `notes` out clears them.
 7. **Customer list filter** is `isActive=true|false`, worded and validated like `unreadOnly`.
-8. **Duplicate customer name message** quotes the name as sent (trimmed), as the unit and item messages do.
+8. **Duplicate customer name message** quotes the name as stored (NFC, trimmed; decision #170), as the unit and item messages do.
 9. **Ship body is optional**; no body, `{}`, `null` or a blank note mean no note, as for the complementary reject note.
 10. **State codes** `already-shipped` and `sales-order-cancelled` are shared by ship and cancel, each with the PRD's sentence for that action (7.2).
 11. **The shipment `409` names every short line in one `detail`** and has no `errors` field, exactly like the production send's `insufficient-stock`; it reuses that code.
