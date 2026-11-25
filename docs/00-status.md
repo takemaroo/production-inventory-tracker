@@ -40,7 +40,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-v1.1 phase 5: `qa-engineer` traces every v1.1 AC, adds acceptance tests, explores for defects. Then security review, then release (owner approval before pushing).
+v1.1 phase 7: `technical-writer` updates README, user guide (08) and release notes (09). Phase 7 commits are held locally until the owner approves the push.
 
 ## Log
 
@@ -111,6 +111,7 @@ v1.1 phase 5: `qa-engineer` traces every v1.1 AC, adds acceptance tests, explore
 - 2026-11-25 Phase 5 QA (v1.1): verdict PASS; 2 acceptance files added (item race, open-demand zero form). BUG-002 (minor, look-alike Unicode names) settled with the owner in a grilling session (Q82-Q86, #170-#172): NFC names, invisible-only names refused, no data migration, fix before release. Fixed for customers, units and items in a shared NameRules helper (#173-#174, U+FFFE refused with 400), approved by `code-reviewer` after two rounds; design and architecture updated; QA re-tested (287 live checks) and closed it. 2,503 tests pass. Next: phase 6.
 - 2026-11-25 `security-reviewer` (v1.1): clear to release localhost-only; no critical/high/medium findings; SEC-24..SEC-31 (low/info); 5 phase 7 conditions (report 13.2). Owner questions put in a grilling session.
 - 2026-11-25 Owner settled the security questions in a grilling session (Q87-Q90, #175-#178): SEC-24/25 and the stricter SEC-26/29 rules to the Later list; customer change log lines now. T-033 (log who changed a customer, #179) approved by `code-reviewer`, committed and pushed. Phase 6 done. Next: phase 7.
+- 2026-11-25 `devops-engineer` (v1.1 release): upgrade and way-back steps in 07-release.md section 6, rehearsed end to end on scratch copies (#180); v1 starts silently on a v1.1 database, so a refuse-unknown-migrations check went on the Later list. Approved by `code-reviewer` after two rounds (the way back swaps the publish folders so the daily start runs v1). Committed locally.
 
 ## Follow-ups to route
 
@@ -120,11 +121,9 @@ v1.1 phase 5: `qa-engineer` traces every v1.1 AC, adds acceptance tests, explore
 - Optional comment (next owner of AdjustmentService.cs): explain why AC-12.6's 400 before AC-12.5's 409 never conflicts with design 2.2 (a finished product can never be an order line).
 - T-021 (optional): non-numeric id filters (?itemId=abc on returns, movements, complementary orders) get the framework's "The value 'abc' is not valid."; design-style wording everywhere would need a shared fix (see the earlier PascalCase binding note).
 - Optional test chore (later): the suite takes ~1.5-2 min on this machine; ~175 per-test factories each migrate a fresh database (~450 ms). Starting from a pre-migrated database copy in TestApiFactory (~230 ms) would cut that, with an opt-out for start-up/migration tests (T-020 measurement).
-- devops-engineer / technical-writer (phase 7): .env.example's header says to copy it to .env only as a private note or for Docker; add that the sample requests (InventoryTracker.Api.http) read src/InventoryTracker.Api/.env via $dotenv, not a root .env (T-021 review).
 - backend-developer (later tidy, not v1): UserService and PasswordService log inside the write transaction just before commit (other services log after commit); a failed commit could leave a log line for an unsaved change. Recorded in architecture 6 (tech-lead clean-up).
 - security-reviewer (phase 6): from QA, item names accept a tab and a NUL character; HTML-like text is returned unescaped in JSON (application/json). PRD forbids neither; judge the risk. Also: writes under many parallel clients at full volume were not load-tested (SQLite serialises writers, architecture risk 3).
 - Cosmetic (later): GET /production-orders/99999999999 (beyond int range) returns 404 "No endpoint matches this path." instead of "Order #... not found." (QA note).
-- devops-engineer (phase 7): #126 optional Warning level for ApiExceptionHandler; the body limit is also set for IIS hosting.
 - Optional comment nits (later, from the comment-tidy review): CheckLineCount remarks also cite #123; RequestTimeoutMessage and UnreadableBodyMessage cite #124; RequestBodyLimitTests comment says TestOutputHelper (not TestContext.Current) is null outside a test; TooManyRolesMessage points to design 7.2.
 - Optional script nits (later): Test-FileInUse description says the lock check fails "exactly when the API is running" (not true when idle); 07-release section 10 row could mention a running build of the API project matching the process check.
 - backend-developer (Later, SEC-22): move the signing-key rule into the API's start-up checks (StartupChecks.CheckSettings): characters A-Z a-z 0-9 + / = - _, at least 43 characters, at least 10 different; keep run.ps1's check in step; tests for the banner, a repeated letter and a generated key.

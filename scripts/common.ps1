@@ -306,8 +306,10 @@ function Test-FileInUse {
     .SYNOPSIS
       True when another process (normally the running API) has the file open.
     .DESCRIPTION
-      Opening the file with FileShare None asks Windows for exclusive access. SQLite keeps its database open
-      for as long as the API runs, so the request fails exactly when the API is running.
+      Opening the file with FileShare None asks Windows for exclusive access, which fails while any program has the
+      file open. A busy API keeps its database open, but an idle one lets go of it after a few minutes (see
+      Get-ApiProcess), so a free file does not prove the API is stopped. Assert-ApiStopped therefore checks the
+      process first and uses this only to catch other programs, such as a database browser.
     #>
     param([Parameter(Mandatory)] [string] $Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $false }

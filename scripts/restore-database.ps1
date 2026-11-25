@@ -57,4 +57,7 @@ foreach ($file in $restored) {
 }
 
 Write-Host "Restored $($restored.Count) file(s) to $databaseFolder" -ForegroundColor Green
-Write-Host 'Start the API again with scripts\run.ps1. It applies any newer migrations to the restored database on start.'
+# The version you start next decides what happens to the restored file: a newer version upgrades it at start-up
+# (its migrations only go forward). So after going back to an older version, start that version's own folder.
+Write-Host 'Start the API again with scripts\run.ps1 -Published. The version you start applies its newer migrations, if any, to the restored database.'
+Write-Host 'To go back to an older version (for example 1.1 back to 1), start that version''s folder: scripts\run.ps1 -Published -PublishFolder <folder>.'

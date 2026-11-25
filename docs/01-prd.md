@@ -79,6 +79,7 @@ Later, follow-ons to version 1.1 sales orders (v1.1; "Sales orders that remove f
 - Escaping HTML-sensitive characters in the API's JSON output and adding `nosniff` (SEC-27, SEC-11); the web front end's own rules (text binding only, strict Content-Security-Policy, ids shown next to customer names) go into its requirements when it is planned.
 - The sign-in rate limit above (SEC-05) also covers sales order creation (SEC-30).
 - A Development port for the sample requests (`InventoryTracker.Api.http`) that `run.ps1` never uses, so the walk-through cannot write to the real instance (SEC-31).
+- A start-up check that refuses to start when the database has migrations this version of the code does not know (an older version started on a newer database), and optionally `run.ps1` refusing a pending migration without a fresh backup (v1.1 release rehearsal).
 
 ## 4. User stories and acceptance criteria
 
