@@ -36,11 +36,11 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Waiting on the owner
 
-- The GitHub steps for going public (#186) and the v1.1 upgrade of the real instance.
+- The GitHub steps for going public (#186).
 
 ## Next step
 
-Owner: review the Actions, Pull requests and Issues tabs, switch the repository to public, turn on secret scanning and push protection (#186); upgrade the real instance to v1.1 (docs/07-release.md section 6). Next build work: the web front end.
+Owner: review the Actions, Pull requests and Issues tabs, switch the repository to public, turn on secret scanning and push protection (#186); the owner's real instance already runs v1.1. Next build work: the web front end.
 
 ## Log
 
@@ -117,6 +117,7 @@ Owner: review the Actions, Pull requests and Issues tabs, switch the repository 
 - 2026-11-26 T-034 (tighter name rules, SEC-25, #176/#181/#182) approved by `code-reviewer` (Default_Ignorable table checked against Unicode 16.0.0; 2,720 tests pass), committed and pushed. Next: user guide and release-notes lines for the new name rules (technical-writer).
 - 2026-11-26 `technical-writer`: user guide section 3 and v1.1 release notes describe the T-034 name rules (as part of v1.1, since the owner has not installed it yet). Committed and pushed.
 - 2026-11-26 Going-public preparation: `security-reviewer` full-history scan (docs/10-public-readiness.md: no secrets; personal email in old commits kept, #185); owner settled Q91-Q97 (#183-#186); fixes PR-02/03/04/05/07, LICENSE (all rights reserved) and README "About this project" approved by `code-reviewer`, committed and pushed. Waiting on the owner's GitHub steps (review tabs, switch visibility, secret scanning).
+- 2026-11-26 Owner upgraded the real instance to v1.1.
 
 ## Follow-ups to route
 
