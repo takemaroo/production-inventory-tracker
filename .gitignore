@@ -495,3 +495,18 @@ $RECYCLE.BIN/
 
 # Claude Code skill not used by this project (owner, 2026-11-22, decision #136): kept on disk, not tracked.
 .claude/skills/design-taste-frontend/
+
+# Claude Code per-machine files (public-readiness PR-05): local permissions, which often hold absolute paths and
+# allowed commands, and personal instructions not meant for sharing.
+.claude/settings.local.json
+CLAUDE.local.md
+# Private keys and certificates (*.pfx is also in the template above; repeated so this list is complete).
+*.pem
+*.key
+*.p12
+*.pfx
+# Test result files written outside TestResults/, for example by `dotnet test --logger trx`.
+*.trx
+# Backups and archives, such as a renamed database backup or a zipped publish folder.
+*.bak
+*.zip

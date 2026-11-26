@@ -513,7 +513,7 @@ Examples use the PRD's worked examples. Ids and emails are illustrative.
 **`POST /auth/sign-in`**
 
 ```json
-{ "email": "maria.lopez@example.com", "password": "Cheddar2026" }
+{ "email": "maria.lopez@example.com", "password": "<sample password>" }
 ```
 
 `200`:
@@ -533,7 +533,7 @@ Email comparison ignores case. There is no refresh token; after `expiresAt` the 
 **`POST /auth/change-password`**
 
 ```json
-{ "currentPassword": "Cheddar2026", "newPassword": "Gouda-Wheel-77" }
+{ "currentPassword": "<sample password>", "newPassword": "<new sample password>" }
 ```
 
 `204`.
@@ -552,11 +552,11 @@ User object (never contains a password or hash, AC-03.4):
 }
 ```
 
-- `POST /users` body: `{ "email": "jorge.ibarra@example.com", "password": "Initial2026", "roles": ["Warehouse"] }` → `201` user.
+- `POST /users` body: `{ "email": "jorge.ibarra@example.com", "password": "<sample password>", "roles": ["Warehouse"] }` → `201` user.
 - `GET /users` → page of users.
 - `PUT /users/{id}/roles` body: `{ "roles": ["Warehouse", "Production"] }` → `200` user.
 - `POST /users/{id}/deactivate`, `POST /users/{id}/reactivate`, no body → `200` user. Repeating either on a user already in that state succeeds and changes nothing.
-- `PUT /users/{id}/password` body: `{ "newPassword": "Reset-2026a" }` → `204`.
+- `PUT /users/{id}/password` body: `{ "newPassword": "<new sample password>" }` → `204`.
 
 ### 5.3 Units
 

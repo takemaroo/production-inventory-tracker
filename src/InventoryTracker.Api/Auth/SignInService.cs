@@ -64,8 +64,8 @@ public sealed class SignInService(
         errors.ThrowIfAny();
 
         // Decision #61: one attempt at a time for this account. The key is the email as Identity normalizes it, so
-        // "Ana@x.com" and "ana@X.COM" share a lock. The `using` block releases the lock as soon as the outcome is
-        // known, even if something throws.
+        // "Ana@example.com" and "ana@EXAMPLE.COM" share a lock. The `using` block releases the lock as soon as the
+        // outcome is known, even if something throws.
         Outcome outcome;
         using (await accountLocks.AcquireAsync(userManager.NormalizeEmail(email!)))
         {

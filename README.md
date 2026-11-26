@@ -4,6 +4,18 @@ An HTTP API for a small food manufacturer that turns bulk raw materials into pac
 
 Version 1.1 is an API only, with no user interface. The full rules are in the product requirements, [`docs/01-prd.md`](docs/01-prd.md). How to use the API day to day is in the [user guide](docs/08-user-guide.md). What is in each version, and what is known not to work yet, is in the [release notes](docs/09-release-notes.md).
 
+## About this project
+
+I'm Erick. I built this API to track production and inventory for small businesses, as the product owner directing a team of AI agents (Claude Code, by Anthropic).
+
+- **My part:** I set the goals, approved the requirements, the architecture and every release, and settled every open question along the way.
+- **The agents' part:** specialist AI agents wrote the code, tests and documents: product manager, designer, tech lead, developers, code reviewer, QA, security reviewer, DevOps and technical writer. They followed the seven-phase process in [CLAUDE.md](CLAUDE.md). No agent approved its own work.
+- **The evidence:** every decision and who made it is in [docs/decisions.md](docs/decisions.md); the requirements are in [docs/01-prd.md](docs/01-prd.md).
+
+What it shows: how I specify a product, make trade-offs, and run a disciplined, test-backed delivery process with AI. The result is a working ASP.NET Core API with 2,720 automated tests and two security reviews.
+
+Copyright (c) 2026 Erick Vanegas Vega. All rights reserved; see [LICENSE](LICENSE).
+
 ## Terms used here
 
 - **Warehouse** and **production storage** are the two stock locations. Stock in each is the sum of its movements and never goes below zero.
@@ -250,7 +262,7 @@ The walk-through creates fixed names, users and customers, ships stock out of th
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1
 ```
 
-It builds in Release with warnings as errors, then runs the whole suite (unit, integration and acceptance tests; 2,510 tests, about 3 to 7 minutes on the owner's machine). The tests set their own throwaway secrets and temporary databases, so they never touch your variables, user-secrets or data. If two builds run at once in one working tree, give each its own `-ArtifactsPath` folder ([`docs/07-release.md` section 2](docs/07-release.md#2-commands)).
+It builds in Release with warnings as errors, then runs the whole suite (unit, integration and acceptance tests; 2,720 tests, about 3 to 7 minutes on the owner's machine). The tests set their own throwaway secrets and temporary databases, so they never touch your variables, user-secrets or data. If two builds run at once in one working tree, give each its own `-ArtifactsPath` folder ([`docs/07-release.md` section 2](docs/07-release.md#2-commands)).
 
 ## Continuous integration
 
@@ -285,4 +297,4 @@ Details: [`docs/03-architecture.md` section 2](docs/03-architecture.md#2-project
 | [`docs/09-release-notes.md`](docs/09-release-notes.md) | Release notes for v1.1 and v1: what is included, known issues, planned next. |
 | [`docs/decisions.md`](docs/decisions.md) | Every decision, numbered (#1, #2, ...). |
 
-`CLAUDE.md`, `company/` and `.claude/` describe the AI company that built this project, not the product.
+`CLAUDE.md`, `company/` and `.claude/` describe the AI agent team that built this project under my direction, not the product.
