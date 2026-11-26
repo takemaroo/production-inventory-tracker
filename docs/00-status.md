@@ -40,7 +40,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-Owner upgrades the real instance to v1.1 (docs/07-release.md section 6). T-034 docs (technical-writer), then the going-public preparation, then the web front end.
+Owner upgrades the real instance to v1.1 (docs/07-release.md section 6); publishing from main includes T-034. Then the going-public preparation, then the web front end.
 
 ## Log
 
@@ -115,6 +115,7 @@ Owner upgrades the real instance to v1.1 (docs/07-release.md section 6). T-034 d
 - 2026-11-25 `technical-writer` (v1.1): README, user guide (sales chain sections 15-21, Seller column) and release notes v1.1; every guide PowerShell block run against a throwaway instance. Final security check: release approved for localhost-only v1.1, all five conditions met (F1-F4 wording fixed). Committed locally; waiting on the owner to approve the push.
 - 2026-11-26 Owner approved the v1.1 release; release notes dated 2026-11-26. Pushed to main. v1.1 complete.
 - 2026-11-26 T-034 (tighter name rules, SEC-25, #176/#181/#182) approved by `code-reviewer` (Default_Ignorable table checked against Unicode 16.0.0; 2,720 tests pass), committed and pushed. Next: user guide and release-notes lines for the new name rules (technical-writer).
+- 2026-11-26 `technical-writer`: user guide section 3 and v1.1 release notes describe the T-034 name rules (as part of v1.1, since the owner has not installed it yet). Committed and pushed.
 
 ## Follow-ups to route
 
