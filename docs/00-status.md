@@ -36,11 +36,11 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Waiting on the owner
 
-- The GitHub steps for going public (#186).
+- nothing
 
 ## Next step
 
-Owner: review the Actions, Pull requests and Issues tabs, switch the repository to public, turn on secret scanning and push protection (#186); the owner's real instance already runs v1.1. Next build work: the web front end.
+Next build work: the web front end (owner's order), starting with `product-manager` and a grilling session. Then the cloud path.
 
 ## Log
 
@@ -118,6 +118,7 @@ Owner: review the Actions, Pull requests and Issues tabs, switch the repository 
 - 2026-11-26 `technical-writer`: user guide section 3 and v1.1 release notes describe the T-034 name rules (as part of v1.1, since the owner has not installed it yet). Committed and pushed.
 - 2026-11-26 Going-public preparation: `security-reviewer` full-history scan (docs/10-public-readiness.md: no secrets; personal email in old commits kept, #185); owner settled Q91-Q97 (#183-#186); fixes PR-02/03/04/05/07, LICENSE (all rights reserved) and README "About this project" approved by `code-reviewer`, committed and pushed. Waiting on the owner's GitHub steps (review tabs, switch visibility, secret scanning).
 - 2026-11-26 Owner upgraded the real instance to v1.1.
+- 2026-11-26 Owner turned on GitHub Secret Protection and push protection (#186). Going-public preparation complete.
 
 ## Follow-ups to route
 
