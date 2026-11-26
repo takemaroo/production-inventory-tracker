@@ -32,15 +32,15 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 4 | Build | done | code (tasks done: 12 of 12, T-022 to T-033, plus the T-031 fix and the BUG-002 fix) |
 | 5 | QA | done | `docs/05-test-plan.md` (Part 2: verdict PASS; BUG-002 fixed and closed) |
 | 6 | Security | done | `docs/06-security-review.md` (Part 2: clear to release localhost-only, 5 phase 7 conditions; SEC-24/25/26/29 settled, #175-#178; SEC-26 log line done in T-033) |
-| 7 | Release | done, waiting on owner approval to push | `docs/09-release-notes.md`, README |
+| 7 | Release | done | `docs/09-release-notes.md`, README |
 
 ## Waiting on the owner
 
-- Approval to push the v1.1 release commits (phase 7) to `main`.
+- nothing
 
 ## Next step
 
-Owner approves (or not) pushing the v1.1 release commits. After that: the SEC-25 name-rules task (#176), then the going-public preparation and the web front end.
+Owner upgrades the real instance to v1.1 (docs/07-release.md section 6). Then: the SEC-25 name-rules task (#176), the going-public preparation, and the web front end.
 
 ## Log
 
@@ -113,6 +113,7 @@ Owner approves (or not) pushing the v1.1 release commits. After that: the SEC-25
 - 2026-11-25 Owner settled the security questions in a grilling session (Q87-Q90, #175-#178): SEC-24/25 and the stricter SEC-26/29 rules to the Later list; customer change log lines now. T-033 (log who changed a customer, #179) approved by `code-reviewer`, committed and pushed. Phase 6 done. Next: phase 7.
 - 2026-11-25 `devops-engineer` (v1.1 release): upgrade and way-back steps in 07-release.md section 6, rehearsed end to end on scratch copies (#180); v1 starts silently on a v1.1 database, so a refuse-unknown-migrations check went on the Later list. Approved by `code-reviewer` after two rounds (the way back swaps the publish folders so the daily start runs v1). Committed locally.
 - 2026-11-25 `technical-writer` (v1.1): README, user guide (sales chain sections 15-21, Seller column) and release notes v1.1; every guide PowerShell block run against a throwaway instance. Final security check: release approved for localhost-only v1.1, all five conditions met (F1-F4 wording fixed). Committed locally; waiting on the owner to approve the push.
+- 2026-11-26 Owner approved the v1.1 release; release notes dated 2026-11-26. Pushed to main. v1.1 complete.
 
 ## Follow-ups to route
 

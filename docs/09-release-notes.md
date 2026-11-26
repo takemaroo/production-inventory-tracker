@@ -1,6 +1,6 @@
 # Release notes: Production & Inventory Tracker API
 
-## Version 1.1, 2026-11-25
+## Version 1.1, 2026-11-26
 
 Sales orders. Customers' orders are now recorded, shipped out of Warehouse stock and totalled, by a new Seller role and the Warehouse. The build carries no version number of its own, and no git tag or GitHub release has been made (both need the owner's approval). "Version 1.1" is the API under `/api/v1` with the `SalesOrders` database migration, as of the commits on `main` up to 2026-11-25. The address stays `/api/v1`.
 
