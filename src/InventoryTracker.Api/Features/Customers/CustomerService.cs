@@ -103,7 +103,7 @@ public sealed class CustomerService(AppDbContext db, Clock clock, ILogger<Custom
     public Task<CustomerResponse> CreateAsync(CustomerRequest request, string userId, CancellationToken cancellationToken) =>
         db.InWriteTransactionAsync(async () =>
         {
-            var input = Validate(request);
+            var input = Validate(request, storedName: null);
 
             // AC-29.2. Checked inside the write transaction: writers run one at a time (architecture 5.2), so of two
             // simultaneous creates of one name the second already sees the first and gets this 409.
@@ -158,7 +158,9 @@ public sealed class CustomerService(AppDbContext db, Clock clock, ILogger<Custom
             // by primary key and keeps it tracked, so the changes below are saved by SaveChangesAsync.
             var customer = await db.Customers.FindAsync([id], cancellationToken) ?? throw NotFound(id);
 
-            var input = Validate(request);
+            // Decision #181: the stored name is passed in, so a PUT that only edits the notes and sends the name back
+            // unchanged is not held to the T-034 rules.
+            var input = Validate(request, storedName: customer.Name);
 
             // Only *another* customer with the same normalized name counts, so "Deli Norte" can become "DELI NORTE".
             await ThrowIfNameTakenAsync(input.Name, exceptId: id, cancellationToken);
@@ -306,13 +308,15 @@ public sealed class CustomerService(AppDbContext db, Clock clock, ILogger<Custom
     /// Architecture 5.1 step "name and notes": checks both fields of a customer body and reports every problem in one
     /// <c>400</c> (AC-29.1, AC-29.2; design 2.6 and 7.2), each under its own field.
     /// </summary>
-    private static ValidCustomer Validate(CustomerRequest request)
+    /// <param name="request">The request body.</param>
+    /// <param name="storedName">On an update, the customer's name as stored now (decision #181); null on a create.</param>
+    private static ValidCustomer Validate(CustomerRequest request, string? storedName)
     {
         var errors = new ValidationErrors();
 
-        // Decisions #170, #171, design 2.6: the name rule shared with units and items (NFC, trim, a name with no visible
-        // character counts as missing, length in code points after both).
-        var name = NameRules.Validate(request.Name, ColumnRules.CustomerNameLength, errors);
+        // Decisions #170, #171, #176, design 2.6: the name rule shared with units and items (NFC, trim, a name with no
+        // visible character counts as missing, characters not allowed, length in code points after both).
+        var name = NameRules.Validate(request.Name, ColumnRules.CustomerNameLength, errors, storedName);
 
         // AC-29.1, design 2.6: optional; blank becomes null, so "no notes" is stored one way only. Decision #116: the
         // limit counts Unicode code points (Text.Length), as PostgreSQL would count a varchar(500) after the planned port.

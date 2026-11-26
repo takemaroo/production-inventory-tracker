@@ -119,6 +119,7 @@ Two consequences worth stating. A Production-only user asking for a sales order 
 - Names and reasons have leading and trailing spaces removed before they are checked. A value that is empty after trimming counts as missing.
 - Uniqueness checks on names and emails ignore letter case. Emails are stored as entered.
 - (BUG-002, decisions #170, #171, #173, #174) Customer, unit and item names are first converted to one standard Unicode form (NFC), so a letter such as "é" typed as one character or as "e" plus an accent mark is the same name; a look-alike of an existing name is a duplicate. The name is stored in that form, trimmed, and its length is counted after conversion. A name with no visible characters (only white space, control or invisible format characters such as a zero-width space) counts as missing ("Name is required."); invisible characters among visible ones are kept. A name that cannot be converted (in practice only U+FFFE) is refused with "Name contains a character that is not allowed.", checked before the other name rules. Names stored before v1.1 are not rewritten (#172).
+- (T-034, decisions #176, #181, #182) Also refused with "Name contains a character that is not allowed.": a control character (NUL, tab, line break) or a Unicode noncharacter anywhere in the name; an invisible (default-ignorable) character, a Hangul filler or U+2800 at the start or end; a combining mark as the first character. Hangul fillers and U+2800 count as invisible, so a name made only of them is "Name is required.". Invisible characters in the middle (for example ZWJ and ZWNJ between letters) stay allowed. A consequence: a name ending in an emoji with a variation selector (such as a red heart) is refused. A PUT that sends a record's stored name back unchanged skips these T-034 rules, so records saved before them can still be edited; any change to the name, even of letter case only, follows every rule.
 - Limits: unit name 1–50 (PRD); reasons and notes up to 500 (PRD); item name 1–100 and item description up to 500 (not in the PRD; default chosen here, see section 9); email up to 256 (the Identity default, decision #66). Length limits apply after trimming. Passwords are never trimmed.
 - (v1.1) Limits (PRD row 34): customer name 1–100; customer notes up to 500; customer reference on a sales order up to 100; shipment note up to 500; sales order cancellation reason 1–500. Optional texts (customer notes, customer reference, shipment note) that are empty after trimming are stored as `null` (AC-26.8).
 
@@ -1286,7 +1287,7 @@ Placeholders are in braces. Messages marked PRD are exact. The rows marked "any 
 | Status | Code | When | Message |
 |--------|------|------|---------|
 | 400 | `validation` | Empty name, or no visible characters (decision #171) | Name is required. |
-| 400 | `validation` | Name contains a character that cannot be put in NFC, e.g. U+FFFE (decision #174) | Name contains a character that is not allowed. |
+| 400 | `validation` | Name contains a character that cannot be put in NFC (U+FFFE, #174), a control character or noncharacter, an invisible character or U+2800 at the start or end, or starts with a combining mark (#176, #182) | Name contains a character that is not allowed. |
 | 400 | `validation` | Longer than 50 | Name must be 50 characters or fewer. |
 | 409 | `unit-name-taken` | AC-06.2 | A unit named '{name}' already exists. |
 | 409 | `unit-in-use` | AC-06.4 | Unit is used by one or more items. (PRD) |
@@ -1297,7 +1298,7 @@ Placeholders are in braces. Messages marked PRD are exact. The rows marked "any 
 | Status | Code | When | Message |
 |--------|------|------|---------|
 | 400 | `validation` | Missing name, or no visible characters (decision #171) | Name is required. |
-| 400 | `validation` | Name contains a character that cannot be put in NFC, e.g. U+FFFE (decision #174) | Name contains a character that is not allowed. |
+| 400 | `validation` | Name contains a character that cannot be put in NFC (U+FFFE, #174), a control character or noncharacter, an invisible character or U+2800 at the start or end, or starts with a combining mark (#176, #182) | Name contains a character that is not allowed. |
 | 400 | `validation` | Name longer than 100 (decision #69) | Name must be 100 characters or fewer. |
 | 400 | `validation` | Description longer than 500 (decision #69) | Description must be 500 characters or fewer. |
 | 400 | `validation` | Missing or unknown type | Type must be RawMaterial or FinishedProduct. |
@@ -1437,7 +1438,7 @@ Marking an already-read notification read again succeeds (`204`). A missing or e
 |--------|------|------|---------|
 | 404 | `not-found` | Unknown or deleted customer id in the URL (AC-29.5, AC-29.6) | Customer {id} not found. |
 | 400 | `validation` | Missing or blank name, or no visible characters (AC-29.2, decision #171) | Name is required. |
-| 400 | `validation` | Name contains a character that cannot be put in NFC, e.g. U+FFFE (decision #174) | Name contains a character that is not allowed. |
+| 400 | `validation` | Name contains a character that cannot be put in NFC (U+FFFE, #174), a control character or noncharacter, an invisible character or U+2800 at the start or end, or starts with a combining mark (#176, #182) | Name contains a character that is not allowed. |
 | 400 | `validation` | Name longer than 100 (AC-29.2) | Name must be 100 characters or fewer. |
 | 400 | `validation` | Notes longer than 500 (AC-29.2) | Notes must be 500 characters or fewer. |
 | 409 | `customer-name-taken` | Another customer has the name, ignoring case (AC-29.2). `{name}` is the name as stored (NFC, trimmed; decision #170), as for units and items | A customer named '{name}' already exists. (PRD) *(example: "A customer named 'Deli Norte' already exists.")* |

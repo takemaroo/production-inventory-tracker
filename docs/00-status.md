@@ -40,7 +40,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-Owner upgrades the real instance to v1.1 (docs/07-release.md section 6). Then: the SEC-25 name-rules task (#176), the going-public preparation, and the web front end.
+Owner upgrades the real instance to v1.1 (docs/07-release.md section 6). T-034 docs (technical-writer), then the going-public preparation, then the web front end.
 
 ## Log
 
@@ -114,6 +114,7 @@ Owner upgrades the real instance to v1.1 (docs/07-release.md section 6). Then: t
 - 2026-11-25 `devops-engineer` (v1.1 release): upgrade and way-back steps in 07-release.md section 6, rehearsed end to end on scratch copies (#180); v1 starts silently on a v1.1 database, so a refuse-unknown-migrations check went on the Later list. Approved by `code-reviewer` after two rounds (the way back swaps the publish folders so the daily start runs v1). Committed locally.
 - 2026-11-25 `technical-writer` (v1.1): README, user guide (sales chain sections 15-21, Seller column) and release notes v1.1; every guide PowerShell block run against a throwaway instance. Final security check: release approved for localhost-only v1.1, all five conditions met (F1-F4 wording fixed). Committed locally; waiting on the owner to approve the push.
 - 2026-11-26 Owner approved the v1.1 release; release notes dated 2026-11-26. Pushed to main. v1.1 complete.
+- 2026-11-26 T-034 (tighter name rules, SEC-25, #176/#181/#182) approved by `code-reviewer` (Default_Ignorable table checked against Unicode 16.0.0; 2,720 tests pass), committed and pushed. Next: user guide and release-notes lines for the new name rules (technical-writer).
 
 ## Follow-ups to route
 
@@ -143,3 +144,4 @@ Owner upgrades the real instance to v1.1 (docs/07-release.md section 6). Then: t
 - security-reviewer (next review): SEC-26 in docs/06-security-review.md is still marked open; its log-line part was done in T-033 (#177, #179), the "last changed by" columns are on the Later list.
 - Practice note for every agent doing scratch runs: redirecting LOCALAPPDATA does not isolate ASP.NET Core DataProtection; the API still reads the owner's %LOCALAPPDATA%\ASP.NET\DataProtection-Keys (read only so far, no product use of the keys). Until the key-folder setting on the Later list exists, accept it; never write or delete there.
 - tech-lead (when the web front end or cloud path is planned): add explicit DataProtection configuration to the requirements (final v1.1 security check; PRD Later list).
+- security-reviewer (next review): mark SEC-25 fixed by T-034 (#176, #181, #182) in docs/06-security-review.md; spacing marks (Mc) at the start of a name are still accepted, look-alikes from other scripts are left to the front end (SEC-27).

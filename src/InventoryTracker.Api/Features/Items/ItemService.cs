@@ -87,7 +87,7 @@ public sealed class ItemService(AppDbContext db, Clock clock)
     public Task<ItemResponse> CreateAsync(ItemRequest request, CancellationToken cancellationToken) =>
         db.InWriteTransactionAsync(async () =>
         {
-            var input = await ValidateAsync(request, cancellationToken);
+            var input = await ValidateAsync(request, storedName: null, cancellationToken);
             await ThrowIfNameTakenAsync(input.Name, exceptId: null, cancellationToken);
 
             var item = new Item
@@ -118,7 +118,9 @@ public sealed class ItemService(AppDbContext db, Clock clock)
             // Design 2.2: the id in the URL (404) is checked before the body (400).
             var item = await db.Items.FindAsync([id], cancellationToken) ?? throw NotFound(id);
 
-            var input = await ValidateAsync(request, cancellationToken);
+            // Decision #181: the stored name is passed in, so a PUT that only edits the description and sends the name
+            // back unchanged is not held to the T-034 rules.
+            var input = await ValidateAsync(request, storedName: item.Name, cancellationToken);
 
             // The item's own current name does not count as taken, so its letter case can be changed.
             await ThrowIfNameTakenAsync(input.Name, exceptId: id, cancellationToken);
@@ -188,13 +190,16 @@ public sealed class ItemService(AppDbContext db, Clock clock)
     /// Design 2.2 step 4 for an item body: checks every field and reports all problems in one <c>400</c>
     /// (AC-07.2: missing name, unknown type, unknown unit; design 2.6: lengths).
     /// </summary>
-    private async Task<ValidItem> ValidateAsync(ItemRequest request, CancellationToken cancellationToken)
+    /// <param name="request">The request body.</param>
+    /// <param name="storedName">On an update, the item's name as stored now (decision #181); null on a create.</param>
+    /// <param name="cancellationToken">Fires when the client disconnects.</param>
+    private async Task<ValidItem> ValidateAsync(ItemRequest request, string? storedName, CancellationToken cancellationToken)
     {
         var errors = new ValidationErrors();
 
-        // Decisions #170, #171, design 2.6: the name rule shared with units and customers (NFC, trim, a name with no
-        // visible character counts as missing, length in code points after both).
-        var name = NameRules.Validate(request.Name, ColumnRules.ItemNameLength, errors);
+        // Decisions #170, #171, #176, design 2.6: the name rule shared with units and customers (NFC, trim, a name with no
+        // visible character counts as missing, characters not allowed, length in code points after both).
+        var name = NameRules.Validate(request.Name, ColumnRules.ItemNameLength, errors, storedName);
 
         var description = Text.Clean(request.Description);
         // Decision #116: counted in Unicode code points, so an emoji is one character (Text.Length).

@@ -6,6 +6,7 @@ using InventoryTracker.Api.Domain;
 using InventoryTracker.Api.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Xunit.Sdk;
 
 namespace InventoryTracker.Api.Tests.Integration;
 
@@ -13,7 +14,8 @@ namespace InventoryTracker.Api.Tests.Integration;
 /// BUG-002, decisions #170 and #171: the one name rule, through the API, for all three name lists: units (AC-06.2),
 /// items (AC-07.1) and customers (AC-29.2). A name is compared and stored in Unicode NFC, so the same letters in
 /// another Unicode form are a duplicate; a name with nothing visible is "Name is required."; the length counts what is
-/// stored. Each test runs once per list, for create and for rename.
+/// stored. Each test runs once per list, for create and for rename. T-034 (SEC-25, decisions #176 and #181) adds the
+/// characters that are not allowed and the unchanged-stored-name case; its tests are the section marked T-034.
 /// </summary>
 /// <remarks>
 /// Tests share one database (<see cref="IClassFixture{TFixture}"/>), so every name carries a unique suffix. Special
@@ -146,7 +148,8 @@ public class NameUnicodeTests(TestApiFactory factory) : IClassFixture<TestApiFac
 
     /// <summary>
     /// Decision #171: invisible characters among visible ones are allowed and kept exactly as sent (a zero width joiner
-    /// and a leading zero width space here), on create and on rename.
+    /// and a zero width space between words here), on create and on rename. Before T-034 the zero width space was at the
+    /// start of the name; decision #176 now refuses it there (see the T-034 tests below).
     /// </summary>
     [Theory]
     [MemberData(nameof(Lists))]
@@ -154,7 +157,7 @@ public class NameUnicodeTests(TestApiFactory factory) : IClassFixture<TestApiFac
     {
         var manager = await factory.CreateClientAsAsync(Roles.Manager);
         var withJoiner = $"Caf\u00E9\u200DSur {Suffix()}";
-        var withSpace = $"\u200BCaf\u00E9 Sur {Suffix()}";
+        var withSpace = $"Caf\u00E9\u200B Sur {Suffix()}";
 
         var created = await CreateAsync(manager, list, withJoiner);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
@@ -249,6 +252,407 @@ public class NameUnicodeTests(TestApiFactory factory) : IClassFixture<TestApiFac
 
         await ApiAssert.ValidationAsync(response, "name", "Name contains a character that is not allowed.");
         Assert.Equal(name, (await StoredAsync(list, id)).Name);
+    }
+
+    // ---- T-034 (SEC-25 fix list, decisions #176 and #181): characters that are not allowed ---------------------------
+    //
+    // The case lists below are looped over inside one test per list instead of being theory rows: every test signs in a
+    // new user (two password hashes), and the tests of one class run one after another, so a row per case made this
+    // class the slowest in the suite. ForEachCaseAsync still reports every failing case by name.
+
+    /// <summary>
+    /// Names the T-034 rules refuse as "not allowed", as the text after a unique visible part. Written as JSON escapes and
+    /// sent raw, so the API receives exactly these code points.
+    /// </summary>
+    private static readonly string[] NotAllowedEndings =
+    [
+        @" \u200B",        // zero width space at the end (SEC-25 twin)
+        @" \u3164",        // Hangul filler at the end (SEC-25 twin)
+        @" \u034F",        // combining grapheme joiner at the end (SEC-25 twin)
+        @" \uFE0F",        // variation selector at the end
+        @" \u200D",        // zero width joiner at the end, where it joins nothing
+        @" \u2800",        // braille blank at the end (SEC-25 twin, decision #182)
+        @"\u0000x",        // NUL inside
+        @"\tx",            // tab inside
+        @"\nx",            // line feed inside
+        @"\u0085x",        // NEXT LINE (C1 control) inside
+        @"\uFDD0x",        // noncharacter inside
+        @"\uFFFFx",        // noncharacter inside
+        @"\uD83F\uDFFFx", // U+1FFFF, a noncharacter outside the BMP, as a JSON surrogate pair
+    ];
+
+    /// <summary>Names decision #176 counts as blank (Hangul fillers, U+2800), as JSON escapes.</summary>
+    private static readonly string[] BlankLookingNames =
+    [
+        @"\u3164",             // HANGUL FILLER (SEC-25: a blank customer)
+        @"\u3164\u3164\u3164",
+        @"\u115F\u1160",      // Hangul choseong and jungseong fillers
+        @"\uFFA0",             // halfwidth Hangul filler
+        @"\u2800",             // braille pattern blank
+        @" \u2800\u200B ",    // braille blank, zero width space and spaces
+    ];
+
+    /// <summary>
+    /// Decision #182: starts the rules refuse as "not allowed", each sent before a unique visible part, as JSON escapes.
+    /// </summary>
+    private static readonly string[] NotAllowedStarts =
+    [
+        @"\u0301Deli",  // COMBINING ACUTE ACCENT first (Mn)
+        @" \u0301Deli", // the same once the space is trimmed
+        @"\u20DDDeli",  // COMBINING ENCLOSING CIRCLE first (Me)
+        @"\u2800Deli",  // braille blank first
+    ];
+
+    /// <summary>Decision #182: lone combining marks, sent as they are (SEC-25: "a lone combining accent").</summary>
+    private static readonly string[] LoneCombiningMarks = [@"\u0301", @"\u20DD", @"\u0301\u0301"];
+
+    /// <summary>Every case of <see cref="NotAllowedStarts"/> with a unique visible part, then the lone marks.</summary>
+    private static string[] NotAllowedStartCases() =>
+        [.. NotAllowedStarts.Select(start => $"{start} {Suffix()}"), .. LoneCombiningMarks];
+
+    /// <summary>
+    /// SEC-25 fix, decision #176, AC-06.2 / AC-07.1 / AC-29.2: a name with an invisible character at the end, or a
+    /// control character or noncharacter inside, is refused on create with <c>400</c> "Name contains a character that
+    /// is not allowed." under <c>name</c> (the #174 shape), and nothing is saved. One test per list, every case of
+    /// <see cref="NotAllowedEndings"/>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_create_with_a_character_not_allowed_is_400(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+
+        await ForEachCaseAsync(NotAllowedEndings, async jsonEnding =>
+        {
+            var json = await BodyJsonAsync(manager, list, $"Deli {Suffix()}{jsonEnding}");
+            var before = await CountAsync(list);
+
+            var response = await manager.PostAsync(PathOf(list), ApiJson.Content(json), Cancel);
+
+            await ApiAssert.ValidationAsync(response, "name", "Name contains a character that is not allowed.");
+            Assert.Equal(before, await CountAsync(list));
+        });
+    }
+
+    /// <summary>
+    /// SEC-25 fix, decision #176, AC-06.3 / AC-07.3 / AC-29.3: renaming to such a name is the same <c>400</c>, and the
+    /// record keeps its name. One test per list, every case of <see cref="NotAllowedEndings"/>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_rename_to_a_character_not_allowed_is_400(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var name = Seed.UniqueName("keep");
+        var id = await IdOfAsync(await CreateAsync(manager, list, name));
+
+        await ForEachCaseAsync(NotAllowedEndings, async jsonEnding =>
+        {
+            var json = await BodyJsonAsync(manager, list, $"Deli {Suffix()}{jsonEnding}");
+
+            var response = await manager.PutAsync($"{PathOf(list)}/{id}", ApiJson.Content(json), Cancel);
+
+            await ApiAssert.ValidationAsync(response, "name", "Name contains a character that is not allowed.");
+            Assert.Equal(name, (await StoredAsync(list, id)).Name);
+        });
+    }
+
+    /// <summary>
+    /// SEC-25 fix: the twin case from the security review. With "Deli Norte ..." stored, the same name followed by a zero
+    /// width space or preceded by one is refused with <c>400</c>, so only one record looks like "Deli Norte ...".
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_twin_with_an_invisible_character_at_either_end_is_refused(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var name = $"Deli Norte {Suffix()}";
+        Assert.Equal(HttpStatusCode.Created, (await CreateAsync(manager, list, name)).StatusCode);
+
+        var after = await CreateAsync(manager, list, name + "\u200B");
+        var before = await CreateAsync(manager, list, "\u200B" + name);
+
+        await ApiAssert.ValidationAsync(after, "name", "Name contains a character that is not allowed.");
+        await ApiAssert.ValidationAsync(before, "name", "Name contains a character that is not allowed.");
+    }
+
+    /// <summary>
+    /// SEC-25 fix, decision #176, AC-06.2 / AC-07.2 / AC-29.2: a name made only of Hangul fillers or U+2800 is "Name is
+    /// required." on create, and nothing is saved. One test per list, every case of <see cref="BlankLookingNames"/>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_create_with_a_blank_looking_name_is_name_required(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+
+        await ForEachCaseAsync(BlankLookingNames, async jsonName =>
+        {
+            var json = await BodyJsonAsync(manager, list, jsonName);
+            var before = await CountAsync(list);
+
+            var response = await manager.PostAsync(PathOf(list), ApiJson.Content(json), Cancel);
+
+            await ApiAssert.ValidationAsync(response, "name", "Name is required.");
+            Assert.Equal(before, await CountAsync(list));
+        });
+    }
+
+    /// <summary>
+    /// SEC-25 fix, decision #176, AC-06.3 / AC-07.3 / AC-29.3: renaming to such a name is the same <c>400</c>, and the
+    /// record keeps its name. One test per list, every case of <see cref="BlankLookingNames"/>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_rename_to_a_blank_looking_name_is_name_required(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var name = Seed.UniqueName("keep");
+        var id = await IdOfAsync(await CreateAsync(manager, list, name));
+
+        await ForEachCaseAsync(BlankLookingNames, async jsonName =>
+        {
+            var json = await BodyJsonAsync(manager, list, jsonName);
+
+            var response = await manager.PutAsync($"{PathOf(list)}/{id}", ApiJson.Content(json), Cancel);
+
+            await ApiAssert.ValidationAsync(response, "name", "Name is required.");
+            Assert.Equal(name, (await StoredAsync(list, id)).Name);
+        });
+    }
+
+    /// <summary>
+    /// Decision #182, AC-06.2 / AC-07.1 / AC-29.2: a name that starts with a combining mark or U+2800, or is only
+    /// combining marks, is refused on create with <c>400</c> "Name contains a character that is not allowed." under
+    /// <c>name</c>, and nothing is saved. One test per list, every case of <see cref="NotAllowedStartCases"/>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_create_with_a_start_not_allowed_is_400(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+
+        await ForEachCaseAsync(NotAllowedStartCases(), async jsonName =>
+        {
+            var json = await BodyJsonAsync(manager, list, jsonName);
+            var before = await CountAsync(list);
+
+            var response = await manager.PostAsync(PathOf(list), ApiJson.Content(json), Cancel);
+
+            await ApiAssert.ValidationAsync(response, "name", "Name contains a character that is not allowed.");
+            Assert.Equal(before, await CountAsync(list));
+        });
+    }
+
+    /// <summary>
+    /// Decision #182, AC-06.3 / AC-07.3 / AC-29.3: renaming to such a name is the same <c>400</c>, and the record keeps
+    /// its name. One test per list, every case of <see cref="NotAllowedStartCases"/>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_rename_to_a_start_not_allowed_is_400(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var name = Seed.UniqueName("keep");
+        var id = await IdOfAsync(await CreateAsync(manager, list, name));
+
+        await ForEachCaseAsync(NotAllowedStartCases(), async jsonName =>
+        {
+            var json = await BodyJsonAsync(manager, list, jsonName);
+
+            var response = await manager.PutAsync($"{PathOf(list)}/{id}", ApiJson.Content(json), Cancel);
+
+            await ApiAssert.ValidationAsync(response, "name", "Name contains a character that is not allowed.");
+            Assert.Equal(name, (await StoredAsync(list, id)).Name);
+        });
+    }
+
+    /// <summary>
+    /// Runs <paramref name="check"/> for every case and fails once at the end, listing each case that failed with its
+    /// assertion message, so a single test can cover a whole case list without hiding which case broke.
+    /// </summary>
+    private static async Task ForEachCaseAsync(IEnumerable<string> cases, Func<string, Task> check)
+    {
+        var failures = new List<string>();
+        foreach (var testCase in cases)
+        {
+            try
+            {
+                await check(testCase);
+            }
+            catch (XunitException failure)
+            {
+                failures.Add($"case \"{testCase}\": {failure.Message}");
+            }
+        }
+
+        // Assert.Fail with the joined text, not Assert.Empty, which would shorten each message in its output.
+        if (failures.Count > 0)
+        {
+            Assert.Fail(string.Join(Environment.NewLine, failures));
+        }
+    }
+
+    /// <summary>
+    /// Decision #171 kept by #176, and #181: invisible characters between visible ones stay allowed and are stored as
+    /// sent on create and rename: a ZWNJ inside a Persian word, a family emoji joined by ZWJ, and (#181) a zero width
+    /// space and a right-to-left override in the middle.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_invisible_characters_between_visible_ones_are_still_kept(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var persian = $"\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645 {Suffix()}";
+        var family = $"\U0001F468\u200D\U0001F469\u200D\U0001F467 {Suffix()}";
+        var middle = $"Milk\u202Egnp\u200B {Suffix()}";
+
+        var created = await CreateAsync(manager, list, persian);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var id = await IdOfAsync(created);
+        Assert.Equal(persian, (await StoredAsync(list, id)).Name);
+
+        Assert.Equal(HttpStatusCode.OK, (await RenameAsync(manager, list, id, family)).StatusCode);
+        Assert.Equal(family, (await StoredAsync(list, id)).Name);
+
+        Assert.Equal(HttpStatusCode.OK, (await RenameAsync(manager, list, id, middle)).StatusCode);
+        Assert.Equal(middle, (await StoredAsync(list, id)).Name);
+    }
+
+    /// <summary>
+    /// Decision #182: combining marks after a base letter, and U+2800 between visible characters, are unaffected and
+    /// stored as sent, on create and rename: an enclosing mark at the end, a mark with no precomposed form, and a
+    /// Devanagari vowel sign after its consonant.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_combining_marks_after_a_letter_are_kept(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+        var marks = $"Deli x\u0301 {Suffix()} x\u20DD";
+        var devanagari = $"\u0915\u0941\u0932\u2800{Suffix()}";
+
+        var created = await CreateAsync(manager, list, marks);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var id = await IdOfAsync(created);
+        Assert.Equal(marks, (await StoredAsync(list, id)).Name);
+
+        Assert.Equal(HttpStatusCode.OK, (await RenameAsync(manager, list, id, devanagari)).StatusCode);
+        Assert.Equal(devanagari, (await StoredAsync(list, id)).Name);
+    }
+
+    /// <summary>
+    /// Legacy names that break the T-034 rules, as <see cref="string.Format(string, object)"/> patterns ({0} is a unique
+    /// suffix): a tab inside and a zero width space at the end (#176); a combining accent first and U+2800 at the end
+    /// (#182).
+    /// </summary>
+    private static readonly string[] LegacyNamePatterns = ["Legacy\t{0}\u200B", "\u0301Legacy {0}\u2800"];
+
+    /// <summary>
+    /// Decisions #181 and #182 with #172: a record whose stored name breaks the T-034 rules (saved before them, so not
+    /// rewritten) can still be edited. A <c>PUT</c> that sends the stored name back unchanged answers <c>200</c> and keeps
+    /// the name and its key; for an item it changes the description and for a customer the notes, the case the decision
+    /// is for. One test per list, every pattern of <see cref="LegacyNamePatterns"/>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_put_with_the_unchanged_stored_name_passes(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+
+        await ForEachCaseAsync(LegacyNamePatterns, async pattern =>
+        {
+            var (id, legacy) = await RecordWithLegacyNameAsync(manager, list, pattern);
+
+            var response = await manager.PutAsJsonAsync(
+                $"{PathOf(list)}/{id}", await EditBodyAsync(manager, list, id, legacy), Cancel);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await ApiJson.ReadAsync(response);
+            Assert.Equal(legacy, body.GetProperty("name").GetString());
+            Assert.Equal((legacy, NameNormalizer.Normalize(legacy)), await StoredAsync(list, id));
+            if (list == "items")
+            {
+                Assert.Equal("edited", body.GetProperty("description").GetString());
+            }
+            else if (list == "customers")
+            {
+                Assert.Equal("edited", body.GetProperty("notes").GetString());
+            }
+        });
+    }
+
+    /// <summary>
+    /// Decision #181: once the name really changes, every rule applies. Changing only the letter case of the legacy name
+    /// (a rename, as in #179) or adding to it is refused with <c>400</c>, and the stored name is left as it was. One test
+    /// per list, every pattern of <see cref="LegacyNamePatterns"/>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Lists))]
+    public async Task T034_put_that_changes_a_legacy_name_follows_the_rules(string list)
+    {
+        var manager = await factory.CreateClientAsAsync(Roles.Manager);
+
+        await ForEachCaseAsync(LegacyNamePatterns, async pattern =>
+        {
+            var (id, legacy) = await RecordWithLegacyNameAsync(manager, list, pattern);
+
+            var upperCase = await manager.PutAsJsonAsync(
+                $"{PathOf(list)}/{id}", await EditBodyAsync(manager, list, id, legacy.ToUpperInvariant()), Cancel);
+            var longer = await manager.PutAsJsonAsync(
+                $"{PathOf(list)}/{id}", await EditBodyAsync(manager, list, id, legacy + "x"), Cancel);
+
+            await ApiAssert.ValidationAsync(upperCase, "name", "Name contains a character that is not allowed.");
+            await ApiAssert.ValidationAsync(longer, "name", "Name contains a character that is not allowed.");
+            Assert.Equal(legacy, (await StoredAsync(list, id)).Name);
+        });
+    }
+
+    /// <summary>
+    /// Creates a record with a valid name, then writes a name made from <paramref name="pattern"/>, one the T-034 rules
+    /// refuse, straight into the database, as a record saved before T-034 would have it (decision #172: such rows are
+    /// not rewritten). Returns the id and that name.
+    /// </summary>
+    private async Task<(int Id, string Legacy)> RecordWithLegacyNameAsync(HttpClient manager, string list, string pattern)
+    {
+        var id = await IdOfAsync(await CreateAsync(manager, list, Seed.UniqueName("legacy")));
+        var legacy = string.Format(pattern, Suffix());
+        var key = NameNormalizer.Normalize(legacy);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var updated = list switch
+        {
+            "units" => await db.Units.Where(u => u.Id == id).ExecuteUpdateAsync(
+                set => set.SetProperty(u => u.Name, legacy).SetProperty(u => u.NameNormalized, key), Cancel),
+            "items" => await db.Items.Where(i => i.Id == id).ExecuteUpdateAsync(
+                set => set.SetProperty(i => i.Name, legacy).SetProperty(i => i.NameNormalized, key), Cancel),
+            _ => await db.Customers.Where(c => c.Id == id).ExecuteUpdateAsync(
+                set => set.SetProperty(c => c.Name, legacy).SetProperty(c => c.NameNormalized, key), Cancel),
+        };
+        Assert.Equal(1, updated);
+        return (id, legacy);
+    }
+
+    /// <summary>
+    /// The full <c>PUT</c> body that keeps everything but the name and an edited text field: an item keeps its type and
+    /// unit and gets the description "edited"; a customer gets the notes "edited"; a unit has only its name.
+    /// </summary>
+    private async Task<object> EditBodyAsync(HttpClient manager, string list, int id, string name)
+    {
+        if (list != "items")
+        {
+            return list == "customers" ? new { name, notes = "edited" } : new { name };
+        }
+
+        var item = await ApiJson.ReadAsync(await manager.GetAsync($"{PathOf(list)}/{id}", Cancel));
+        return new
+        {
+            name,
+            description = "edited",
+            type = item.GetProperty("type").GetString(),
+            unitId = item.GetProperty("unitId").GetInt32(),
+        };
     }
 
     // ---- helpers ----------------------------------------------------------------------------------------------

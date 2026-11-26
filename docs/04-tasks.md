@@ -42,6 +42,7 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-031 | (v1.1) End-to-end scenarios, cross-endpoint races, performance | backend-developer | T-029, T-030 | done |
 | T-032 | (v1.1) OpenAPI and sample requests | backend-developer | T-029, T-030 | done |
 | T-033 | (v1.1) Log who changed a customer (SEC-26, decision #177) | backend-developer | T-024 | done |
+| T-034 | Tighter name rules (SEC-25, decision #176) | backend-developer | BUG-002 fix | done |
 
 **Build phase complete (2026-11-21):** 22 of 22 tasks done, each reviewed by `code-reviewer` and committed as `T-0NN: ...` (last: `d09c6db T-021`). No task is open. Nothing was added after the decision on a full "only writer" guard for movements (decision #112: not adopted, so no post-QA task).
 
@@ -765,3 +766,7 @@ Every one of the 23 user stories in the PRD is served by at least one task, and 
 ### T-033: (v1.1) Log who changed a customer
 
 From the v1.1 security review (SEC-26) and owner decision #177. Every customer change (rename, notes edit, deactivate, reactivate, delete) writes one `Information` log line after the commit, naming the action, the customer id and the acting user id only: no customer name, no notes. Follow the existing after-commit logging pattern of the other services. No schema change, no change to any response. Done when a test per action shows the line is written with the ids and without the name or notes, a refused change (400/403/404/409) writes no line, and the full suite passes.
+
+### T-034: Tighter name rules
+
+From the v1.1 security review (SEC-25, its "Fix" list) and owner decision #176, building on the BUG-002 rules (#170 to #174) in `Common/Validation/NameRules.cs`. For customer, unit and item names, on create and rename: refuse a name that starts or ends with a Default_Ignorable_Code_Point or a Hangul filler (ZWJ and ZWNJ stay allowed between letters); count the Hangul fillers and U+2800 as invisible in the "Name is required." check; refuse noncharacters and control (Cc) characters anywhere, including NUL and tab, with "Name contains a character that is not allowed.". Stored names are not rewritten (#172). Done when unit and integration tests prove each rule for all three lists, the BUG-002 tests still pass, and the full suite passes.

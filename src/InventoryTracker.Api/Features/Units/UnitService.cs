@@ -75,7 +75,7 @@ public sealed class UnitService(AppDbContext db)
     public Task<UnitResponse> CreateAsync(UnitRequest request, CancellationToken cancellationToken) =>
         db.InWriteTransactionAsync(async () =>
         {
-            var name = ValidName(request);
+            var name = ValidName(request, storedName: null);
             await ThrowIfNameTakenAsync(name, exceptId: null, cancellationToken);
 
             // Decision #170: the stored name is the NFC, trimmed form NameRules produced, with its key beside it.
@@ -96,7 +96,8 @@ public sealed class UnitService(AppDbContext db)
             // FindAsync looks the row up by primary key and keeps it tracked, so changes to it are saved later.
             var unit = await db.Units.FindAsync([id], cancellationToken) ?? throw NotFound(id);
 
-            var name = ValidName(request);
+            // Decision #181: the stored name is passed in, so sending it back unchanged is not held to the T-034 rules.
+            var name = ValidName(request, storedName: unit.Name);
 
             // The unit's own current name does not count as taken, so "kg" can be renamed to "KG".
             await ThrowIfNameTakenAsync(name, exceptId: id, cancellationToken);
@@ -128,13 +129,16 @@ public sealed class UnitService(AppDbContext db)
 
     /// <summary>
     /// AC-06.1, AC-06.2, design 2.6: the cleaned name (NFC, trimmed) and its comparison key, or a <c>400</c> when it is
-    /// missing, blank, has no visible character or is longer than 50.
+    /// missing, blank, has no visible character, holds a character that is not allowed or is longer than 50.
     /// </summary>
-    private static CleanName ValidName(UnitRequest request)
+    /// <param name="request">The request body.</param>
+    /// <param name="storedName">On a rename, the unit's name as stored now (decision #181); null on a create.</param>
+    private static CleanName ValidName(UnitRequest request, string? storedName)
     {
-        // Decisions #170, #171: the rule shared with items and customers (NFC, trim, visible check, length in code points).
+        // Decisions #170, #171, #176: the rule shared with items and customers (NFC, trim, visible check, characters not
+        // allowed, length in code points).
         var errors = new ValidationErrors();
-        var name = NameRules.Validate(request.Name, ColumnRules.UnitNameLength, errors);
+        var name = NameRules.Validate(request.Name, ColumnRules.UnitNameLength, errors, storedName);
 
         errors.ThrowIfAny();
         return name!;
