@@ -40,7 +40,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-Next build work: the web front end (owner's order), starting with `product-manager` and a grilling session. Then the cloud path.
+v1.2 phase 2: `ux-designer` designs the front end (docs/02-design.md v1.2 part, design/mockups/). Then SEC-24 batching as its own task, then phase 3 (tech-lead; owner approval, including any new tool such as Node.js).
 
 ## Log
 
@@ -119,6 +119,7 @@ Next build work: the web front end (owner's order), starting with `product-manag
 - 2026-11-26 Going-public preparation: `security-reviewer` full-history scan (docs/10-public-readiness.md: no secrets; personal email in old commits kept, #185); owner settled Q91-Q97 (#183-#186); fixes PR-02/03/04/05/07, LICENSE (all rights reserved) and README "About this project" approved by `code-reviewer`, committed and pushed. Waiting on the owner's GitHub steps (review tabs, switch visibility, secret scanning).
 - 2026-11-26 Owner upgraded the real instance to v1.1.
 - 2026-11-26 Owner turned on GitHub Secret Protection and push protection (#186). Going-public preparation complete.
+- 2026-11-27 v1.2 (web front end) phase 1: `product-manager` wrote PRD sections 14-20; owner settled Q98-Q109 in a grilling session (#187-#192) and approved the PRD. Started v1.2 phase 2 with `ux-designer` (with the design-taste-frontend skill).
 
 ## Follow-ups to route
 

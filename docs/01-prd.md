@@ -1,8 +1,8 @@
 # Product requirements: Production & Inventory Tracker API
 
-Status: version 1 (sections 1 to 6) approved by the owner on 2026-11-11, written 2026-11-11 from the owner interview of the same day. Version 1.1: Sales orders (sections 7 to 13): approved by the owner on 2026-11-23. Every question is settled by decisions #138 to #151 (section 13).
+Status: version 1 (sections 1 to 6) approved by the owner on 2026-11-11, written 2026-11-11 from the owner interview of the same day. Version 1.1: Sales orders (sections 7 to 13): approved by the owner on 2026-11-23. Every question is settled by decisions #138 to #151 (section 13). (v1.2) Version 1.2: Web front end (sections 14 to 20): written 2026-11-26; every question (Q98 to Q109) settled by the owner on 2026-11-27 (section 20); approved by the owner on 2026-11-27, including assumption rows 92 and 93.
 
-This document has two parts. Sections 1 to 6 are version 1. Sections 7 to 13 add version 1.1: Sales orders. Where version 1.1 had to change a version 1 section, the change is marked "(v1.1)" in place and listed in section 12. Everything else in sections 1 to 6 is unchanged.
+This document has two parts ((v1.2) three). Sections 1 to 6 are version 1. Sections 7 to 13 add version 1.1: Sales orders. Where version 1.1 had to change a version 1 section, the change is marked "(v1.1)" in place and listed in section 12. Everything else in sections 1 to 6 is unchanged. (v1.2) Sections 14 to 20 add version 1.2: Web front end; its changes to earlier sections are marked "(v1.2)" in place and listed in section 19.2.
 
 Source of truth: this document and the agreed design from the 2026-11-11 interview. Where `README.md` says something different (one warehouse, four movement types, no users, a single "read" flag on notifications, no Cancelled status), this document wins.
 
@@ -52,7 +52,7 @@ Later:
 - Supplier, lot and purchase price on receipts.
 - Email or chat alerts.
 - PostgreSQL database.
-- A web front end.
+- A web front end. (v1.2) Moved into sections 14 to 20.
 - A rate limit on sign-in. Version 1 keeps only the 15-minute lock-out of AC-01.4 (decision #120).
 - Access from other machines. HTTPS (with HSTS) is required before the API is reachable from anywhere but the owner's machine; version 1 runs on localhost only (decision #119, row 22 in section 6).
 - Continuous delivery (CD) to Azure App Service (decision #137). After CI passes on `main`, a GitHub Actions job publishes the API to Azure; each deploy waits for a manual approval, not fully automatic deployment. It comes only after the cloud prerequisites: the PostgreSQL database (port: `docs/03-architecture.md` section 5.2), HTTPS with HSTS and the sign-in rate limit above, the other changes in `docs/07a-cloud-guide.md` section 1, a re-opened security review, and Azure resources the owner creates and pays for. Deployment credentials are kept in GitHub secrets or OIDC federation, never in the repository.
@@ -72,16 +72,35 @@ Later, follow-ons to version 1.1 sales orders (v1.1; "Sales orders that remove f
 - Exports (for example CSV) of the shipped-totals reports, and reports of open demand per customer.
 - Linking a production order to the sales order it is made for (make to order).
 - A notification when a shipment is refused for lack of stock.
-- Writing a shipment's movements in one batch, so a sales order with hundreds of lines does not hold the database for seconds (SEC-24, decision #175). Before the web front end.
+- Writing a shipment's movements in one batch, so a sales order with hundreds of lines does not hold the database for seconds (SEC-24, decision #175). Before the web front end. (v1.2) Part of version 1.2 as US-55.
 - Tighter name rules after v1.1 (SEC-25, decision #176): refuse invisible characters at the start or end of a name, count blank-looking characters (Hangul fillers, U+2800) as blank, refuse noncharacters, NUL and tab; joining characters (ZWJ, ZWNJ) stay allowed between letters. A small task right after the v1.1 release, before the web front end.
 - "Last changed by" columns on customers (SEC-26, decision #177). v1.1 records changes in the log only.
 - A rule that the person who created a sales order cannot ship it (SEC-29, decision #178).
-- Escaping HTML-sensitive characters in the API's JSON output and adding `nosniff` (SEC-27, SEC-11); the web front end's own rules (text binding only, strict Content-Security-Policy, ids shown next to customer names) go into its requirements when it is planned.
+- Escaping HTML-sensitive characters in the API's JSON output and adding `nosniff` (SEC-27, SEC-11); the web front end's own rules (text binding only, strict Content-Security-Policy, ids shown next to customer names) go into its requirements when it is planned. (v1.2) Part of version 1.2: the front end's rules are US-37, and the server escaping is AC-37.9 (Q108). `nosniff` is AC-37.6.
 - The sign-in rate limit above (SEC-05) also covers sales order creation (SEC-30).
 - A Development port for the sample requests (`InventoryTracker.Api.http`) that `run.ps1` never uses, so the walk-through cannot write to the real instance (SEC-31).
 - A start-up check that refuses to start when the database has migrations this version of the code does not know (an older version started on a newer database), and optionally `run.ps1` refusing a pending migration without a fresh backup (v1.1 release rehearsal).
 - A persistent log file (for example a daily rolling file next to the database), so log lines such as the customer-change line of T-033 survive after the API window closes (final v1.1 security check, F1).
-- Explicit ASP.NET Core DataProtection configuration (fixed application name, a chosen key folder that is backed up, a shared store in the cloud) before the web front end or the cloud path adds cookies, antiforgery or emailed tokens; and an optional key-folder setting so scratch and test runs do not read the owner's key folder (final v1.1 security check).
+- Explicit ASP.NET Core DataProtection configuration (fixed application name, a chosen key folder that is backed up, a shared store in the cloud) before the web front end or the cloud path adds cookies, antiforgery or emailed tokens; and an optional key-folder setting so scratch and test runs do not read the owner's key folder (final v1.1 security check). (v1.2) Not needed by version 1.2, which adds no cookies, antiforgery or emailed tokens (section 19.1; the owner chose a token in memory, Q106).
+
+Later, follow-ons to version 1.2 web front end (v1.2):
+
+- Next step after version 1.2: the cloud path, that is the PostgreSQL, sign-in rate limit, access from other machines (HTTPS with HSTS) and CD items above. Owner, 2026-11-27: "later on will be on cloud" (Q105).
+- A movement history screen (Q100a): the movement list with its filters (US-11, US-28), with date filters labelled as UTC days (Q107).
+- Shipped-totals report screens (Q100b): US-32 and US-33 on screen, with date filters labelled as UTC days (Q107).
+- An adjustments screen (Q100c): US-12 on screen, with a signed quantity and a confirmation dialog.
+- Using the front end on real phones and tablets, which needs access from other machines: the cloud step (Q102, Q105, Q109). The layout already works from 360 pixels wide.
+- Spanish, by translating the API's messages from their `code` (Q103).
+- Staying signed in across a page reload or a new tab, with a cookie session, antiforgery and the DataProtection configuration above (Q106).
+- A warning before the 8-hour sign-in ends, and renewing it without signing in again.
+- A "work to do" home screen per role: Created orders to send, requests to approve, Created sales orders to ship.
+- Printing a pick list or delivery note for a shipment.
+- Live updates pushed by the server instead of the 60-second notification refresh.
+- A name search in the API for items and customers, if the lists grow well past 500.
+- Showing open demand above Warehouse stock, together with the shortfall figure above.
+- Date filters in local days instead of UTC days (an API change, Q107).
+- Remembered list filters and other saved preferences per user.
+- Demo data, so someone evaluating the public repository can try the screens from an empty database.
 
 ## 4. User stories and acceptance criteria
 
@@ -418,12 +437,12 @@ As a Manager, I want to see a list of events that need my attention, and track w
 
 ## 5. Non-functional requirements
 
-- **Platforms:** an HTTP API exchanging JSON, with no user interface. It must build and run on the owner's Windows 11 machine using the documented commands. It publishes an OpenAPI description listing every endpoint, at least in the development environment.
+- **Platforms:** an HTTP API exchanging JSON, with no user interface. It must build and run on the owner's Windows 11 machine using the documented commands. It publishes an OpenAPI description listing every endpoint, at least in the development environment. (v1.2) The web front end's platforms are in section 18.
 - **Performance:** with 100,000 movements, 1,000 orders and 500 items in the database, and (v1.1) 500 customers and 5,000 sales orders of 1 to 10 lines each, 95% of requests (the shipped-totals reports of US-32 and US-33 included) answer within 1 second on the owner's machine.
 - **Consistency under concurrent use:** when two requests that conflict arrive at the same time (two sends for the same order, sends for two different orders, two movements that together would take stock below zero, and (v1.1) two shipments of the same sales order, a shipment and a cancellation of the same sales order, or deleting a customer while a sales order is created for it), at most one succeeds and stock never goes below zero in either location. Every request that changes data either completes fully or saves nothing.
 - **Security:** every endpoint except sign-in requires a valid token. Passwords are stored only as salted hashes. Password policy: at least 8 characters with an upper-case letter, a lower-case letter and a digit. The token signing key, `ADMIN_EMAIL` and `ADMIN_PASSWORD` come from environment variables, never from committed files.
 - **Configuration:** the tolerance is a percentage in application settings, default 2. A value below 0 or above 100 stops the application at start-up with a message.
-- **Accessibility:** not applicable in version 1 (no user interface).
+- **Accessibility:** not applicable in version 1 (no user interface). (v1.2) The web front end's accessibility requirements are in section 18.
 - **Data:** stored in a SQL database (SQLite in version 1). Movements, orders, complementary orders, returns, (v1.1) sales orders, notifications and users are kept indefinitely and never deleted (users are deactivated). (v1.1) Customers are kept indefinitely too; only a customer that never had any sales order can be deleted (AC-29.5). Everything is visible to signed-in users according to section 4.2.
 - **Language:** English for all messages and field names. Times in UTC.
 
@@ -721,3 +740,479 @@ Rows 23 to 30 and 41 to 46 were questions for the owner; the owner settled all o
 | 53 | Deactivating or reactivating a customer that is already in that state succeeds and changes nothing, as for users (AC-29.4). | PM | Assumed |
 | 54 | A deactivated customer is rejected on a new sales order with `409` (a state conflict), while an unknown or deleted customer id is `400` (invalid input), following the conventions in 4.1. Deleting a customer that has sales orders is a `409` (AC-29.5). | PM | Assumed |
 | 55 | A Seller can list and view units, as every other role can (AC-06.1), because every item and every sales order line shows its unit and the unit list holds nothing sensitive (decision #151). | Owner | Confirmed 2026-11-23 |
+
+---
+
+# Version 1.2: Web front end
+
+Status: written 2026-11-26 by `product-manager`; every question (Q98 to Q109) settled by the owner in a grilling session on 2026-11-27 and worked in on the same day; approved by the owner on 2026-11-27, including assumption rows 92 and 93. Chosen by the owner on 2026-11-23 as the next item from the Later list, after sales orders (v1.1) and before the cloud path (PostgreSQL, HTTPS, rate limit, CD), which stays the next step after this version (owner, 2026-11-27: "later on will be on cloud"). The questions, their answers and every assumption made on the owner's behalf are in section 20.
+
+Everything in sections 1 to 13 still applies to version 1.2: every business rule, role, endpoint, message and limit of versions 1 and 1.1 is unchanged. This part adds screens in a web browser that call the existing API, and the few changes to the API's web server listed in section 19.1. Where this part changes a version 1 or 1.1 section, the change is marked "(v1.2)" in place and listed in section 19.2.
+
+## 14. Problem and users
+
+Today every task in the product is an HTTP request typed in PowerShell on the one computer that runs the API: a helper pasted into each window, ids and order numbers looked up in JSON answers, quantities typed into hashtables (`docs/08-user-guide.md`). That suits a developer, not the staff of a small food manufacturer. In practice the people who should record each step, such as the warehouse worker who sends cheese to the line or the seller who takes an order by phone, ask the Manager to type it for them, or write it on paper and key it in later. The records then name the wrong person and come late, which defeats the audit trail of AC-05.3, and a mistyped id can send or ship the wrong item.
+
+The owner has no business of their own. The product is made for small businesses like the one in section 1, and the repository is public as a portfolio piece. A browser front end is what makes the product usable by the people it is for.
+
+**Primary user:** the warehouse worker, who several times a day records raw material arriving, sends material for a production order and ships customers' orders, and who should not need to know what an HTTP request is.
+
+**Other users:** the production line worker, who completes orders and asks for extra material; the production and inventory manager, who plans and cancels orders, approves extra material, returns leftover and reads notifications; the seller, who keeps the customer list and takes and cancels sales orders. While the product is localhost only (Q105), all four take turns at the one computer that runs the API.
+
+## 15. Goal for version 1.2
+
+Each of the four roles can do their daily tasks in a web browser on the owner's machine, signed in as themselves, without PowerShell, and a Manager can set up units, items, recipes and staff accounts there too, while the existing API still enforces every rule. The screens work from phone width up, ready for the cloud step that will let phones reach them.
+
+## 16. Scope
+
+In version 1.2 (owner, 2026-11-27: Q99 and Q100):
+
+- One responsive layout for every screen, from 360 pixels wide (a phone) up to a desktop (Q102, Q109, section 18).
+- Sign-in, sign-out, change own password, and the end of a session by expiry, inactivity or deactivation (US-34, US-35).
+- A menu and screens per role (17.2) that never offer more than the role table of section 4.2 allows (US-36).
+- The front-end security rules of SEC-10 and SEC-27 (US-37), and the changes to the API's web server they need (section 19.1).
+- Stock with open demand, for every role (US-38).
+- Recording a receipt (US-39).
+- Production orders: list, detail with estimate and variances, create, send, complete, cancel (US-40 to US-44).
+- Complementary orders: request, list, approve, reject, send (US-45 to US-47).
+- Leftover returns: list, instruct, receive, cancel (US-48). They are in version 1.2 because a Pending return blocks a send (AC-15.11), so the Warehouse must be able to record receiving it on screen.
+- Notifications for Managers, with an unread count (US-49).
+- Customers: list, detail, add, edit, deactivate, reactivate, delete (US-50).
+- Sales orders: list, detail, create, ship, cancel (US-51 to US-54).
+- Writing a shipment's movements in one batch, which the owner placed before the web front end (SEC-24, decision #175) (US-55). Scheduling note (delivery manager): this runs as its own small task before the front-end build; it stays in version 1.2 scope.
+- Units and items: list and detail for every role; add, rename or edit, and delete for Managers (US-56, US-57) (Q100d).
+- Recipes: view for Warehouse, Production and Manager; edit for Managers (US-58) (Q100d).
+- User management for Managers: list, add, change roles, deactivate, reactivate, set a password (US-59) (Q100e).
+- Escaping HTML characters in the API's JSON output (SEC-27 server hardening, AC-37.9, A-5) (Q108).
+
+Movement history, the shipped-totals reports and adjustments are not in version 1.2 (Q100a to c). They stay API-only, done as today with PowerShell or the sample requests, and are on the Later list.
+
+Out of scope for version 1.2 (non-goals):
+
+- Any change to a business rule, endpoint, request or response shape, status code, message, role or limit of versions 1 and 1.1. The only API-side changes are those in section 19.1.
+- A screen for any task not listed above, in particular movement history, the shipped-totals reports and adjustments (Q100).
+- Access from any other machine: LAN, internet or cloud. HTTPS, the sign-in rate limit and the cloud path stay on the Later list, the cloud path as the next step (Q105, SEC-03, SEC-05).
+- Using the front end from a real phone or tablet. A phone cannot reach `localhost`, so that comes with the cloud step; in version 1.2 the phone-width layout is tested in the browser's device preview (Q102, Q109).
+- Any language other than English, and translating the API's messages (Q103).
+- Staying signed in across a page reload, a new tab or a browser restart; "remember me"; signing out other sessions (Q106).
+- Cookies, antiforgery tokens and emailed tokens. Because there are none, this version does not need the explicit DataProtection configuration on the Later list (section 19.1).
+- Printing, PDF and exports (pick lists, delivery notes, CSV).
+- Dashboards, charts and a per-role "work to do" home screen.
+- Live updates pushed by the server, and alerts outside the screen (sound, desktop pop-ups, email). Only the notification count refreshes by itself (AC-49.5).
+- Offline use, and installing the front end as an app.
+- Sign-up and password reset by email (as in version 1).
+- Editing anything the API cannot edit: production orders, movements, sales orders.
+- A name search in the API. Pickers filter in the browser (F-13).
+- Saved user preferences: themes, remembered filters, column choices.
+- Demo data for people evaluating the repository.
+
+Later: the follow-on ideas are on the Later list in section 3, marked "(v1.2)".
+
+## 17. User stories and acceptance criteria
+
+### 17.1 Conventions used in every front-end criterion
+
+These are part of the acceptance criteria of US-34 to US-59. The API conventions of section 4.1 still apply to every request the front end sends.
+
+- **F-1 Refusals.** When the API refuses a request, the screen shows the `detail` text of the response word for word (`docs/02-design.md` section 6) in a message area at the top of the form or screen that sent it. When the response has an `errors` entry for a field the form shows, that message is also shown next to the field (for a line, next to that line's row). Everything the user typed stays in the form, except password fields, which are emptied. Nothing is shown as saved.
+- **F-2 No answer.** When the API does not answer (it is not running, or 30 seconds pass without an answer), the screen shows "Cannot reach the API. Check that it is running, then try again." and keeps the typed input. A request that changes data is never re-sent automatically.
+- **F-3 One click, one request.** While a request that changes data is running, the control that sent it cannot be used again and shows that it is busy. Pressing it twice, or pressing Enter twice, sends one request.
+- **F-4 Success.** After a successful change, the screen shows a short confirmation naming the record and its new state (for example "Order #12 is now InProduction.") and shows the record as the API returned it. The wording may differ; QA checks that the record number and state are named.
+- **F-5 Confirm before final actions.** Before an action that changes a record's status, deletes a record, or changes a user's roles or password, a dialog names the record and the action and says whether it can be undone, for example "Ship sales order #2 for Cafe Sur (#7)? This cannot be undone." Only the dialog's confirm control sends the request; its cancel control, the Escape key and closing the dialog send nothing. Recording a receipt, creating a record, editing a customer, renaming a unit, editing an item, saving a recipe and marking notifications read have no dialog.
+- **F-6 Lists.** A list shows one API page at a time, in the API's order (newest first), 50 rows per page, with the total count (for example "132 production orders") and next and previous page controls, each hidden when there is no such page. The filters offered are the API's filters for that list. Changing a filter shows page 1. When nothing matches, the list shows a sentence instead of an empty table, for example "No production orders match these filters." Selecting a row opens that record.
+- **F-7 Numbers.** Quantities are shown as the API writes them in messages (design 6.1): comma thousands separator, dot for decimals, at most 3 decimals with trailing zeros removed, the unit after a space, for example "1,015 kg" and "0.6 kg". Percentages have a sign and 2 decimals: "+2.90%", "-2.50%". A quantity or amount field accepts digits with at most one dot; anything else, such as "1,5", "1 000" or "-5", is refused on the screen with "Enter a number such as 995 or 995.5." and nothing is sent. Every other rule on numbers (decimal places, zero, maximums, ranges) is left to the API and shown by F-1. The front end calculates no business figure; it shows the figures the API returns (design section 1).
+- **F-8 Times.** Times from the API are shown in the computer's local time zone as "2026-11-26 08:05", and the footer of every screen says "Times are local (UTC-06:00)." with the computer's actual offset (Q107). A date the user enters (the receipt date) is sent as entered.
+- **F-9 People** are shown by the email the API returns.
+- **F-10 Ids next to names.** A customer is shown as its name followed by its id, "Deli Norte (#4)", everywhere a customer appears: lists, details, pickers and dialogs. When the customer is deactivated, "(inactive)" follows. An item is shown with its id, "Cheese (#3)", in every picker, on the Stock screen and on the Items screens (SEC-09, SEC-25, SEC-27).
+- **F-11 Only possible actions are offered.** A control for an action that none of the user's roles allows (section 4.2) is not shown. A control for an action the record's current status does not allow is not shown either, for example no Ship control on a Shipped sales order. The API still checks every request; a refusal, for example because another user changed the record in the meantime, is shown by F-1.
+- **F-12 Records that do not exist.** Opening the address of a record that does not exist shows the API's `404` message and a link to the list of that kind of record.
+- **F-13 Pickers.** Where a form asks for an item, a customer or a unit, the user chooses from a list of every record of the allowed kind (all pages of the API's list), shown as in F-10, with the unit for items. Typing narrows the list to the records whose name contains the typed text, ignoring letter case, or whose id equals the typed number. With 500 records, the narrowed list appears within 1 second of typing. The user cannot send an id that was not chosen from the list.
+- **F-14 Refresh.** A screen shows the data as it was when the screen opened. Each list and record screen has a Refresh control that reloads it. Only the notification count refreshes by itself (AC-49.5).
+- **F-15 Every width from 360 pixels.** Every screen, form, dialog and the menu work in a browser window from 360 pixels wide up to a desktop (Q102, Q109). At any width in that range: no text or control is cut off or overlaps another; the page itself never needs sideways scrolling, except that a wide table may scroll sideways inside its own area; the menu can be reached from every screen; and every control can be used by touch, with a target of at least 24 by 24 CSS pixels. QA checks each story at 360 by 640, 768 by 1024 and 1280 by 720, using the device preview of Edge or Chrome (row 74).
+
+### 17.2 Screens and actions by role
+
+The front end offers each role the screens and actions below, and never more than section 4.2 allows. A user with several roles gets everything any of them allows (AC-05.2). Section 4.2 actions with no screen in version 1.2 (movement history, the shipped-totals reports, adjustments) stay available through the API.
+
+| Screen or action | Warehouse | Production | Manager | Seller | Story |
+|------------------|:---------:|:----------:|:-------:|:------:|-------|
+| Sign in, sign out, change own password | yes | yes | yes | yes | US-34, US-35 |
+| Stock, with open demand | yes | yes | yes | yes | US-38 |
+| Record a receipt | yes | | yes | | US-39 |
+| Production orders: list and detail | yes | yes | yes | | US-40 |
+| Create or cancel a production order | | | yes | | US-41, US-44 |
+| Send materials for an order | yes | | yes | | US-42 |
+| Complete an order | | yes | yes | | US-43 |
+| Request a complementary order | | yes | yes | | US-45 |
+| Complementary orders: list and detail | yes | yes | yes | | US-46 |
+| Approve or reject a complementary order | | | yes | | US-46 |
+| Send a complementary order | yes | | yes | | US-47 |
+| Returns: list and detail | yes | yes | yes | | US-48 |
+| Instruct or cancel a return | | | yes | | US-48 |
+| Record receiving a return | yes | | yes | | US-48 |
+| Notifications | | | yes | | US-49 |
+| Customers: list and detail | yes | | yes | yes | US-50 |
+| Add, edit, deactivate, reactivate or delete a customer | | | yes | yes | US-50 |
+| Sales orders: list and detail | yes | | yes | yes | US-51 |
+| Create or cancel a sales order | | | yes | yes | US-52, US-54 |
+| Ship a sales order | yes | | yes | | US-53 |
+| Units: list and detail | yes | yes | yes | yes | US-56 |
+| Add, rename or delete a unit | | | yes | | US-56 |
+| Items: list and detail | yes | yes | yes | yes | US-57 |
+| Add, edit or delete an item | | | yes | | US-57 |
+| View a recipe | yes | yes | yes | | US-58 |
+| Edit a recipe | | | yes | | US-58 |
+| Users: list, detail, add, change roles, deactivate, reactivate, set a password | | | yes | | US-59 |
+
+Not in version 1.2 (Q100, Later list): movement history, the shipped-totals reports and adjustments.
+
+### US-34: Sign in, sign out and the end of a session
+
+As a staff member, I want to sign in on the browser with my email and password so that I can do my work under my own name without PowerShell.
+
+- **AC-34.1** Opening the front end's address when not signed in shows the sign-in screen: an email field, a password field and a Sign in control. No other screen and no API data can be seen. Opening the address of any other screen when not signed in shows the sign-in screen, and after signing in, that screen opens.
+- **AC-34.2** Signing in with the correct email and password of an active user opens the Stock screen. The header shows the user's email and roles, for example "maria.lopez@example.com (Manager)", a Change password control and a Sign out control.
+- **AC-34.3** A wrong password, an unknown email or a deactivated user: the screen shows "Invalid email or password.", keeps the email and empties the password (AC-01.3). A locked account shows "Account temporarily locked. Try again later." (AC-01.4). A blank email or password shows "Email is required." or "Password is required." (design 7.1); the front end may show these without sending a request.
+- **AC-34.4** Sign out shows the sign-in screen and discards the token. Afterwards, the browser's Back control shows the sign-in screen, not the earlier screens or their data.
+- **AC-34.5** The token is held only in the page's memory (SEC-10). After signing in, the browser's local storage, session storage, IndexedDB, cookies and cache storage for the front end's address hold no token and no API data, and the token never appears in the address bar, on the page or in the browser console. Reloading the page, opening the front end in a second tab, or closing and reopening the browser shows the sign-in screen (Q106).
+- **AC-34.6** When any request is answered `401` (the 8-hour token has expired, the user was deactivated, or the user changed their password elsewhere), the sign-in screen opens with "Your sign-in is missing or has expired. Sign in again." After signing in, the screen that was open opens again. What was typed in a form is not kept.
+- **AC-34.7** After 15 minutes with no keyboard, mouse or touch input in the front end, the user is signed out as in AC-34.4, and the sign-in screen says "You were signed out after 15 minutes without activity." (Q106, because staff share one computer).
+- **AC-34.8** When the API is not running, signing in shows the F-2 message.
+
+### US-35: Change own password
+
+As a staff member, I want to change my own password on screen so that only I know it.
+
+- **AC-35.1** Change password opens a form with three fields: current password, new password, and new password again. When the two new passwords match and the API accepts the change, the sign-in screen opens with "Password changed. Sign in with your new password.", because the change ends every session of the user (AC-04.1).
+- **AC-35.2** When the two new passwords differ, the form shows "The new passwords do not match." and sends nothing.
+- **AC-35.3** A wrong current password shows "Current password is incorrect." next to the current password field (AC-04.2). A new password that fails the policy shows the policy message next to the new password field. A locked account shows the lock-out message. In each case all three fields are emptied and the password is unchanged.
+
+### US-36: Screens by role
+
+As a staff member, I want to see only the screens and actions my roles allow so that I am never offered something I cannot do.
+
+- **AC-36.1** The menu shows exactly the screens of the 17.2 table that at least one of the user's roles can open. Warehouse only: Stock, Record receipt, Production orders, Complementary orders, Returns, Customers, Sales orders, Items, Units. Production only: Stock, Production orders, Complementary orders, Returns, Items, Units. Seller only: Stock, Customers, Sales orders, Items, Units. Manager: Stock, Record receipt, Production orders, Complementary orders, Returns, Notifications, Customers, Sales orders, Items, Units, Users. Production and Seller: Stock, Production orders, Complementary orders, Returns, Customers, Sales orders, Items, Units.
+- **AC-36.2** Opening the address of a screen that none of the user's roles can open (for example a Seller-only user opening a production order's address) shows "Your roles do not allow this screen." with a link to Stock, and none of that screen's data.
+- **AC-36.3** Every screen and every record (production order, complementary order, return, customer, sales order, unit, item, user) has its own address. Opening that address in the same tab, or after signing in (AC-34.1), shows it. The browser's Back and Forward controls move between the screens visited.
+- **AC-36.4** The menu follows the roles returned at sign-in. When a Manager changes the user's roles in the meantime, the old roles stay in force until the user signs in again (AC-03.5); an action the API now refuses shows the API's `403` message (F-1). After the next sign-in, the menu matches the new roles.
+- **AC-36.5** A reference to a record the user cannot open is shown as plain text, not as a link. Example: on the Stock screen, a Seller-only user sees "order #12" next to committed material as text (AC-30.7), while Warehouse, Production and Manager users get a link to order #12.
+
+### US-37: Safe display of stored text (SEC-10, SEC-27)
+
+As the owner, I want text typed by any user to be shown to others only as text so that no user can run a script in another user's browser and act under their sign-in.
+
+- **AC-37.1** Every text from the API is shown as plain text: names, descriptions, notes, reasons, customer references, shipment notes, notification messages, emails and error messages. Test data: an item named `<img src=x onerror=alert(1)>`, a customer named `</script><script>alert(1)</script>`, customer notes `<b>bold</b> & 'quote'`, and a completion reason `<a href="https://example.com">click</a>`. On every screen where they appear, the characters show exactly as typed, no dialog opens, nothing is bold, nothing is a link, and the browser makes no request to any other address.
+- **AC-37.2** The front end never inserts API data into the page as HTML and never places API data inside a script block. `code-reviewer` checks that no raw-HTML insertion is used anywhere in the front end's code (for example `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `v-html`, `dangerouslySetInnerHTML`, `[innerHTML]`).
+- **AC-37.3** Bidirectional control characters in any text from the API (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069) are shown as a visible marker naming the code point, for example "[U+202E]", and do not reorder the text around them. Example: an item named "Milk" + U+202E + "gnp.exe" is shown as "Milk[U+202E]gnp.exe", never as "Milkexe.png". The stored text is not changed: an edit field (customer name or notes, item name or description, unit name) holds the stored text exactly, and below it the form says "This text contains hidden direction characters: U+202E."
+- **AC-37.4** Customers and items are shown with their ids as F-10 says. Example: customers "Deli Norte" (#4) and "Deli Nоrte" with a Cyrillic "о" (#9) both appear in the sales order's customer picker with their ids, and the sales order detail and list show the id of the customer chosen.
+- **AC-37.5** Every response that delivers the front end's pages carries a `Content-Security-Policy` header that contains at least `default-src 'self'`, `script-src 'self'`, `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'` and `form-action 'self'`, and `connect-src 'self'` (the API is the same origin, Q104). No directive contains `*`, `http:`, `https:` or `data:` as a script source, and `script-src` contains neither `'unsafe-inline'` nor `'unsafe-eval'`. `style-src` may contain `'unsafe-inline'` only if the tech lead records the need in `docs/decisions.md` and `security-reviewer` accepts it. During the acceptance tests the browser reports no Content-Security-Policy violation.
+- **AC-37.6** Every response, pages and API alike, carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, and no `Server` header. Every response under `/api/` carries `Cache-Control: no-store` (SEC-11).
+- **AC-37.7** Cross-origin access (SEC-10). The front end is served from the API's own address (Q104), so the API has no CORS policy: it sends no `Access-Control-Allow-Origin` header to any origin, and a page from another origin cannot read API responses. Test: a request to `/api/v1/units` with an `Origin: http://localhost:5999` header gets no `Access-Control-Allow-Origin` header, and a preflight `OPTIONS` request from that origin gets none either.
+- **AC-37.8** The front end loads nothing from any other address (no scripts, styles, fonts or images from a CDN) and sends no analytics or error reports anywhere. During the acceptance tests, the browser's network log shows requests to the front end's own address only.
+- **AC-37.9** (Q108.) The API's JSON output escapes `<`, `>`, `&` and `'` inside strings, written as a Unicode escape (a backslash, the letter `u` and four hex digits; for `<` the digits are `003C`). Accented letters stay readable as they are. Example: the raw bytes of `GET /customers/{id}` for the customer named `</script><script>alert(1)</script>` contain no `<` character, and the name after parsing is unchanged. Every client, the PowerShell helper and the sample requests included, reads the same strings as before; only the raw bytes change.
+
+### US-38: Stock
+
+As any staff member, I want to see stock on screen so that I know what is in the warehouse and in production storage, and what customers are waiting for.
+
+- **AC-38.1** The Stock screen lists one row per item, from the stock view (US-10, US-31): item name with id, type, unit, Warehouse, Production storage and Open demand. For a raw material it also shows Committed (with the order number it is committed to), Pending returns and Free leftover. For a finished product those three cells show "-". A value of 0 is shown as "0".
+- **AC-38.2** The list can be filtered by type: all items, raw materials or finished products. Paging follows F-6.
+- **AC-38.3** Example (design 5.5): Cheese shows Warehouse 1,200 kg, Production storage 1,020 kg, Open demand 120 kg, Committed 1,020 kg (order #12), Pending returns 0 kg, Free leftover 0 kg. Shredded cheese 1 kg bag (AC-28.4) shows Warehouse 1,001 Bag, Production storage 0 Bag, Open demand 1,200 Bag, and "-" for the raw-material cells.
+- **AC-38.4** Every role sees the same columns (AC-31.4). The committed order number follows AC-36.5.
+- **AC-38.5** With no items, the screen says "No items yet. A Manager adds them."
+
+### US-39: Record a receipt
+
+As a warehouse user, I want to record raw material arriving on screen so that Warehouse stock is correct the moment it arrives.
+
+- **AC-39.1** A Warehouse or Manager user opens Record receipt: a raw material picker (raw materials only, F-13), a quantity field with the chosen item's unit shown beside it, a receipt date (today's local date to start with) and an optional note. Saving records the receipt (US-09).
+- **AC-39.2** On success the screen says, for example, "Received 1,000 kg of Cheese." and empties the item, quantity and note fields, keeping the date. The Stock screen then shows the new Warehouse figure (AC-09.4: 200 kg becomes 1,200 kg).
+- **AC-39.3** Refusals are shown by F-1 with the input kept, for example a receipt date later than today (UTC), a quantity of 0, more than 3 decimal places, or a note over 500 characters (AC-09.2).
+- **AC-39.4** With no raw materials, the picker says "No raw materials yet. A Manager adds them." and nothing can be saved.
+
+### US-40: Production orders, list and detail
+
+As a warehouse, production or manager user, I want to see production orders and everything recorded on them so that I know what to send, what to produce and what to investigate.
+
+- **AC-40.1** The list shows, per order: number, finished product, ordered quantity with unit, status, created time, time of the latest status change and produced quantity. It can be filtered by status (all, Created, InProduction, Completed, Cancelled). Paging follows F-6.
+- **AC-40.2** The detail shows every value of AC-14.2: number, finished product, ordered quantity, status, produced quantity, output variance and its percentage, the tolerance in force at completion, and the completion or cancellation reason; per line: material, unit, amount per unit, planned amount, leftover applied, warehouse send, complementary sends, carried leftover, leftover entered, ActualUsage, RequiredForActualOutput, usage variance and its percentage; the order's complementary orders (number as a link, status, requested time); and the history (status, time, user's email, note). A value not yet known is shown as "-".
+- **AC-40.3** While the order is Created, each line also shows a section headed "Estimate (recalculated each time the order is opened)" with the estimated leftover applied, the nominal send and the accepted send range, for example "975 to 1,015 kg" (AC-13.2, AC-15.3).
+- **AC-40.4** On a completed line whose usage variance is above tolerance, the words "Above tolerance" appear beside the percentage, in text and not by colour only. When the percentage is empty (decision #49), the cell shows "n/a" and the line still shows "Above tolerance" when the API flags it.
+- **AC-40.5** Example A (AC-20.5): completed order #12 shows Cheese ActualUsage 1,016 kg, RequiredForActualOutput 1,001 kg, usage variance +15 kg and +1.50% with no "Above tolerance"; produced 1,001 Bag, output variance +1 Bag and +0.10%. Example B (AC-20.6) shows +29 kg, +2.90% and "Above tolerance".
+- **AC-40.6** Following F-11, the detail offers: on a Created order, Send materials (Warehouse, Manager) and Cancel order (Manager); on an InProduction order, Complete order and Request extra material (Production, Manager) and Cancel order (Manager); on a Completed or Cancelled order, no action.
+- **AC-40.7** An unknown order number follows F-12.
+
+### US-41: Create a production order
+
+As a Manager, I want to create a production order on screen so that the warehouse sees what to send and I see the leftover estimate at once.
+
+- **AC-41.1** A Manager opens New production order from the production order list: a finished product picker (finished products only, F-13) and an ordered quantity with the product's unit beside it. On success the new order's detail opens, Created, with its estimate (AC-40.3).
+- **AC-41.2** Refusals follow F-1, for example a finished product with no recipe, or an ordered quantity of 0 or with more than 3 decimal places (AC-13.3).
+- **AC-41.3** With no finished products, the picker says "No finished products yet." and nothing can be saved.
+
+### US-42: Send materials for an order
+
+As a warehouse user, I want to enter what I weighed out for each material, with the accepted range in front of me, so that the send is right the first time.
+
+- **AC-42.1** On a Created order, Send materials opens a form with one row per order line: material, unit, planned amount, estimated leftover applied, nominal send, accepted range, the material's current Warehouse stock, and an empty quantity field. Every row must be filled, 0 included; an empty row shows "Enter a quantity for Cheese (0 if none is sent)." and nothing is sent.
+- **AC-42.2** Sending asks for confirmation (F-5) with each material and quantity listed. Confirming sends one request (US-15). On success the order detail shows InProduction, with leftover applied, warehouse send and carried leftover filled in.
+- **AC-42.3** Example (AC-15.3): with 5 kg of free leftover, a send of 995 kg is accepted, and the Stock screen then shows 1,000 kg of Cheese in production storage. A send of 1,015.001 kg is refused: "Cheese: send must be between 975 and 1,015 kg (planned 1,000 kg, leftover applied 5 kg)." appears at the top and next to the Cheese row, and nothing changes.
+- **AC-42.4** The other refusals follow F-1 with the input kept: another order in production (AC-15.10), a Pending return (AC-15.11; the message is followed by a link to the Returns list filtered to Pending), not enough Warehouse stock (AC-15.7), and an order no longer Created because someone else sent or cancelled it (AC-15.9).
+- **AC-42.5** The ranges on the form are the estimate when the form opened. If leftover changed in the meantime, the API's message states the current range, and the detail after a successful send shows the leftover actually applied (D-6).
+
+### US-43: Complete an order
+
+As a production user, I want to enter the output and the leftover on screen so that finished goods enter the warehouse and the usage is checked.
+
+- **AC-43.1** On an InProduction order, Complete order opens a form: the produced quantity with the product's unit, and per line the leftover with the material's current production storage stock beside it ("Production storage now: 1,020 kg"), plus a reason. The form explains: "Enter the total quantity of each material physically left in production storage, including leftover from earlier orders." (row 1). The reason is labelled "Required when any leftover is above 0".
+- **AC-43.2** An empty leftover row shows "Enter the leftover for Cheese (0 if none)." and nothing is sent.
+- **AC-43.3** Completing asks for confirmation (F-5) with the produced quantity. On success the detail shows Completed with every variance (AC-40.5).
+- **AC-43.4** Refusals follow F-1, for example "A reason is required when leftover is recorded." and "Leftover for Cheese cannot exceed the 1,020 kg in production storage." (AC-19.4).
+
+### US-44: Cancel a production order
+
+As a Manager, I want to cancel an order on screen, with a reason, so that it no longer holds leftover or blocks the line.
+
+- **AC-44.1** On a Created or InProduction order, Cancel order opens the F-5 dialog with a required reason field. A blank reason shows "Reason is required." in the dialog and sends nothing. On success the detail shows Cancelled with the reason.
+- **AC-44.2** For an InProduction order, the dialog also says "Material already sent stays in production storage as leftover." (AC-21.3).
+- **AC-44.3** Refusals follow F-1, for example an order completed by someone else in the meantime (AC-21.5).
+
+### US-45: Request a complementary order
+
+As a production user, I want to ask for extra material on screen, with a reason, so that the line does not stop and the extra use is on record.
+
+- **AC-45.1** On an InProduction order, Request extra material opens a form with one row per material on the order (only those, AC-16.3) with an empty requested amount, and a required reason. Rows left empty are not requested. On success the screen says "Complementary order #3 is waiting for approval." and the order detail lists #3 as PendingApproval.
+- **AC-45.2** With every row empty, the form shows "Enter an amount for at least one material." and sends nothing.
+- **AC-45.3** Refusals follow F-1, for example an order that is no longer InProduction (AC-16.2).
+
+### US-46: Complementary orders, list, approve and reject
+
+As a Manager, I want to see the requests for extra material and decide them on screen so that no extra material leaves the warehouse without my decision.
+
+- **AC-46.1** The list shows, per complementary order: number, parent order number (a link), status, requested by, requested time and its materials with requested amounts. It can be filtered by status and by parent order number. Paging follows F-6. The detail adds the reason, the accepted send range per line while PendingApproval or Approved, the sent quantity once Sent, the rejection or cancellation note, and the history.
+- **AC-46.2** On a PendingApproval complementary order, a Manager sees Approve and Reject. Reject opens the F-5 dialog with an optional note. On success the detail shows Approved, or Rejected with the note.
+- **AC-46.3** A complementary order already decided or cancelled in the meantime follows F-1 (AC-17.3).
+
+### US-47: Send a complementary order
+
+As a warehouse user, I want to send approved extra material on screen so that production can continue.
+
+- **AC-47.1** On an Approved complementary order, Send material opens a form with one row per line: material, unit, requested amount, accepted range, current Warehouse stock and an empty quantity field. Every row must be filled. Sending asks for confirmation (F-5). On success the complementary order shows Sent, and its parent order's complementary sends include the quantity.
+- **AC-47.2** Example (AC-18.2): requested 20 kg; 20.4 kg is accepted; 20.401 kg is refused with the API's range message next to the row.
+- **AC-47.3** Other refusals follow F-1, for example not enough Warehouse stock (AC-18.4) or a status other than Approved (AC-18.3).
+
+### US-48: Leftover returns
+
+As a Manager, I want to instruct returns of leftover, and as a warehouse user I want to record receiving them, on screen, so that leftover goes back to the warehouse and sends are not blocked.
+
+- **AC-48.1** The Returns list (Warehouse, Production, Manager) shows, per return: number, material, quantity with unit, reason, linked order number (a link) if any, status, and who created it and when. It can be filtered by status and by material. Paging follows F-6. The detail adds the history.
+- **AC-48.2** A Manager opens New return: a raw material picker, the material's current free leftover beside it ("Free leftover now: 20 kg"), a quantity, a required reason and an optional order number. On success the return is Pending, and the screen says, for example, "Return #5 of 20 kg of Cheese is waiting for the warehouse."
+- **AC-48.3** On a Pending return, Warehouse and Manager users see Receive; Manager users also see Cancel return. Each asks for confirmation (F-5). Example (AC-22.4): after receiving a 20 kg Cheese return, the Stock screen shows production storage 0 kg and Warehouse 20 kg more than before.
+- **AC-48.4** Refusals follow F-1, for example a quantity above the free leftover (AC-22.2), a material on the InProduction order (AC-22.3), or a return that is no longer Pending (AC-22.5).
+
+### US-49: Notifications
+
+As a Manager, I want to see events that need my attention and the number I have not read yet, on every screen, so that nothing is missed.
+
+- **AC-49.1** The Notifications screen lists, per notification: type, order number (a link) and complementary order number (a link) where present, time, message (as text, US-37), and "Unread" or "Read" in words. It can be filtered to unread only. Paging follows F-6.
+- **AC-49.2** Each unread notification has Mark read; the screen also has Mark all read. After either, the rows show "Read" and the unread count goes down. Opening the list marks nothing read by itself.
+- **AC-49.3** A Manager's header shows "Notifications (3)" with the number of the Manager's unread notifications, or "Notifications" when there are none. Users without the Manager role see no notification control.
+- **AC-49.4** Example (AC-20.5): after order #12 is completed as in worked example A, the Manager's unread count rises by 2 and the list shows one OutputVariance and one LeftoverAtCompletion notification for order #12.
+- **AC-49.5** The count is refreshed whenever the Manager opens a screen and every 60 seconds while signed in. A notification created by another user appears in the count within 60 seconds without any action. This refresh does not count as activity for AC-34.7.
+
+### US-50: Customers
+
+As a seller, I want to keep the customer list on screen so that every sales order names its customer the same way.
+
+- **AC-50.1** The Customers list (Warehouse, Manager, Seller) shows, per customer: name with id (F-10), "Active" or "Inactive" in words, created by and created time. It can be filtered by active, inactive or all (all to start with). Paging follows F-6. The detail adds the notes, shown as text with their line breaks kept.
+- **AC-50.2** Seller and Manager users see Add customer: a required name and optional notes. Below the notes the form says "Only the business contact details needed to deliver. Warehouse, Manager and Seller users can read these notes." (SEC-28). On success the new customer's detail opens.
+- **AC-50.3** On a customer's detail, Seller and Manager users see Edit, with the stored name and notes filled in; saving sends both. Example (AC-29.3): after "Deli Norte" is renamed "Deli Norte SA", sales order #1 shows "Deli Norte SA (#4)".
+- **AC-50.4** Seller and Manager users see Deactivate on an active customer and Reactivate on an inactive one, each with the F-5 dialog. A deactivated customer is not offered in the sales order customer picker (AC-52.1).
+- **AC-50.5** Seller and Manager users see Delete, with the F-5 dialog. On success the list no longer shows the customer. A customer with sales orders is refused with "Deli Norte has sales orders and cannot be deleted. Deactivate it instead." (AC-29.5).
+- **AC-50.6** Other refusals follow F-1, for example "A customer named 'Deli Norte' already exists." (AC-29.2). Warehouse users see no Add, Edit, Deactivate, Reactivate or Delete control.
+
+### US-51: Sales orders, list and detail
+
+As a seller or warehouse user, I want to see sales orders on screen so that I know what to ship and what has been shipped.
+
+- **AC-51.1** The list (Warehouse, Manager, Seller) shows, per sales order: sales order number, customer (F-10), customer reference, status, created time, time of the latest status change and number of lines. It can be filtered by status, customer (picker) and item (picker). Filters combine. Paging follows F-6.
+- **AC-51.2** The detail shows every value of AC-25.2: number, customer with id and active status, customer reference, status, shipment note, cancellation reason, per line the item, item type, unit and quantity in the order entered, and the history (status, time, user's email, note).
+- **AC-51.3** Following F-11, a Created sales order offers Ship (Warehouse, Manager) and Cancel (Seller, Manager). Shipped and Cancelled sales orders offer no action. An unknown number follows F-12.
+
+### US-52: Create a sales order
+
+As a seller, I want to enter a customer's order on screen so that the warehouse knows what to ship.
+
+- **AC-52.1** Seller and Manager users open New sales order: a customer picker offering active customers only (F-10, F-13), an optional customer reference, and lines. Each line has an item picker (any item, raw material or finished product, AC-24.8) and a quantity with the item's unit beside it. Lines can be added and removed; the form starts with one line. On success the new sales order's detail opens, Created.
+- **AC-52.2** A line with no item or no quantity shows "Choose an item and enter a quantity, or remove the line." and nothing is sent.
+- **AC-52.3** Refusals follow F-1, for example the same item on two lines (AC-24.3), or a customer deactivated by someone else in the meantime: "Customer Deli Norte is deactivated. Reactivate the customer or choose another one." (AC-24.4).
+- **AC-52.4** The form checks no stock: a sales order for 600 Bag with 0 Bag in the Warehouse is created (AC-24.2).
+
+### US-53: Ship a sales order
+
+As a warehouse user, I want to record on screen that a customer's order has left so that Warehouse stock goes down and the shipment is on record.
+
+- **AC-53.1** On a Created sales order, Ship opens the F-5 dialog listing each line with its quantity and the item's current Warehouse stock, and an optional shipment note. Confirming ships every line in full (US-26). On success the detail shows Shipped, with who shipped it, when, and the note.
+- **AC-53.2** Example (AC-26.3): a refused shipment shows "Not enough stock: Shredded cheese 1 kg bag in Warehouse has 401 Bag; sales order #2 needs 500 Bag." and the sales order stays Created.
+- **AC-53.3** Other refusals follow F-1, for example a sales order shipped or cancelled by someone else in the meantime (AC-26.7).
+
+### US-54: Cancel a sales order
+
+As a seller, I want to cancel a sales order on screen, with a reason, so that it no longer counts as work to do or as open demand.
+
+- **AC-54.1** On a Created sales order, Cancel opens the F-5 dialog with a required reason. A blank reason shows "Reason is required." in the dialog and sends nothing. On success the detail shows Cancelled with the reason.
+- **AC-54.2** Refusals follow F-1, for example "This sales order has been shipped and cannot be cancelled." (AC-27.2).
+
+### US-55: Write a shipment in one batch (SEC-24)
+
+As a warehouse user, I want a large shipment recorded quickly so that nobody else's save waits for it, now that several people use the product at once in browsers.
+
+- **AC-55.1** With the section 5 data set on the owner's machine, shipping a Created sales order of 500 lines whose stock covers every line answers `200` within 1 second.
+- **AC-55.2** While that shipment runs, a receipt recorded by another user at the same moment answers within 1 second.
+- **AC-55.3** Every rule of US-26 and US-28 is unchanged: one ShippedToCustomer movement per line, all or nothing, the same messages, and every race in AC-26.10. The existing tests still pass.
+
+### US-56: Units
+
+As a Manager, I want to keep the list of units on screen so that a new installation can be set up without PowerShell and every item is measured consistently.
+
+- **AC-56.1** The Units screen (every role) lists every unit with its name and id, newest first, paged by F-6. With no units it says "No units yet. A Manager adds them."
+- **AC-56.2** A Manager sees Add unit: one name field. On success the list shows the new unit (US-06). Refusals follow F-1, for example "Name is required.", "Name must be 50 characters or fewer.", "Name contains a character that is not allowed." and "A unit named 'kg' already exists." (AC-06.2).
+- **AC-56.3** A Manager sees Rename on each unit, with the stored name filled in. On success the unit shows its new name, and every item using it shows that name too (the item list reads it from the API). Refusals follow AC-56.2.
+- **AC-56.4** A Manager sees Delete on each unit, with the F-5 dialog. On success the unit is no longer listed. A unit used by an item is refused with "Unit is used by one or more items." (AC-06.4), and the unit stays.
+- **AC-56.5** Warehouse, Production and Seller users see the list only, with no Add, Rename or Delete control (F-11).
+
+### US-57: Items
+
+As a Manager, I want to keep raw materials and finished products on screen so that orders, recipes, stock and sales orders refer to the same items.
+
+- **AC-57.1** The Items screen (every role) lists, per item: name with id (F-10), type in words ("Raw material" or "Finished product"), unit and description. It can be filtered by type. Paging follows F-6. With no items it says "No items yet. A Manager adds them." Selecting an item opens its detail: the same fields, its creation time and, for a finished product, its recipe (US-58).
+- **AC-57.2** A Manager sees Add item: name (required), description (optional), type (raw material or finished product) and unit (a unit picker, F-13). On success the new item's detail opens (US-07). With no units, the unit picker says "No units yet. Add a unit first." and nothing can be saved.
+- **AC-57.3** On an item's detail a Manager sees Edit, with the stored name, description, type and unit filled in; saving sends all four (a full replacement, design 5.4). Example (AC-07.3): for Cheese, which has movements, a change of name or description is accepted, and a change of unit from kg to Bag is refused with "Type and unit cannot change once the item is in use."; the form keeps the input.
+- **AC-57.4** On an item's detail a Manager sees Delete, with the F-5 dialog. On success the item is no longer listed. An item in use is refused with the API's message, for example "Cheese has movements, recipe lines, order lines or sales order lines and cannot be deleted." (AC-07.4, AC-28.5).
+- **AC-57.5** Other refusals follow F-1, for example "An item named 'Cheese' already exists." (AC-07.2), "Name must be 100 characters or fewer." and "Description must be 500 characters or fewer."
+- **AC-57.6** Warehouse, Production and Seller users see the list and the detail only, with no Add, Edit or Delete control (F-11).
+
+### US-58: Recipes
+
+As a Manager, I want to set the recipe of a finished product on screen so that production orders are planned from it; and as a warehouse or production user, I want to read it.
+
+- **AC-58.1** A finished product's detail shows its recipe to Warehouse, Production and Manager users: per line, the raw material with id, the amount per unit of finished product and the material's unit, in the stored order, and the time the recipe was last saved. A finished product with no recipe shows "Shredded cheese 1 kg bag has no recipe." (design 5.4) instead of the table. A raw material's detail has no recipe section.
+- **AC-58.2** A Seller-only user sees no recipe section on any item, and the front end does not request the recipe for that user (AC-30.6).
+- **AC-58.3** On a finished product, a Manager sees Edit recipe (or Set recipe when there is none). The form shows the current lines, or one empty line, each with a raw material picker (raw materials only, F-13) and an amount per unit with the material's unit beside it. Lines can be added and removed. The form says "Saving replaces the whole recipe. Orders already created keep the recipe they were created with." (AC-08.1, AC-08.4).
+- **AC-58.4** A line with no material or no amount shows "Choose a material and enter an amount, or remove the line." and nothing is sent. A form with no lines shows "A recipe needs at least one line." and nothing is sent.
+- **AC-58.5** Refusals follow F-1 with the input kept, shown next to the line where the API names one, for example "Cheese appears on more than one line.", "Amount per unit must be greater than 0." and "Amount per unit can have at most 6 decimal places." (AC-08.2).
+- **AC-58.6** Example (AC-08.3, AC-08.4): the recipe of Shredded cheese 1 kg bag is saved as 1 kg of Cheese per Bag; a new production order for 1,000 Bag then shows 1,000 kg of Cheese planned. The recipe is changed to 1.01 kg; the earlier order still shows 1,000 kg, and a new order for 1,000 Bag shows 1,010 kg.
+
+### US-59: User management
+
+As a Manager, I want to manage staff accounts on screen so that each person can sign in as themselves and do exactly their job.
+
+- **AC-59.1** The Users screen (Manager only) lists, per user: email, roles, "Active" or "Inactive" in words, and creation time, newest first, paged by F-6. Selecting a user opens their detail with the same fields. No screen ever shows a password or password hash (AC-03.4).
+- **AC-59.2** Add user takes an email, an initial password entered twice, and one or more of the four roles, chosen with one checkbox per role (Warehouse, Production, Manager, Seller). When the two passwords differ the form shows "The passwords do not match." and sends nothing; with no role chosen it shows "At least one role is required." and sends nothing. On success the new user's detail opens, active, with exactly the roles chosen (AC-03.1).
+- **AC-59.3** Refusals on Add user follow F-1, for example "A user with this email already exists." (AC-03.2), "Email is not a valid email address." and the password policy message (AC-03.3).
+- **AC-59.4** On a user's detail, Change roles shows the four checkboxes with the current roles ticked. Saving asks for confirmation (F-5). On success the screen says "The new roles apply from this user's next sign-in. To remove access now, deactivate the user." (AC-03.5, SEC-07 runbook).
+- **AC-59.5** On a user's detail, Deactivate (for an active user) and Reactivate (for an inactive one) ask for confirmation (F-5). On success the status shows the change (AC-03.6). When a Manager deactivates their own account, the dialog also says "You will be signed out at once."; after confirming, the next request is answered `401` and AC-34.6 applies.
+- **AC-59.6** Removing the Manager role from, or deactivating, the last active Manager is refused with "At least one active Manager is required." (AC-03.8), and nothing changes.
+- **AC-59.7** On another user's detail, Set password takes a new password entered twice and asks for confirmation (F-5). Different entries show "The passwords do not match." and send nothing; a password that fails the policy shows the policy message. On success the screen says "Password set. Tell the user to sign in with it and change it." (AC-03.7). On the Manager's own detail, Set password is not offered; the Manager uses Change password (US-35), which asks for the current password (SEC-15).
+- **AC-59.8** Users without the Manager role see no Users entry in the menu, and opening a user's address follows AC-36.2.
+
+## 18. Non-functional requirements
+
+Section 5 still applies to the API. For the front end:
+
+- **Where it runs:** on the owner's Windows 11 machine, reachable at `localhost` only, like the API (Q105, row 63; row 22). The owner starts it with the same `scripts\run.ps1 -Published` command as today, which then also prints the front end's address. The running product needs no new software on the owner's machine. Building it may need a new tool (row 77). A phone or tablet cannot reach `localhost`, so real phone use waits for the cloud step, the next step after version 1.2 (Q105, Q109).
+- **Browsers:** the current versions of Microsoft Edge and Google Chrome on Windows 11 (row 74). QA runs the acceptance tests in both, at the three window sizes of F-15, using the browsers' device preview for the phone and tablet sizes. Phone browsers themselves are not tested in version 1.2.
+- **Screen sizes:** one responsive layout for every screen, from a browser window 360 pixels wide (a phone) up to a desktop (Q102, Q109). F-15 states what QA checks. At 200% browser zoom on a 1280 by 720 window every text and every control can still be reached; wide tables may scroll sideways inside their own area.
+- **Accessibility:** for every screen in scope, at every width of F-15: every action can be done with the keyboard alone, in a logical order, with the focus always visible; every field has a visible label tied to it; F-1 messages are announced to screen readers and tied to their fields; status, read state and "Above tolerance" are given in words, never by colour alone; text contrast is at least 4.5 to 1; touch targets are at least 24 by 24 CSS pixels; each screen has its own page title; the page declares English as its language. An automated accessibility checker chosen by the tech lead reports no critical or serious problem on any screen (row 75).
+- **Performance:** with the section 5 data set (100,000 movements, 1,000 production orders, 500 items, 500 customers, 5,000 sales orders) on the owner's machine: the sign-in screen appears within 3 seconds of opening the address; 95% of screens show their data within 2 seconds of being opened; pickers follow F-13.
+- **Language:** English only (Q103). The API's messages are shown word for word.
+- **Data in the browser:** the front end stores nothing in the browser: no token, no API data, no preferences (AC-34.5). Everything it shows comes from the API and disappears with the tab.
+- **Compatibility:** every existing API client keeps working unchanged: the PowerShell helper of the user guide, the sample requests and every existing test. The base path stays `/api/v1`.
+- **Security:** US-37 and section 19.1. The security review is re-opened for this version (phase 6), with the front end in its scope.
+- **Technology:** chosen by the tech lead in phase 3. The owner prefers TypeScript or JavaScript for front ends, with mainstream, well-documented tools (CLAUDE.md).
+
+## 19. Changes to the API and to the version 1 and 1.1 parts
+
+### 19.1 Changes to the API and its web server
+
+The front end uses the existing 62 endpoints as they are. It needs no new endpoint and no change to any request, response, status code, message or role. These are the only API-side changes in version 1.2:
+
+| # | Change | Why | Story |
+|---|--------|-----|-------|
+| A-1 | The API's web server also serves the front end's files, at the root of the same address and port (Q104). Any path outside `/api/`, `/health` and `/openapi/` that is not a file returns the front end's page, so a screen's address can be opened directly (AC-36.3). Every path under `/api/` answers as today, including the `404` ProblemDetails for an unknown path. | One address and one start command for the owner; same origin, so no CORS. | US-34, US-36 |
+| A-2 | Security headers: the Content-Security-Policy on the pages (AC-37.5); `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and no `Server` header on every response; `Cache-Control: no-store` on `/api/` (AC-37.6). | SEC-10, SEC-11, SEC-27. | US-37 |
+| A-3 | No CORS policy: the front end is served from the API's own address (Q104, AC-37.7). | SEC-10. | US-37 |
+| A-4 | A shipment's movements are written in one batch. Runs as its own small task before the front-end build (delivery manager's scheduling). | SEC-24, decision #175 (before the web front end). | US-55 |
+| A-5 | The JSON output escapes `<`, `>`, `&` and `'` in strings (Q108, AC-37.9). | SEC-27 server hardening. | US-37 |
+
+Not changed, on purpose:
+
+- Authentication stays a bearer token in the `Authorization` header. The front end sets no cookie and the API issues none, so there is no CSRF risk to handle and no antiforgery token. For the same reason the explicit DataProtection configuration on the Later list is not required by version 1.2: the owner chose a token in memory, with no cookie session (Q106).
+- The sign-in lock-out (AC-01.4), the 8-hour token with no refresh (AC-01.2), the request limits (row 21) and the role rules (section 4.2).
+- Localhost only. Nothing in this version makes the API or the front end reachable from another machine (Q105). The cloud path is the next step after version 1.2.
+- Units, items, recipes and users (US-56 to US-59) use the existing endpoints of US-03 and US-06 to US-08 unchanged.
+
+### 19.2 Changes to the version 1 and 1.1 parts
+
+Every change version 1.2 makes to sections 1 to 13. Each is also marked "(v1.2)" in place.
+
+| # | Where | Change |
+|---|-------|--------|
+| 1 | Status line and introduction at the top | The document now has a version 1.2 part (sections 14 to 20), its questions settled on 2026-11-27 and approved by the owner on 2026-11-27, including assumption rows 92 and 93. |
+| 2 | Section 3, Later | "A web front end." is marked as moved into sections 14 to 20. |
+| 3 | Section 3, Later, (v1.1) sub-list | The SEC-24 batching item is marked as part of version 1.2 (US-55). The SEC-27 escaping item is marked as part of version 1.2: the front end's rules in US-37, the server escaping in AC-37.9 (Q108). The DataProtection item is marked as not needed by version 1.2, which adds no cookies (19.1, Q106). |
+| 4 | Section 3, Later | A "(v1.2)" sub-list of follow-on ideas is added. |
+| 5 | Section 5, Platforms and Accessibility | A pointer to section 18 for the web front end. |
+
+Deliberately not changed: section 3 "Out of scope: Any user interface" and section 9's "Any user interface", which describe versions 1 and 1.1 as released; sections 4.1 to 4.3, every user story US-01 to US-33 and every acceptance criterion in them; section 11. The front end follows them all and changes none.
+
+Not part of this document, but affected, for the roles that own them: `docs/02-design.md` gains the screens (phase 2, `ux-designer`, with mockups); `docs/03-architecture.md` gains the front end and the A-1 to A-5 changes; `docs/07-release.md`, `README.md` and `docs/08-user-guide.md` describe the browser way of working; `docs/06-security-review.md` is re-opened.
+
+## 20. Assumptions and open questions for version 1.2
+
+Rows 56 to 66 and row 91 were questions for the owner, Q98 to Q109; the owner settled all of them in a grilling session on 2026-11-27. Rows 67 to 90 and 92 to 97 are assumptions made on the owner's behalf; each can be overruled. No question is open.
+
+| # | Assumption or question | Decided by | Answer |
+|---|------------------------|------------|--------|
+| 56 | Q98. Version number: v1.2 or v2.0? | Owner | Decided 2026-11-27 (owner): **v1.2**. The API stays backwards compatible at `/api/v1`. |
+| 57 | Q99. Which roles and tasks come first? | Owner | Decided 2026-11-27 (owner): **the daily tasks of all four roles**, US-34 to US-55, as proposed (section 16). |
+| 58 | Q100. Which further screens join version 1.2: (a) movement history, (b) shipped-totals reports, (c) adjustments, (d) units, items and recipes, (e) user management? | Owner | Decided 2026-11-27 (owner): **(d) and (e) are in version 1.2**, as full stories: units US-56, items US-57, recipes US-58, user management US-59. **(a), (b) and (c) go to the (v1.2) Later sub-list** in section 3 and stay API-only. |
+| 59 | Q101. Should the first version be read-only for some roles? | Owner | Decided 2026-11-27 (owner): **no**. Every role gets its write tasks on screen. |
+| 60 | Q102. Desktop only, or phone-friendly too? | Owner | Decided 2026-11-27 (owner): **phone-friendly**: one responsive layout from 360 pixels wide up to a desktop (F-15, section 18). How it is tested is row 91 (Q109). |
+| 61 | Q103. English only, or Spanish too? | Owner | Decided 2026-11-27 (owner): **English only**. Spanish is on the (v1.2) Later sub-list. |
+| 62 | Q104. Is the front end served by the API, or does it run separately? | Owner | Decided 2026-11-27 (owner): **served by the API, at the same address and port** (A-1). No CORS policy (A-3, AC-37.7). |
+| 63 | Q105. Localhost only, or reachable on the local network? | Owner | Decided 2026-11-27 (owner): **localhost only**. The owner added "later on will be on cloud": the cloud path (PostgreSQL, HTTPS with HSTS, sign-in rate limit, CD) stays on the Later list as the next step after version 1.2. |
+| 64 | Q106. How long does a browser sign-in last? | Owner | Decided 2026-11-27 (owner): **the token lives in memory only**; a reload or a new tab means signing in again (AC-34.5); **automatic sign-out after 15 minutes without activity** (AC-34.7). No cookies, so no DataProtection work in version 1.2 (19.1). |
+| 65 | Q107. Are times shown in UTC or in local time? | Owner | Decided 2026-11-27 (owner): **local time on screen, with the offset in the footer** (F-8). Date filters stay whole UTC days and are labelled so; no screen in version 1.2 has one, so this applies when the Later screens (movement history, reports) come. |
+| 66 | Q108. Should the API also escape HTML characters in its JSON output in version 1.2 (SEC-27 server hardening)? | Owner | Decided 2026-11-27 (owner): **yes**. A-5 is in version 1.2 (AC-37.9). |
+| 67 | The home screen after sign-in is Stock for every role, because it is the one screen every role can open. | PM | Assumed |
+| 68 | Status changes, deletes, and changes to a user's roles or password ask for confirmation (F-5); receipts, new records, customer edits, unit renames, item edits, recipe saves and marking read do not, because they are frequent or can be corrected. | PM | Assumed |
+| 69 | Send, complementary send and completion fields start empty, with the nominal send or the production storage figure shown beside them, so the user enters what was really weighed or counted rather than confirming a pre-filled figure. | PM | Assumed |
+| 70 | The front end calculates no business figure (ranges, estimates, variances, shortfalls); it shows what the API returns. Its own checks are limited to required fields, number format (F-7), at least one role or recipe line, and passwords entered twice matching. | PM | Assumed |
+| 71 | Numbers are shown in the API's message format (comma thousands, dot decimals) and entered with a dot for decimals and no thousands separator (F-7). | PM | Assumed |
+| 72 | Customer ids are shown everywhere a customer appears; item ids in pickers, on the Stock screen and on the Items screens (F-10). Not on every order line, to keep tables readable. | PM | Assumed |
+| 73 | Bidirectional control characters are shown as visible markers, not stripped (AC-37.3), so a disguised name is seen for what it is. Other invisible characters allowed by the name rules (ZWJ and ZWNJ between letters, #171, #181) are shown as they are, because marking them would break the scripts and emoji that need them. | PM | Assumed |
+| 74 | Supported browsers are current Microsoft Edge (installed with Windows 11) and Google Chrome, on Windows 11; the phone and tablet widths are checked with their device preview (F-15). Firefox, Safari and real phone browsers are not tested in version 1.2. | PM | Assumed |
+| 75 | Accessibility is the concrete list in section 18, taken from WCAG 2.2 level AA, rather than a full WCAG audit. | PM | Assumed |
+| 76 | The notification count refreshes every 60 seconds and on every screen change (AC-49.5); nothing else refreshes by itself (F-14). | PM | Assumed |
+| 77 | Building the front end may need a tool the owner does not have yet (for example Node.js), on the owner's machine and in CI. The tech lead names it in phase 3; installing it is the owner's call. The front end's tests run in CI with the rest. | PM | Assumed |
+| 78 | After a `401`, the user returns to the screen they were on, but typed input is lost (AC-34.6). Keeping it would mean storing it in the browser, which AC-34.5 rules out. | PM | Assumed |
+| 79 | Customer delete is on screen for Sellers and Managers (AC-50.5), although rare, because it completes the customer list task of US-29; the API refuses it for any customer with a sales order. | PM | Assumed |
+| 80 | Returns are in the first slice (US-48), because a Pending return blocks a send (AC-15.11) and the Warehouse must be able to clear it on screen. | PM | Assumed |
+| 81 | Pickers read every page of the item, customer or unit list and filter in the browser (F-13). With 500 records that is 5 requests of 100; no API search endpoint is needed in this version. | PM | Assumed |
+| 82 | The SEC-24 batching target is 1 second for a 500-line shipment at the section 5 volume (AC-55.1), in line with section 5's 1-second target. The tech lead may propose another figure, with a measurement. | PM | Assumed |
+| 83 | The browser's password manager may fill in the sign-in form. Remembering a password is the user's own choice in their browser. | PM | Assumed |
+| 84 | Password fields are emptied after any refusal (F-1, AC-34.3, AC-35.3). | PM | Assumed |
+| 85 | The receipt date starts at today's local date (AC-39.1). East of UTC, just after local midnight, that date can be later than today in UTC; the API then refuses it (AC-09.2) and the user picks the day before. The API's rule is not changed. | PM | Assumed |
+| 86 | Lists keep the API's page size of 50; there is no page-size control. | PM | Assumed |
+| 87 | The customer list starts with all customers, active and inactive, as the API's default (AC-29.6). | PM | Assumed |
+| 88 | A front-end path never starts with `/api/`, `/health` or `/openapi/`, so screens and API paths cannot collide (A-1). | PM | Assumed |
+| 89 | Superseded by Q100 (row 58), 2026-11-27. The draft's five candidate stories were renumbered: units, items and recipes became US-56 to US-58 and user management US-59; movement history, the shipped-totals reports and adjustments were removed and are on the (v1.2) Later sub-list. | Owner | Superseded 2026-11-27 |
+| 90 | Movement history, the shipped-totals reports and adjustments stay possible through the API as today. The user guide keeps its PowerShell sections for them. | PM | Assumed |
+| 91 | Q109, raised in the grilling session. What does "phone-friendly" mean while a phone cannot reach `localhost`, and how is it tested? | Owner | Decided 2026-11-27 (owner): **one responsive layout from 360 pixels wide up to a desktop, tested in the browser's device or phone preview** (F-15, section 18). Real phone use comes with the cloud step (HTTPS), because a phone cannot reach `localhost`. Accessibility at 200% zoom still applies. |
+| 92 | Units and Items screens can be opened by every role, and a recipe by Warehouse, Production and Manager, because section 4.2 lets those roles read them; only Managers change them (US-56 to US-58). | PM | Assumed |
+| 93 | On their own user detail, a Manager is not offered Set password; they use Change password, which asks for the current password (AC-59.7). The API allows a Manager to reset their own password without it (SEC-15); the screen does not invite it. | PM | Assumed |
+| 94 | A Manager may deactivate their own account on screen, as the API allows, with a warning that they will be signed out at once (AC-59.5); the last-Manager rule still applies (AC-03.8). | PM | Assumed |
+| 95 | Roles are chosen with one checkbox per role (AC-59.2, AC-59.4), so an unknown role or more than 10 roles cannot be sent from the screen. | PM | Assumed |
+| 96 | Saving a recipe has no confirmation dialog; the form states that it replaces the whole recipe and that existing orders keep theirs (AC-58.3). | PM | Assumed |
+| 97 | On narrow screens a wide table may scroll sideways inside its own area rather than the page (F-15). How each screen rearranges at phone width is for `ux-designer` to design. | PM | Assumed |
