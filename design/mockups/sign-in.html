@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in – Production &amp; Inventory Tracker</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!-- Mockup S-01 Sign in (US-34). State shown: signed out after 15 minutes without activity (AC-34.7),
+     email kept from the earlier attempt. docs/02-design.md 16.1. -->
+<main class="signin" id="main">
+  <div class="signin__card">
+    <p class="signin__brand"><span class="mark" aria-hidden="true"></span>Production &amp; Inventory Tracker</p>
+    <h1 class="title title--gap">Sign in</h1>
+
+    <div class="msg msg--info" role="status" tabindex="-1">
+      <span class="msg__icon" aria-hidden="true">i</span>
+      <div class="msg__body"><p>You were signed out after 15 minutes without activity.</p></div>
+    </div>
+
+    <form action="stock.html" novalidate>
+      <div class="field">
+        <label class="label" for="email">Email</label>
+        <input class="input" id="email" name="email" type="email" autocomplete="username" spellcheck="false" value="jorge.ibarra@example.com">
+      </div>
+      <div class="field">
+        <label class="label" for="password">Password</label>
+        <input class="input" id="password" name="password" type="password" autocomplete="current-password">
+      </div>
+      <button class="btn btn--primary" type="submit">Sign in</button>
+    </form>
+  </div>
+  <p class="footer">Times are local (UTC-06:00).</p>
+</main>
+</body>
+</html>

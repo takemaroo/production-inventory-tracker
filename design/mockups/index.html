@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockups – Production &amp; Inventory Tracker v1.2</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!-- Index of the v1.2 mockups and the component sheet. docs/02-design.md sections 15 and 17. -->
+<div class="main">
+  <main class="content" id="main">
+    <div class="page-head">
+      <div>
+        <h1 class="title">Mockups for version 1.2</h1>
+        <p class="sub">Static pictures of the key screens. Open any of them and narrow the window, or use the device preview of Edge or Chrome (F12, then the phone icon) at 360, 768 and 1280 pixels.</p>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="stack">
+        <caption class="vh">Mockup files</caption>
+        <thead><tr><th scope="col">Screen</th><th scope="col">Role shown</th><th scope="col">State shown</th></tr></thead>
+        <tbody>
+          <tr><td class="lead"><a href="sign-in.html">Sign in</a></td><td data-label="Role shown">Not signed in</td><td data-label="State shown">Signed out after 15 minutes without activity</td></tr>
+          <tr><td class="lead"><a href="stock.html">Stock</a></td><td data-label="Role shown">Manager</td><td data-label="State shown">Home screen, 4 items; open the menu with Menu below 1024 px</td></tr>
+          <tr><td class="lead"><a href="send-materials.html">Send materials for order #12</a></td><td data-label="Role shown">Warehouse</td><td data-label="State shown">Send refused for a range; Send materials opens the dialog</td></tr>
+          <tr><td class="lead"><a href="production-orders.html">Production orders</a></td><td data-label="Role shown">Manager</td><td data-label="State shown">List of 13 orders, every status</td></tr>
+          <tr><td class="lead"><a href="complementary-order.html">Complementary order #3</a></td><td data-label="Role shown">Manager</td><td data-label="State shown">Waiting for approval; Approve and Reject open their dialogs</td></tr>
+          <tr><td class="lead"><a href="new-sales-order.html">New sales order</a></td><td data-label="Role shown">Seller</td><td data-label="State shown">Customer picker open on two look-alike names</td></tr>
+          <tr><td class="lead"><a href="item.html">Shredded cheese 1 kg bag (#7)</a></td><td data-label="Role shown">Manager</td><td data-label="State shown">Item with its recipe; Delete item opens the dialog</td></tr>
+          <tr><td class="lead"><a href="user.html">jorge.ibarra@example.com</a></td><td data-label="Role shown">Manager</td><td data-label="State shown">Roles just changed; Deactivate user opens the dialog</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top: var(--s-3)">In these files dialogs and the phone menu open by link (#name) so no script is needed. The built screens use real buttons, focus handling and aria-expanded (docs/02-design.md section 19).</p>
+
+    <h2 class="h2">Colours</h2>
+    <div class="swatches">
+      <div class="swatch"><span style="background:#f6f5f1"></span><p>--ground #f6f5f1</p></div>
+      <div class="swatch"><span style="background:#ffffff"></span><p>--surface #ffffff</p></div>
+      <div class="swatch"><span style="background:#efede7"></span><p>--surface-sunk #efede7</p></div>
+      <div class="swatch"><span style="background:#1c1f1d"></span><p>--ink #1c1f1d</p></div>
+      <div class="swatch"><span style="background:#5b605c"></span><p>--muted #5b605c</p></div>
+      <div class="swatch"><span style="background:#7a7f7a"></span><p>--line-strong #7a7f7a</p></div>
+      <div class="swatch"><span style="background:#1e6b52"></span><p>--action #1e6b52</p></div>
+      <div class="swatch"><span style="background:#a8322a"></span><p>--danger #a8322a</p></div>
+    </div>
+
+    <h2 class="h2">Buttons</h2>
+    <div class="row-gap">
+      <button class="btn btn--primary" type="button">Record receipt</button>
+      <button class="btn btn--secondary" type="button">Refresh</button>
+      <button class="btn btn--danger" type="button">Cancel order</button>
+      <button class="btn btn--primary" type="button" aria-disabled="true"><span class="spin" aria-hidden="true"></span>Send materials</button>
+    </div>
+
+    <h2 class="h2">Status badges</h2>
+    <div class="row-gap">
+      <span class="badge badge--waiting">Created</span>
+      <span class="badge badge--waiting">PendingApproval</span>
+      <span class="badge badge--waiting">Pending</span>
+      <span class="badge badge--waiting">Unread</span>
+      <span class="badge badge--active">InProduction</span>
+      <span class="badge badge--active">Approved</span>
+      <span class="badge badge--done">Completed</span>
+      <span class="badge badge--done">Shipped</span>
+      <span class="badge badge--done">Sent</span>
+      <span class="badge badge--done">Received</span>
+      <span class="badge badge--done">Active</span>
+      <span class="badge badge--ended">Cancelled</span>
+      <span class="badge badge--ended">Rejected</span>
+      <span class="badge badge--ended">Inactive</span>
+      <span class="badge badge--ended">Read</span>
+      <span class="badge badge--alert">Above tolerance</span>
+    </div>
+
+    <h2 class="h2">Messages</h2>
+    <div class="msg msg--error">
+      <span class="msg__icon" aria-hidden="true">!</span>
+      <div class="msg__body"><p class="msg__lead">Nothing was changed.</p><p>Not enough stock: Shredded cheese 1 kg bag in Warehouse has 401 Bag; sales order #2 needs 500 Bag.</p></div>
+    </div>
+    <div class="msg msg--error">
+      <span class="msg__icon" aria-hidden="true">!</span>
+      <div class="msg__body"><p>Cannot reach the API. Check that it is running, then try again.</p></div>
+      <button class="btn btn--secondary" type="button">Try again</button>
+    </div>
+    <div class="msg msg--success">
+      <span class="msg__icon" aria-hidden="true">&#10003;</span>
+      <div class="msg__body"><p>Sales order #2 is now Shipped.</p></div>
+      <button class="close" type="button" aria-label="Close message">&times;</button>
+    </div>
+
+    <h2 class="h2">Text from the API</h2>
+    <div class="panel">
+      <dl class="facts">
+        <div><dt>Hidden direction character</dt><dd><span class="t">Milk<span class="bidi">[U+202E]</span>gnp.exe</span> <span class="num">(#11)</span></dd></div>
+        <div><dt>HTML shown as text</dt><dd class="t">&lt;img src=x onerror=alert(1)&gt; <span class="num">(#12)</span></dd></div>
+        <div><dt>Inactive customer</dt><dd><span class="t">Cafe Sur</span> <span class="num">(#7)</span> (inactive)</dd></div>
+        <div><dt>Not known yet</dt><dd>-</dd></div>
+      </dl>
+    </div>
+  </main>
+  <footer class="footer"><p>Times are local (UTC-06:00).</p></footer>
+</div>
+</body>
+</html>

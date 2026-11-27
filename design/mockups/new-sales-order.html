@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New sales order – Production &amp; Inventory Tracker</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!-- Mockup S-22 New sales order (US-52), Seller-only user. docs/02-design.md 16.22.
+     State shown: the customer picker is open after typing "Deli". Two active customers match; one name has a
+     Cyrillic "o" (#9). The ids tell them apart (AC-37.4, SEC-25). Two lines are filled. -->
+<div class="app">
+  <header class="header">
+    <a class="skip" href="#main">Skip to content</a>
+    <a class="btn btn--secondary menu-btn" href="#menu" aria-controls="menu">Menu</a>
+    <a class="brand" href="stock.html"><span class="mark" aria-hidden="true"></span><span class="brand__name">Production &amp; Inventory Tracker</span></a>
+    <div class="header__end">
+      <span class="who">sofia.vidal@example.com (Seller)</span>
+      <a class="hdr-only" href="#">Change password</a>
+      <button class="btn btn--secondary hdr-only" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <nav class="sidebar" id="menu" aria-label="Main menu">
+    <div class="sidebar__phone">
+      <a class="btn btn--secondary" href="#">Close menu</a>
+      <p class="who">sofia.vidal@example.com (Seller)</p>
+      <a href="#">Change password</a>
+      <button class="btn btn--secondary" type="button">Sign out</button>
+    </div>
+    <ul class="nav">
+      <li><a href="stock.html">Stock</a></li>
+    </ul>
+    <p class="nav-group" id="g-sales">Sales</p>
+    <ul class="nav" aria-labelledby="g-sales">
+      <li><a href="#">Customers</a></li>
+      <li><a href="new-sales-order.html" aria-current="page">Sales orders</a></li>
+    </ul>
+    <p class="nav-group" id="g-setup">Setup</p>
+    <ul class="nav" aria-labelledby="g-setup">
+      <li><a href="#">Items</a></li>
+      <li><a href="#">Units</a></li>
+    </ul>
+  </nav>
+
+  <div class="main">
+    <main class="content" id="main" tabindex="-1">
+      <a class="back" href="#">Back to sales orders</a>
+      <div class="page-head">
+        <h1 class="title">New sales order</h1>
+      </div>
+
+      <form class="form" action="#" novalidate>
+        <div class="field">
+          <label class="label" id="l-cust" for="cust">Customer</label>
+          <div class="picker">
+            <input class="input" id="cust" type="text" role="combobox" aria-expanded="true" aria-controls="cust-list"
+                   aria-autocomplete="list" aria-activedescendant="opt-4" aria-describedby="cust-hint" autocomplete="off" value="Deli">
+            <div class="picker__list">
+              <p class="picker__count" role="status">2 matches</p>
+              <ul id="cust-list" role="listbox" aria-labelledby="l-cust">
+                <li class="option" id="opt-4" role="option" aria-selected="true"><span class="t">Deli Norte</span><span class="num">(#4)</span></li>
+                <li class="option" id="opt-9" role="option" aria-selected="false"><span class="t">Deli N&#x43E;rte</span><span class="num">(#9)</span></li>
+              </ul>
+            </div>
+          </div>
+          <p class="hint" id="cust-hint">Active customers only. Type part of the name or the id.</p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="ref">Customer reference (optional)</label>
+          <input class="input" id="ref" type="text" aria-describedby="ref-hint" value="PO-2291">
+          <p class="hint" id="ref-hint">Up to 100 characters, for example the customer's order number.</p>
+        </div>
+
+        <fieldset class="field">
+          <legend class="label">Lines</legend>
+          <div class="table-wrap">
+            <table class="stack">
+              <caption class="vh">Lines of the new sales order</caption>
+              <thead><tr><th scope="col" id="h-item">Item</th><th scope="col" id="h-qty">Quantity</th><th scope="col"><span class="vh">Remove</span></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="wide" data-label="Item">
+                    <input class="input" type="text" role="combobox" aria-expanded="false" aria-labelledby="h-item" aria-describedby="n-1" autocomplete="off" value="Shredded cheese 1 kg bag (#7) · Bag">
+                    <span class="vh" id="n-1">Line 1</span>
+                  </td>
+                  <td data-label="Quantity"><div class="with-unit"><input class="input input--qty" inputmode="decimal" aria-labelledby="h-qty" aria-describedby="n-1" value="500"><span class="unit">Bag</span></div></td>
+                  <td class="n" data-label=""><button class="btn btn--secondary" type="button" aria-label="Remove line 1">Remove</button></td>
+                </tr>
+                <tr>
+                  <td class="wide" data-label="Item">
+                    <input class="input" type="text" role="combobox" aria-expanded="false" aria-labelledby="h-item" aria-describedby="n-2" autocomplete="off" value="Grated cheese 200 g bag (#9) · Bag">
+                    <span class="vh" id="n-2">Line 2</span>
+                  </td>
+                  <td data-label="Quantity"><div class="with-unit"><input class="input input--qty" inputmode="decimal" aria-labelledby="h-qty" aria-describedby="n-2" value="50"><span class="unit">Bag</span></div></td>
+                  <td class="n" data-label=""><button class="btn btn--secondary" type="button" aria-label="Remove line 2">Remove</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div><button class="btn btn--secondary" type="button">Add line</button></div>
+        </fieldset>
+
+        <p class="note">Stock is not checked or reserved when a sales order is created. The Warehouse ships it when the goods are there.</p>
+        <div class="form-actions">
+          <button class="btn btn--primary" type="submit">Create sales order</button>
+        </div>
+      </form>
+    </main>
+    <footer class="footer"><p>Times are local (UTC-06:00).</p></footer>
+  </div>
+</div>
+</body>
+</html>

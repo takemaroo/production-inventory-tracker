@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Production orders – Production &amp; Inventory Tracker</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!-- Mockup S-05 Production orders (US-40, US-41 entry), Manager view. docs/02-design.md 16.5.
+     Rows are newest first, as the API orders them. Selecting a row opens the order. -->
+<div class="app">
+  <header class="header">
+    <a class="skip" href="#main">Skip to content</a>
+    <a class="btn btn--secondary menu-btn" href="#menu" aria-controls="menu">Menu</a>
+    <a class="brand" href="stock.html"><span class="mark" aria-hidden="true"></span><span class="brand__name">Production &amp; Inventory Tracker</span></a>
+    <div class="header__end">
+      <a href="#">Notifications (3)</a>
+      <span class="who">maria.lopez@example.com (Manager)</span>
+      <a class="hdr-only" href="#">Change password</a>
+      <button class="btn btn--secondary hdr-only" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <nav class="sidebar" id="menu" aria-label="Main menu">
+    <div class="sidebar__phone">
+      <a class="btn btn--secondary" href="#">Close menu</a>
+      <p class="who">maria.lopez@example.com (Manager)</p>
+      <a href="#">Change password</a>
+      <button class="btn btn--secondary" type="button">Sign out</button>
+    </div>
+    <ul class="nav">
+      <li><a href="stock.html">Stock</a></li>
+      <li><a href="#">Record receipt</a></li>
+    </ul>
+    <p class="nav-group" id="g-prod">Production</p>
+    <ul class="nav" aria-labelledby="g-prod">
+      <li><a href="production-orders.html" aria-current="page">Production orders</a></li>
+      <li><a href="complementary-order.html">Complementary orders</a></li>
+      <li><a href="#">Returns</a></li>
+      <li><a href="#">Notifications (3)</a></li>
+    </ul>
+    <p class="nav-group" id="g-sales">Sales</p>
+    <ul class="nav" aria-labelledby="g-sales">
+      <li><a href="#">Customers</a></li>
+      <li><a href="new-sales-order.html">Sales orders</a></li>
+    </ul>
+    <p class="nav-group" id="g-setup">Setup</p>
+    <ul class="nav" aria-labelledby="g-setup">
+      <li><a href="item.html">Items</a></li>
+      <li><a href="#">Units</a></li>
+      <li><a href="user.html">Users</a></li>
+    </ul>
+  </nav>
+
+  <div class="main">
+    <main class="content" id="main" tabindex="-1">
+      <div class="page-head">
+        <h1 class="title">Production orders</h1>
+        <div class="actions">
+          <a class="btn btn--primary" href="#">New production order</a>
+          <button class="btn btn--secondary" type="button">Refresh</button>
+        </div>
+      </div>
+
+      <form class="filters" action="production-orders.html">
+        <div class="field">
+          <label class="label" for="f-status">Status</label>
+          <select class="input" id="f-status" name="status">
+            <option value="" selected>All statuses</option>
+            <option>Created</option>
+            <option>InProduction</option>
+            <option>Completed</option>
+            <option>Cancelled</option>
+          </select>
+        </div>
+        <button class="btn btn--secondary" type="submit">Apply filters</button>
+      </form>
+
+      <div class="list-meta"><p>13 production orders</p></div>
+
+      <div class="table-wrap" role="region" aria-labelledby="cap-po" tabindex="0">
+        <table class="stack">
+          <caption id="cap-po" class="vh">Production orders, 13 orders</caption>
+          <thead>
+            <tr>
+              <th scope="col">Order</th>
+              <th scope="col">Finished product</th>
+              <th scope="col" class="n">Ordered</th>
+              <th scope="col">Status</th>
+              <th scope="col">Created</th>
+              <th scope="col">Status changed</th>
+              <th scope="col" class="n">Produced</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #13</a></td><td data-label="Finished product" class="t">Grated cheese 200 g bag</td><td class="n" data-label="Ordered">400 Bag</td><td data-label="Status"><span class="badge badge--waiting">Created</span></td><td class="num" data-label="Created">2026-11-26 07:40</td><td class="num" data-label="Status changed">2026-11-26 07:40</td><td class="n" data-label="Produced">-</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #12</a></td><td data-label="Finished product" class="t">Shredded cheese 1 kg bag</td><td class="n" data-label="Ordered">1,000 Bag</td><td data-label="Status"><span class="badge badge--active">InProduction</span></td><td class="num" data-label="Created">2026-11-25 08:00</td><td class="num" data-label="Status changed">2026-11-25 10:02</td><td class="n" data-label="Produced">-</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #11</a></td><td data-label="Finished product" class="t">Shredded cheese 1 kg bag</td><td class="n" data-label="Ordered">500 Bag</td><td data-label="Status"><span class="badge badge--done">Completed</span></td><td class="num" data-label="Created">2026-11-24 07:55</td><td class="num" data-label="Status changed">2026-11-24 15:10</td><td class="n" data-label="Produced">497 Bag</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #10</a></td><td data-label="Finished product" class="t">Grated cheese 200 g bag</td><td class="n" data-label="Ordered">300 Bag</td><td data-label="Status"><span class="badge badge--done">Completed</span></td><td class="num" data-label="Created">2026-11-23 08:10</td><td class="num" data-label="Status changed">2026-11-23 13:45</td><td class="n" data-label="Produced">301 Bag</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #9</a></td><td data-label="Finished product" class="t">Shredded cheese 1 kg bag</td><td class="n" data-label="Ordered">800 Bag</td><td data-label="Status"><span class="badge badge--ended">Cancelled</span></td><td class="num" data-label="Created">2026-11-20 08:00</td><td class="num" data-label="Status changed">2026-11-20 11:30</td><td class="n" data-label="Produced">-</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #8</a></td><td data-label="Finished product" class="t">Shredded cheese 1 kg bag</td><td class="n" data-label="Ordered">1,000 Bag</td><td data-label="Status"><span class="badge badge--done">Completed</span></td><td class="num" data-label="Created">2026-11-19 07:50</td><td class="num" data-label="Status changed">2026-11-19 16:05</td><td class="n" data-label="Produced">1,004 Bag</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #7</a></td><td data-label="Finished product" class="t">Grated cheese 200 g bag</td><td class="n" data-label="Ordered">250 Bag</td><td data-label="Status"><span class="badge badge--done">Completed</span></td><td class="num" data-label="Created">2026-11-18 08:20</td><td class="num" data-label="Status changed">2026-11-18 12:40</td><td class="n" data-label="Produced">249 Bag</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #6</a></td><td data-label="Finished product" class="t">Shredded cheese 1 kg bag</td><td class="n" data-label="Ordered">600 Bag</td><td data-label="Status"><span class="badge badge--done">Completed</span></td><td class="num" data-label="Created">2026-11-17 07:45</td><td class="num" data-label="Status changed">2026-11-17 14:20</td><td class="n" data-label="Produced">600 Bag</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #5</a></td><td data-label="Finished product" class="t">Shredded cheese 1 kg bag</td><td class="n" data-label="Ordered">1,000 Bag</td><td data-label="Status"><span class="badge badge--done">Completed</span></td><td class="num" data-label="Created">2026-11-16 08:00</td><td class="num" data-label="Status changed">2026-11-16 15:40</td><td class="n" data-label="Produced">1,001 Bag</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #4</a></td><td data-label="Finished product" class="t">Grated cheese 200 g bag</td><td class="n" data-label="Ordered">200 Bag</td><td data-label="Status"><span class="badge badge--ended">Cancelled</span></td><td class="num" data-label="Created">2026-11-13 09:15</td><td class="num" data-label="Status changed">2026-11-13 09:40</td><td class="n" data-label="Produced">-</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #3</a></td><td data-label="Finished product" class="t">Shredded cheese 1 kg bag</td><td class="n" data-label="Ordered">400 Bag</td><td data-label="Status"><span class="badge badge--done">Completed</span></td><td class="num" data-label="Created">2026-11-12 08:05</td><td class="num" data-label="Status changed">2026-11-12 13:00</td><td class="n" data-label="Produced">398 Bag</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #2</a></td><td data-label="Finished product" class="t">Shredded cheese 1 kg bag</td><td class="n" data-label="Ordered">1,000 Bag</td><td data-label="Status"><span class="badge badge--done">Completed</span></td><td class="num" data-label="Created">2026-11-11 10:30</td><td class="num" data-label="Status changed">2026-11-11 16:50</td><td class="n" data-label="Produced">1,002 Bag</td></tr>
+            <tr class="row"><td class="lead"><a class="row-link" href="#">Order #1</a></td><td data-label="Finished product" class="t">Shredded cheese 1 kg bag</td><td class="n" data-label="Ordered">1,000 Bag</td><td data-label="Status"><span class="badge badge--done">Completed</span></td><td class="num" data-label="Created">2026-11-11 08:00</td><td class="num" data-label="Status changed">2026-11-11 15:40</td><td class="n" data-label="Produced">1,001 Bag</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+    <footer class="footer"><p>Times are local (UTC-06:00).</p></footer>
+  </div>
+</div>
+</body>
+</html>

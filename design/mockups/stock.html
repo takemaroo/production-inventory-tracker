@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock – Production &amp; Inventory Tracker</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!-- Mockup S-03 Stock (US-38), Manager view, the home screen after sign-in. docs/02-design.md 16.3.
+     Numbers from AC-38.3 and design 5.5. The menu opens with :target here; the real app uses a button with aria-expanded. -->
+<div class="app">
+  <header class="header">
+    <a class="skip" href="#main">Skip to content</a>
+    <a class="btn btn--secondary menu-btn" href="#menu" aria-controls="menu">Menu</a>
+    <a class="brand" href="stock.html"><span class="mark" aria-hidden="true"></span><span class="brand__name">Production &amp; Inventory Tracker</span></a>
+    <div class="header__end">
+      <a href="#">Notifications (3)</a>
+      <span class="who">maria.lopez@example.com (Manager)</span>
+      <a class="hdr-only" href="#">Change password</a>
+      <button class="btn btn--secondary hdr-only" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <nav class="sidebar" id="menu" aria-label="Main menu">
+    <div class="sidebar__phone">
+      <a class="btn btn--secondary" href="#">Close menu</a>
+      <p class="who">maria.lopez@example.com (Manager)</p>
+      <a href="#">Change password</a>
+      <button class="btn btn--secondary" type="button">Sign out</button>
+    </div>
+    <ul class="nav">
+      <li><a href="stock.html" aria-current="page">Stock</a></li>
+      <li><a href="#">Record receipt</a></li>
+    </ul>
+    <p class="nav-group" id="g-prod">Production</p>
+    <ul class="nav" aria-labelledby="g-prod">
+      <li><a href="production-orders.html">Production orders</a></li>
+      <li><a href="complementary-order.html">Complementary orders</a></li>
+      <li><a href="#">Returns</a></li>
+      <li><a href="#">Notifications (3)</a></li>
+    </ul>
+    <p class="nav-group" id="g-sales">Sales</p>
+    <ul class="nav" aria-labelledby="g-sales">
+      <li><a href="#">Customers</a></li>
+      <li><a href="new-sales-order.html">Sales orders</a></li>
+    </ul>
+    <p class="nav-group" id="g-setup">Setup</p>
+    <ul class="nav" aria-labelledby="g-setup">
+      <li><a href="item.html">Items</a></li>
+      <li><a href="#">Units</a></li>
+      <li><a href="user.html">Users</a></li>
+    </ul>
+  </nav>
+
+  <div class="main">
+    <main class="content" id="main" tabindex="-1">
+      <div class="page-head">
+        <div>
+          <h1 class="title">Stock</h1>
+          <p class="sub">Warehouse and production storage now, with what open sales orders ask for.</p>
+        </div>
+        <div class="actions"><button class="btn btn--secondary" type="button">Refresh</button></div>
+      </div>
+
+      <form class="filters" action="stock.html">
+        <div class="field">
+          <label class="label" for="f-type">Type</label>
+          <select class="input" id="f-type" name="itemType">
+            <option value="" selected>All items</option>
+            <option value="RawMaterial">Raw materials</option>
+            <option value="FinishedProduct">Finished products</option>
+          </select>
+        </div>
+        <button class="btn btn--secondary" type="submit">Apply filters</button>
+      </form>
+
+      <div class="list-meta"><p>4 items</p></div>
+
+      <div class="table-wrap" role="region" aria-labelledby="cap-stock" tabindex="0">
+        <table class="stack">
+          <caption id="cap-stock" class="vh">Stock, 4 items</caption>
+          <thead>
+            <tr>
+              <th scope="col">Item</th>
+              <th scope="col">Type</th>
+              <th scope="col">Unit</th>
+              <th scope="col" class="n">Warehouse</th>
+              <th scope="col" class="n">Production storage</th>
+              <th scope="col" class="n">Open demand</th>
+              <th scope="col" class="n">Committed</th>
+              <th scope="col" class="n">Pending returns</th>
+              <th scope="col" class="n">Free leftover</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="lead"><span class="t">Grated cheese 200 g bag</span> <span class="num">(#9)</span></td>
+              <td data-label="Type">Finished product</td>
+              <td data-label="Unit">Bag</td>
+              <td class="n" data-label="Warehouse">80 Bag</td>
+              <td class="n" data-label="Production storage">0 Bag</td>
+              <td class="n" data-label="Open demand">50 Bag</td>
+              <td class="n" data-label="Committed">-</td>
+              <td class="n" data-label="Pending returns">-</td>
+              <td class="n" data-label="Free leftover">-</td>
+            </tr>
+            <tr>
+              <td class="lead"><span class="t">Shredded cheese 1 kg bag</span> <span class="num">(#7)</span></td>
+              <td data-label="Type">Finished product</td>
+              <td data-label="Unit">Bag</td>
+              <td class="n" data-label="Warehouse">1,001 Bag</td>
+              <td class="n" data-label="Production storage">0 Bag</td>
+              <td class="n" data-label="Open demand">1,200 Bag</td>
+              <td class="n" data-label="Committed">-</td>
+              <td class="n" data-label="Pending returns">-</td>
+              <td class="n" data-label="Free leftover">-</td>
+            </tr>
+            <tr>
+              <td class="lead"><span class="t">Potato starch</span> <span class="num">(#4)</span></td>
+              <td data-label="Type">Raw material</td>
+              <td data-label="Unit">kg</td>
+              <td class="n" data-label="Warehouse">485 kg</td>
+              <td class="n" data-label="Production storage">15.3 kg</td>
+              <td class="n" data-label="Open demand">0 kg</td>
+              <td class="n" data-label="Committed">15.3 kg (<a href="#">order #12</a>)</td>
+              <td class="n" data-label="Pending returns">0 kg</td>
+              <td class="n" data-label="Free leftover">0 kg</td>
+            </tr>
+            <tr>
+              <td class="lead"><span class="t">Cheese</span> <span class="num">(#3)</span></td>
+              <td data-label="Type">Raw material</td>
+              <td data-label="Unit">kg</td>
+              <td class="n" data-label="Warehouse">1,200 kg</td>
+              <td class="n" data-label="Production storage">1,020 kg</td>
+              <td class="n" data-label="Open demand">120 kg</td>
+              <td class="n" data-label="Committed">1,020 kg (<a href="#">order #12</a>)</td>
+              <td class="n" data-label="Pending returns">0 kg</td>
+              <td class="n" data-label="Free leftover">0 kg</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+    <footer class="footer"><p>Times are local (UTC-06:00).</p></footer>
+  </div>
+</div>
+</body>
+</html>

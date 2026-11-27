@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Send materials for order #12 – Production &amp; Inventory Tracker</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!-- Mockup S-08 Send materials (US-42), Warehouse-only user. docs/02-design.md 16.8.
+     State shown: the API refused the send (AC-42.3); the message is at the top and next to the Cheese row,
+     the typed quantities are kept. "Send materials" opens the confirmation dialog (#confirm). -->
+<div class="app">
+  <header class="header">
+    <a class="skip" href="#main">Skip to content</a>
+    <a class="btn btn--secondary menu-btn" href="#menu" aria-controls="menu">Menu</a>
+    <a class="brand" href="stock.html"><span class="mark" aria-hidden="true"></span><span class="brand__name">Production &amp; Inventory Tracker</span></a>
+    <div class="header__end">
+      <span class="who">jorge.ibarra@example.com (Warehouse)</span>
+      <a class="hdr-only" href="#">Change password</a>
+      <button class="btn btn--secondary hdr-only" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <nav class="sidebar" id="menu" aria-label="Main menu">
+    <div class="sidebar__phone">
+      <a class="btn btn--secondary" href="#">Close menu</a>
+      <p class="who">jorge.ibarra@example.com (Warehouse)</p>
+      <a href="#">Change password</a>
+      <button class="btn btn--secondary" type="button">Sign out</button>
+    </div>
+    <ul class="nav">
+      <li><a href="stock.html">Stock</a></li>
+      <li><a href="#">Record receipt</a></li>
+    </ul>
+    <p class="nav-group" id="g-prod">Production</p>
+    <ul class="nav" aria-labelledby="g-prod">
+      <li><a href="production-orders.html" aria-current="page">Production orders</a></li>
+      <li><a href="#">Complementary orders</a></li>
+      <li><a href="#">Returns</a></li>
+    </ul>
+    <p class="nav-group" id="g-sales">Sales</p>
+    <ul class="nav" aria-labelledby="g-sales">
+      <li><a href="#">Customers</a></li>
+      <li><a href="#">Sales orders</a></li>
+    </ul>
+    <p class="nav-group" id="g-setup">Setup</p>
+    <ul class="nav" aria-labelledby="g-setup">
+      <li><a href="#">Items</a></li>
+      <li><a href="#">Units</a></li>
+    </ul>
+  </nav>
+
+  <div class="main">
+    <main class="content" id="main" tabindex="-1">
+      <a class="back" href="#">Back to order #12</a>
+      <div class="page-head">
+        <div>
+          <h1 class="title">Send materials for order #12</h1>
+          <p class="sub"><span class="t">Shredded cheese 1 kg bag</span>, 1,000 Bag ordered, <span class="badge badge--waiting">Created</span></p>
+        </div>
+      </div>
+
+      <div class="msg msg--error" id="form-msg" tabindex="-1">
+        <span class="msg__icon" aria-hidden="true">!</span>
+        <div class="msg__body">
+          <p class="msg__lead">Nothing was changed.</p>
+          <p class="t">Cheese: send must be between 975 and 1,015 kg (planned 1,000 kg, leftover applied 5 kg).</p>
+        </div>
+      </div>
+
+      <p class="lead-text">Enter what you weighed out for each material, 0 if none is sent. The ranges are the estimate from when this form opened; the API checks them again when you send.</p>
+
+      <form class="form form--wide" action="#confirm" novalidate>
+        <div class="table-wrap">
+          <table class="stack">
+            <caption class="vh">Materials for order #12</caption>
+            <thead>
+              <tr>
+                <th scope="col" id="h-mat">Material</th>
+                <th scope="col" class="n">Planned</th>
+                <th scope="col" class="n">Leftover applied (estimate)</th>
+                <th scope="col" class="n">Nominal send</th>
+                <th scope="col" class="n">Accepted range</th>
+                <th scope="col" class="n">Warehouse now</th>
+                <th scope="col" id="h-qty">Quantity to send</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="lead" id="m-1"><span class="t">Cheese</span></td>
+                <td class="n" data-label="Planned">1,000 kg</td>
+                <td class="n" data-label="Leftover applied (estimate)">5 kg</td>
+                <td class="n" data-label="Nominal send">995 kg</td>
+                <td class="n" data-label="Accepted range">975 to 1,015 kg</td>
+                <td class="n" data-label="Warehouse now">1,200 kg</td>
+                <td class="wide" data-label="Quantity to send">
+                  <div class="with-unit">
+                    <input class="input input--qty" id="q-1" inputmode="decimal" autocomplete="off" value="1015.001"
+                           aria-labelledby="h-qty m-1" aria-invalid="true" aria-describedby="e-1">
+                    <span class="unit">kg</span>
+                  </div>
+                  <p class="error" id="e-1">Cheese: send must be between 975 and 1,015 kg (planned 1,000 kg, leftover applied 5 kg).</p>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead" id="m-2"><span class="t">Potato starch</span></td>
+                <td class="n" data-label="Planned">15 kg</td>
+                <td class="n" data-label="Leftover applied (estimate)">0 kg</td>
+                <td class="n" data-label="Nominal send">15 kg</td>
+                <td class="n" data-label="Accepted range">14.7 to 15.3 kg</td>
+                <td class="n" data-label="Warehouse now">500 kg</td>
+                <td class="wide" data-label="Quantity to send">
+                  <div class="with-unit">
+                    <input class="input input--qty" id="q-2" inputmode="decimal" autocomplete="off" value="15" aria-labelledby="h-qty m-2">
+                    <span class="unit">kg</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="form-actions">
+          <a class="btn btn--primary" href="#confirm">Send materials</a>
+        </div>
+      </form>
+    </main>
+    <footer class="footer"><p>Times are local (UTC-06:00).</p></footer>
+  </div>
+</div>
+
+<div class="backdrop" id="confirm">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="d-title" aria-describedby="d-desc">
+    <div class="dialog__head"><h2 class="dialog__title" id="d-title">Send materials for order #12?</h2></div>
+    <div class="dialog__body">
+      <p id="d-desc">These quantities leave the Warehouse for production storage. This cannot be undone.</p>
+      <div class="table-wrap">
+        <table>
+          <caption class="vh">Quantities to send</caption>
+          <thead><tr><th scope="col">Material</th><th scope="col" class="n">To send</th></tr></thead>
+          <tbody>
+            <tr><td class="t">Cheese</td><td class="n">1,015.001 kg</td></tr>
+            <tr><td class="t">Potato starch</td><td class="n">15 kg</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="dialog__foot">
+      <a class="btn btn--secondary" href="#">Go back</a>
+      <a class="btn btn--primary" href="#">Send materials</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

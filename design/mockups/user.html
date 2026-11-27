@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jorge.ibarra@example.com – Production &amp; Inventory Tracker</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!-- Mockup S-32 User detail (US-59), Manager viewing another user. docs/02-design.md 16.32.
+     State shown: the roles were just changed; the confirmation banner says when they apply (AC-59.4).
+     Deactivate user opens #deactivate. -->
+<div class="app">
+  <header class="header">
+    <a class="skip" href="#main">Skip to content</a>
+    <a class="btn btn--secondary menu-btn" href="#menu" aria-controls="menu">Menu</a>
+    <a class="brand" href="stock.html"><span class="mark" aria-hidden="true"></span><span class="brand__name">Production &amp; Inventory Tracker</span></a>
+    <div class="header__end">
+      <a href="#">Notifications (3)</a>
+      <span class="who">maria.lopez@example.com (Manager)</span>
+      <a class="hdr-only" href="#">Change password</a>
+      <button class="btn btn--secondary hdr-only" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <nav class="sidebar" id="menu" aria-label="Main menu">
+    <div class="sidebar__phone">
+      <a class="btn btn--secondary" href="#">Close menu</a>
+      <p class="who">maria.lopez@example.com (Manager)</p>
+      <a href="#">Change password</a>
+      <button class="btn btn--secondary" type="button">Sign out</button>
+    </div>
+    <ul class="nav">
+      <li><a href="stock.html">Stock</a></li>
+      <li><a href="#">Record receipt</a></li>
+    </ul>
+    <p class="nav-group" id="g-prod">Production</p>
+    <ul class="nav" aria-labelledby="g-prod">
+      <li><a href="production-orders.html">Production orders</a></li>
+      <li><a href="complementary-order.html">Complementary orders</a></li>
+      <li><a href="#">Returns</a></li>
+      <li><a href="#">Notifications (3)</a></li>
+    </ul>
+    <p class="nav-group" id="g-sales">Sales</p>
+    <ul class="nav" aria-labelledby="g-sales">
+      <li><a href="#">Customers</a></li>
+      <li><a href="new-sales-order.html">Sales orders</a></li>
+    </ul>
+    <p class="nav-group" id="g-setup">Setup</p>
+    <ul class="nav" aria-labelledby="g-setup">
+      <li><a href="item.html">Items</a></li>
+      <li><a href="#">Units</a></li>
+      <li><a href="user.html" aria-current="page">Users</a></li>
+    </ul>
+  </nav>
+
+  <div class="main">
+    <main class="content" id="main" tabindex="-1">
+      <a class="back" href="#">Back to users</a>
+      <div class="page-head">
+        <h1 class="title"><span class="t">jorge.ibarra@example.com</span> <span class="badge badge--done">Active</span></h1>
+        <div class="actions"><button class="btn btn--secondary" type="button">Refresh</button></div>
+      </div>
+
+      <div class="msg msg--success" role="status">
+        <span class="msg__icon" aria-hidden="true">&#10003;</span>
+        <div class="msg__body"><p>The new roles apply from this user's next sign-in. To remove access now, deactivate the user.</p></div>
+        <button class="close" type="button" aria-label="Close message">&times;</button>
+      </div>
+
+      <section class="panel" aria-labelledby="h-acct">
+        <h2 class="h2" id="h-acct">Account</h2>
+        <dl class="facts">
+          <div><dt>Roles</dt><dd>Warehouse, Production</dd></div>
+          <div><dt>Status</dt><dd>Active</dd></div>
+          <div><dt>Created</dt><dd class="num">2026-11-11 03:12</dd></div>
+        </dl>
+      </section>
+
+      <section class="panel" aria-labelledby="h-roles">
+        <h2 class="h2" id="h-roles">Roles</h2>
+        <form class="form" action="#" novalidate>
+          <fieldset class="field">
+            <legend class="label">Roles this user holds</legend>
+            <div class="checks">
+              <label class="check"><input type="checkbox" checked> Warehouse</label>
+              <label class="check"><input type="checkbox" checked> Production</label>
+              <label class="check"><input type="checkbox"> Manager</label>
+              <label class="check"><input type="checkbox"> Seller</label>
+            </div>
+            <p class="hint">New roles apply from the user's next sign-in.</p>
+          </fieldset>
+          <button class="btn btn--primary" type="submit">Save roles</button>
+        </form>
+      </section>
+
+      <section class="panel" aria-labelledby="h-pw">
+        <h2 class="h2" id="h-pw">Password</h2>
+        <form class="form" action="#" novalidate>
+          <div class="field">
+            <label class="label" for="pw1">New password</label>
+            <input class="input" id="pw1" type="password" autocomplete="new-password" aria-describedby="pw-hint">
+            <p class="hint" id="pw-hint">At least 8 characters, with an upper-case letter, a lower-case letter and a digit.</p>
+          </div>
+          <div class="field">
+            <label class="label" for="pw2">New password again</label>
+            <input class="input" id="pw2" type="password" autocomplete="new-password">
+          </div>
+          <button class="btn btn--secondary" type="submit">Set password</button>
+        </form>
+      </section>
+
+      <section class="panel" aria-labelledby="h-access">
+        <h2 class="h2" id="h-access">Access</h2>
+        <p class="note">Deactivating signs this user out at once and stops every sign-in until a Manager reactivates the account.</p>
+        <div class="form-actions"><a class="btn btn--secondary" href="#deactivate">Deactivate user</a></div>
+      </section>
+    </main>
+    <footer class="footer"><p>Times are local (UTC-06:00).</p></footer>
+  </div>
+</div>
+
+<div class="backdrop" id="deactivate">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="d-title" aria-describedby="d-desc">
+    <div class="dialog__head"><h2 class="dialog__title" id="d-title">Deactivate <span class="t">jorge.ibarra@example.com</span>?</h2></div>
+    <div class="dialog__body">
+      <p id="d-desc">They are signed out at once and cannot sign in until the account is reactivated. You can reactivate it later.</p>
+    </div>
+    <div class="dialog__foot">
+      <a class="btn btn--secondary" href="#">Go back</a>
+      <a class="btn btn--danger" href="#">Deactivate user</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

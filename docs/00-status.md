@@ -120,6 +120,7 @@ v1.2 phase 2: `ux-designer` designs the front end (docs/02-design.md v1.2 part, 
 - 2026-11-26 Owner upgraded the real instance to v1.1.
 - 2026-11-26 Owner turned on GitHub Secret Protection and push protection (#186). Going-public preparation complete.
 - 2026-11-27 v1.2 (web front end) phase 1: `product-manager` wrote PRD sections 14-20; owner settled Q98-Q109 in a grilling session (#187-#192) and approved the PRD. Started v1.2 phase 2 with `ux-designer` (with the design-taste-frontend skill).
+- 2026-11-27 `ux-designer` finished the v1.2 design (docs/02-design.md sections 11-22, 34 screens, design system, #193-#214) and 8 static mockups in design/mockups/ (no external resources; not browser-checked by the designer, no shell). Owner question Q110 (idle sign-out warning) open.
 
 ## Follow-ups to route
 
@@ -150,3 +151,6 @@ v1.2 phase 2: `ux-designer` designs the front end (docs/02-design.md v1.2 part, 
 - Practice note for every agent doing scratch runs: redirecting LOCALAPPDATA does not isolate ASP.NET Core DataProtection; the API still reads the owner's %LOCALAPPDATA%\ASP.NET\DataProtection-Keys (read only so far, no product use of the keys). Until the key-folder setting on the Later list exists, accept it; never write or delete there.
 - tech-lead (when the web front end or cloud path is planned): add explicit DataProtection configuration to the requirements (final v1.1 security check; PRD Later list).
 - security-reviewer (next review): mark SEC-25 fixed by T-034 (#176, #181, #182) in docs/06-security-review.md; spacing marks (Mc) at the start of a name are still accepted, look-alikes from other scripts are left to the front end (SEC-27).
+- tech-lead (v1.2 phase 3), from the design: live stock per line (avoid one GET /stock/{id} per line on 500-line forms); build quantity JSON from the typed digits (no JS number rounding); stacked phone tables need ARIA table roles or a list rendering.
+- product-manager (optional): review the few front-end-owned messages in design section 18 (e.g. "Materials can be sent only while the order is Created.").
+- qa-engineer (v1.2): identity and Sign out move into the menu below 1024 px (#196).
