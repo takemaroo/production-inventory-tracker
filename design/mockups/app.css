@@ -76,20 +76,23 @@ main[tabindex="-1"]:focus, .msg[tabindex="-1"]:focus { outline: none; }  /* focu
 
 /* Frame: header, menu, main, footer */
 .app { min-height: 100vh; display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
-       grid-template-rows: var(--header-h) 1fr; grid-template-areas: "header header" "nav main"; }
+       grid-template-rows: minmax(var(--header-h), auto) 1fr; grid-template-areas: "header header" "nav main"; }
 .header { grid-area: header; display: flex; align-items: center; gap: var(--s-4); padding: 0 var(--gutter);
           background: var(--surface); border-bottom: 1px solid var(--line); }
-.brand { display: inline-flex; align-items: center; gap: var(--s-2); min-height: 40px; color: var(--ink); text-decoration: none; font-weight: 600; }
+.brand { display: inline-flex; align-items: center; gap: var(--s-2); min-height: 40px; min-width: 0; color: var(--ink); text-decoration: none; font-weight: 600; }
 .brand:hover { color: var(--ink); }
+.brand__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mark { width: 20px; height: 20px; border-radius: var(--r-sm); background: var(--action);
         background-image: linear-gradient(#fff, #fff), linear-gradient(#fff, #fff), linear-gradient(#fff, #fff);
         background-size: 12px 2px, 12px 2px, 8px 2px; background-position: 4px 5px, 4px 9px, 4px 13px; background-repeat: no-repeat; flex: none; }
-.header__end { margin-left: auto; display: flex; align-items: center; gap: var(--s-4); }
-.who { font-size: var(--t-table); color: var(--muted); }
-.menu-btn { display: none; }
+.header__end { margin-left: auto; display: flex; align-items: center; gap: var(--s-4); min-width: 0; }
+.who { font-size: var(--t-table); line-height: 20px; color: var(--muted); min-width: 0; overflow-wrap: anywhere; }  /* a long email wraps, never cut */
+/* Two classes, so it beats .btn's display. The Menu button has no job while the menu column shows (1024 px and wider). */
+.header .menu-btn { display: none; }
 
-.sidebar { grid-area: nav; background: var(--surface); border-right: 1px solid var(--line); padding: var(--s-4);
-           position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; }
+/* The menu column stretches to the full height of the grid row, so its white panel runs beside all of the content.
+   It scrolls with the page, like the header. */
+.sidebar { grid-area: nav; background: var(--surface); border-right: 1px solid var(--line); padding: var(--s-4); }
 .sidebar__phone { display: none; }
 .nav-group { font-size: var(--t-meta); line-height: var(--t-meta-lh); font-weight: 600; color: var(--muted); padding: var(--s-4) var(--s-4) var(--s-1); }
 .nav a { display: flex; align-items: center; min-height: 40px; padding: 0 var(--s-4); border-radius: var(--r-sm);
@@ -165,7 +168,7 @@ main[tabindex="-1"]:focus, .msg[tabindex="-1"]:focus { outline: none; }  /* focu
 .panel > .h2:first-child { margin-top: 0; }
 .panel__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--s-3); margin-bottom: var(--s-4); }
 .panel__head .h2 { margin: 0; }
-.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--s-4) var(--s-5); }
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: var(--s-4) var(--s-5); }
 .facts dt { font-size: var(--t-meta); line-height: var(--t-meta-lh); font-weight: 600; color: var(--muted); }
 .facts dd { margin-top: var(--s-1); }
 .facts .wide { grid-column: 1 / -1; }
@@ -173,6 +176,9 @@ main[tabindex="-1"]:focus, .msg[tabindex="-1"]:focus { outline: none; }  /* focu
 /* Forms */
 .form { max-width: 640px; }
 .form--wide { max-width: none; }
+.form--lines { max-width: 880px; }                          /* forms with an item or material line table */
+.form--lines > .field:not(.lines), .form--lines > .note { max-width: 640px; }
+th.col-pick { width: 100%; min-width: 280px; }              /* the picker column takes every pixel the others leave */
 .field { display: grid; gap: var(--s-2); margin-bottom: var(--s-5); }
 .label { font-weight: 600; font-size: var(--t-table); line-height: var(--t-table-lh); }
 .hint { color: var(--muted); font-size: var(--t-meta); line-height: var(--t-meta-lh); }
@@ -185,7 +191,8 @@ select.input { padding-right: var(--s-6); }
 .input:focus-visible { border-color: var(--action); outline-offset: 1px; }
 .input[aria-invalid="true"] { border: 2px solid var(--danger); }
 .input--qty { width: 140px; text-align: right; font-variant-numeric: tabular-nums; }
-.with-unit { display: flex; align-items: center; gap: var(--s-2); }
+.with-unit { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.with-unit .input { min-width: 0; }
 .unit { color: var(--muted); font-size: var(--t-table); min-width: 32px; }
 .error { color: var(--danger); font-size: var(--t-table); line-height: var(--t-table-lh); font-weight: 600; }
 .error::before { content: "Error: "; }
@@ -195,12 +202,26 @@ select.input { padding-right: var(--s-6); }
 .form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); margin-top: var(--s-5); }
 .note { color: var(--muted); font-size: var(--t-table); line-height: var(--t-table-lh); max-width: 62ch; }
 
-/* Picker (combobox and listbox, F-13) */
-.picker { position: relative; }
+/* Picker (combobox and listbox, F-13).
+   The chosen record's id and unit sit in a fixed suffix inside the field box. The suffix never shrinks or wraps;
+   only the name may shorten with an ellipsis. An id is never cut off (SEC-25, SEC-27, AC-37.4). */
+.picker { position: relative; min-width: 0; }
+.picker__field { display: flex; align-items: center; gap: var(--s-2); min-width: 0; min-height: var(--control-h); padding: 0 var(--s-3);
+                 border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface);
+                 transition: border-color var(--m-out) var(--ease); }
+.picker__field:hover { border-color: var(--ink); transition-duration: var(--m-in); }
+.picker__field:focus-within { border-color: var(--action); outline: 2px solid var(--action); outline-offset: 1px; }
+.picker__field.is-invalid { border: 2px solid var(--danger); }
+.picker__field input { flex: 1 1 auto; min-width: 0; width: 100%; height: calc(var(--control-h) - 2px); padding: 0; border: 0; background: transparent;
+                       color: var(--ink); font: 400 var(--t-body)/var(--t-body-lh) var(--font); text-overflow: ellipsis; }
+.picker__field input:focus-visible { outline: none; }  /* the field box draws the ring */
+.picker__id { flex: none; white-space: nowrap; color: var(--muted); font-size: var(--t-table); font-variant-numeric: tabular-nums; }
 .picker__list { position: absolute; left: 0; right: 0; top: calc(100% + var(--s-1)); z-index: 5; max-height: 280px; overflow-y: auto;
                 background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); box-shadow: 0 4px 16px rgba(28, 31, 29, .12); padding: var(--s-1) 0; }
 .picker__count { padding: var(--s-1) var(--s-3); font-size: var(--t-meta); color: var(--muted); }
-.option { display: flex; justify-content: space-between; gap: var(--s-3); align-items: center; min-height: 40px; padding: 0 var(--s-3); font-size: var(--t-table); cursor: pointer; }
+.option { display: flex; justify-content: space-between; gap: var(--s-3); align-items: center; min-height: 40px; padding: var(--s-2) var(--s-3); font-size: var(--t-table); cursor: pointer; }
+.option .t { min-width: 0; }                 /* a long name wraps inside the option */
+.option .num { flex: none; }                 /* the id never shrinks */
 .option:hover, .option[aria-selected="true"] { background: var(--action-tint); }
 
 /* Filters */
@@ -231,9 +252,9 @@ td .error { margin-top: var(--s-1); white-space: normal; }
 .line + .line { border-top: 1px solid var(--line); margin-top: var(--s-5); padding-top: var(--s-5); }
 .line__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2) var(--s-3); margin-bottom: var(--s-4); }
 .line__name { font-weight: 600; }
-.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--s-5); }
+.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: var(--s-5); }
 .group__title { font-size: var(--t-meta); line-height: var(--t-meta-lh); font-weight: 600; color: var(--muted); margin-bottom: var(--s-2); }
-.pairs { display: grid; grid-template-columns: 1fr auto; gap: var(--s-1) var(--s-3); font-size: var(--t-table); line-height: var(--t-table-lh); }
+.pairs { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s-1) var(--s-3); font-size: var(--t-table); line-height: var(--t-table-lh); }
 .pairs dd { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Dialog (F-5). In the mockups it opens with :target, without script. */
@@ -250,6 +271,11 @@ td .error { margin-top: var(--s-1); white-space: normal; }
 .dialog__body > * + * { margin-top: var(--s-4); }
 .dialog__body .field { margin-bottom: 0; }
 .dialog__foot { display: flex; justify-content: flex-end; gap: var(--s-3); padding: var(--s-4) var(--s-5) var(--s-5); border-top: 1px solid var(--line); }
+/* Compact dialog: the idle warning. One sentence and one button; it sits above any other dialog and stays a
+   centred box on a phone. */
+.backdrop--top { z-index: 50; }
+.dialog--compact { width: min(420px, 100%); }
+.dialog--sample { box-shadow: var(--shadow-dialog); }
 
 /* Sign-in */
 .signin { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--s-6) var(--gutter); }
@@ -259,7 +285,7 @@ td .error { margin-top: var(--s-1); white-space: normal; }
 .signin .footer { width: min(400px, 100%); border: 0; margin-top: var(--s-4); padding: 0; text-align: center; }
 
 /* Mockup index */
-.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--s-3); }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr)); gap: var(--s-3); }
 .swatch { border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; background: var(--surface); font-size: var(--t-meta); line-height: var(--t-meta-lh); }
 .swatch span { display: block; height: 40px; border-bottom: 1px solid var(--line); }
 .swatch p { padding: var(--s-2); }
@@ -268,15 +294,18 @@ td .error { margin-top: var(--s-1); white-space: normal; }
 /* Tablet and below: the menu becomes a panel opened from the header */
 @media (max-width: 1023px) {
   .app { grid-template-columns: minmax(0, 1fr); grid-template-areas: "header" "main"; }
-  .menu-btn { display: inline-flex; }
+  .header .menu-btn { display: inline-flex; flex: none; }
   .header .who, .header .hdr-only { display: none; }
+  .header__end > * { flex: none; }
   .sidebar { display: none; }
   .sidebar:target { display: block; position: fixed; inset: 0; z-index: 20; max-height: none; border: 0; padding: var(--s-4) var(--gutter); }
   .sidebar__phone { display: grid; gap: var(--s-3); padding-bottom: var(--s-4); margin-bottom: var(--s-2); border-bottom: 1px solid var(--line); }
   .sidebar__phone .btn { justify-self: start; }
   .nav a { min-height: 44px; }
 }
-@media (max-width: 479px) {
+/* Below 640 px the product name is hidden visually (it stays the link's name), so Menu, the mark and
+   "Notifications (3)" fit in 360 px. Between 640 and 1023 it fits, and shortens with an ellipsis if it ever must. */
+@media (max-width: 639px) {
   .brand__name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 
@@ -288,12 +317,12 @@ td .error { margin-top: var(--s-1); white-space: normal; }
   .filters { flex-direction: column; align-items: stretch; }
   .filters .field { min-width: 0; }
   .panel { padding: var(--s-4); }
-  .facts { grid-template-columns: 1fr 1fr; }
+  .facts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .input--qty { width: 100%; }
 
   .stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .stack, .stack tbody, .stack tr, .stack td { display: block; }
-  .stack tr { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2) var(--s-4); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line); }
+  .stack tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-2) var(--s-4); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line); }
   .stack tbody tr:last-child { border-bottom: 0; }
   .stack td { padding: 0; border: 0; text-align: left !important; white-space: normal; }
   .stack td::before { content: attr(data-label); display: block; font-size: var(--t-meta); line-height: var(--t-meta-lh); font-weight: 600; color: var(--muted); }
@@ -305,6 +334,8 @@ td .error { margin-top: var(--s-1); white-space: normal; }
   .dialog { width: 100%; max-height: none; height: 100%; border-radius: 0; }
   .dialog__foot { flex-direction: column-reverse; }
   .dialog__foot .btn { width: 100%; }
+  .backdrop--top { padding: var(--s-4); align-items: center; }
+  .dialog--compact { height: auto; border-radius: var(--r-lg); }
   .signin__card { padding: var(--s-5); }
 }
 

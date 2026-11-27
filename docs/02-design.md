@@ -1729,10 +1729,10 @@ An address with a number or id that is not a whole number (for example `/product
 Top to bottom, every signed-in screen has:
 
 1. **Skip link** "Skip to content", the first thing Tab reaches, shown only when focused.
-2. **Header** (56 px, white, 1 px line under it; it scrolls with the page):
-   - At 1024 px and wider: the mark and "Production & Inventory Tracker" (a link to Stock) on the left; on the right "Notifications (3)" (Manager only, AC-49.3), the user's email and roles, for example "maria.lopez@example.com (Manager)" or "jorge.ibarra@example.com (Warehouse, Production)" with roles in the API's role order (AC-34.2), a "Change password" link and a "Sign out" button.
-   - Below 1024 px: a "Menu" button on the left, the mark and name (the name is visually hidden below 480 px but stays the link's name), and "Notifications (3)" on the right. The email, roles, Change password and Sign out move to the top of the menu panel (decision #196).
-3. **Menu** (section 13): a 232 px column on the left at 1024 px and wider; below that, a panel that covers the screen when Menu is pressed.
+2. **Header** (56 px, growing only if a long email wraps; white, 1 px line under it; it scrolls with the page):
+   - At 1024 px and wider: the mark and "Production & Inventory Tracker" (a link to Stock) on the left; on the right "Notifications (3)" (Manager only, AC-49.3), the user's email and roles, for example "maria.lopez@example.com (Manager)" or "jorge.ibarra@example.com (Warehouse, Production)" with roles in the API's role order (AC-34.2), a "Change password" link and a "Sign out" button. There is no Menu button at these widths: the menu column is always visible, so the button would have nothing to do. A long email wraps onto a second line inside the header rather than being cut.
+   - Below 1024 px: a "Menu" button on the left, the mark and name, and "Notifications (3)" on the right. Below 640 px the name is visually hidden but stays the link's name, so the three fit in 360 px; from 640 to 1023 px it shows, and shortens with an ellipsis only if it must (decision #220). The email, roles, Change password and Sign out move to the top of the menu panel (decision #196). None of the header's parts has a fixed minimum width.
+3. **Menu** (section 13): a 232 px column on the left at 1024 px and wider, whose white panel runs the full height of the page beside the content and scrolls with the page, like the header; below 1024 px, a panel that covers the screen when Menu is pressed.
 4. **Main content**: back link (detail and form screens), the page title (h1) with the record's status badge, a sub-line, the screen's actions on the right of the title (below it on a phone), the message area, then the content.
 5. **Footer**: "Times are local (UTC-06:00)." with the computer's current offset (F-8), on every screen, the sign-in screen included.
 
@@ -1745,7 +1745,14 @@ The document title of every screen is "{page title} – Production & Inventory T
 - **Opening any screen when not signed in** goes to `/sign-in?return=<path and query>`. After a successful sign-in the front end opens the return path only if it starts with a single `/` and is not `/sign-in`; anything else opens Stock (no open redirect).
 - **Signing in when already signed in:** `/sign-in` opens Stock.
 - **Sign out** (header or menu panel): no dialog. The front end drops the token and every piece of API data it holds, replaces the current history entry with `/sign-in`, and shows the sign-in screen with no message. Back then shows the sign-in screen, because no screen can render without a token (AC-34.4). The simplest way to guarantee nothing is left in memory is a full page load of `/sign-in`; that is the tech lead's choice.
-- **15 minutes without activity** (AC-34.7): keyboard (`keydown`), mouse and pen (`pointerdown`, `pointermove`, `wheel`) and touch (`touchstart`) anywhere in the page count as activity. The 60-second notification refresh does not (AC-49.5). The time is measured by the clock, not by a timer that a background tab can slow down: when the tab becomes visible again, or on the next check, a gap of 15 minutes signs out at once. The user is signed out as above and the sign-in screen says "You were signed out after 15 minutes without activity." After signing in again, Stock opens, because the next person at the shared computer is often someone else (decision #200). There is no warning before the sign-out (the PRD has none; see ISSUES in the phase report).
+- **15 minutes without activity** (AC-34.7): keyboard (`keydown`), mouse and pen (`pointerdown`, `pointermove`, `wheel`) and touch (`touchstart`) anywhere in the page count as activity. The 60-second notification refresh does not (AC-49.5). The time is measured by the clock, not by a timer that a background tab can slow down: when the tab becomes visible again, or on the next check, a gap of 15 minutes signs out at once. The user is signed out as above and the sign-in screen says "You were signed out after 15 minutes without activity." After signing in again, Stock opens, because the next person at the shared computer is often someone else (decision #200). One minute before, a warning appears (next point).
+- **Idle warning** (owner, Q110; decisions #215 to #219). After 14 minutes without activity, a warning opens over whatever is on screen: the title "You'll be signed out in 1 minute.", the line "No one has used this screen for 14 minutes. Anything typed and not yet saved is lost when you are signed out." and one button, "Stay signed in" (primary).
+  - It is a modal `role="alertdialog"` labelled by its title and described by its line, so a screen reader reads both when it opens. Focus moves to "Stay signed in", the only control, and stays there while the warning is open. The page behind is inert. It sits above any other dialog or the open menu panel, and nothing behind it changes: a form keeps what was typed, a dialog stays open.
+  - **Staying:** "Stay signed in", or any activity as listed above (a key, Escape included; a click or touch anywhere; the wheel; moving the mouse), closes the warning and starts the 15 minutes again from that moment. No request is sent: the count is the page's own, and staying does not extend the 8-hour token. Focus returns to the element that had it before the warning opened, or to the main area if that element is gone.
+  - **Ignored:** at 15 minutes the warning closes and the sign-out above runs: the token and every piece of API data are dropped, any open dialog and anything typed are discarded, and the sign-in screen opens with "You were signed out after 15 minutes without activity." Stock opens after signing in again.
+  - **Background tab, sleeping computer:** the deadline is clock time. When the page becomes visible again between 14 and 15 minutes, the warning opens for the time that is left (the text stays "1 minute"); at 15 minutes or later, the sign-out happens at once and no warning is shown.
+  - The text does not count down and nothing is announced again while it is open; there is no sound, flashing tab title or desktop notification (alerts outside the screen are out of scope, PRD 16).
+  - The warning never shows on the sign-in screen, where there is no session.
 - **Any `401` with code `not-authenticated`** (token expired after 8 hours, user deactivated, password changed elsewhere): the token is dropped, the front end opens `/sign-in?return=<current screen>`, and the sign-in screen says "Your sign-in is missing or has expired. Sign in again." After signing in, that screen opens again; anything typed is lost (AC-34.6, row 78). This includes a `401` on the notification refresh.
 - **`401` on the sign-in and change-password requests** is not the end of a session: `invalid-credentials` and `account-locked` are shown in that form (AC-34.3, AC-35.3).
 - **8-hour expiry:** no warning and no renewal (both on the PRD's Later list).
@@ -1771,7 +1778,7 @@ The document title of every screen is "{page title} – Production & Inventory T
 - Body: what happens, whether it can be undone, and any field the action needs (a reason, a note).
 - Footer: "Go back" (secondary) and the confirm button, labelled with the action ("Ship sales order"). The confirm button is red for actions that cancel, reject, delete or deactivate, green otherwise.
 - Only the confirm button sends. "Go back", Escape and closing the dialog send nothing (F-5).
-- Focus moves to the first field, or to "Go back" when there is no field, so a stray Enter never confirms. Tab stays inside the dialog. When it closes, focus returns to the button that opened it.
+- Focus moves to the first field, or to "Go back" when there is no field, so a stray Enter never confirms. Tab stays inside the dialog. When it closes, focus returns to the button that opened it. (The idle warning of 12.3 is the one exception: its only button is "Stay signed in", which is safe to press, so focus goes there.)
 - A blank required reason shows "Reason is required." under the field and in the dialog's message area, and sends nothing.
 - A refusal is shown inside the dialog (12.4), which stays open with what was typed. When the user then closes it, the same message is copied to the screen's message area, so it is not lost. The record is not reloaded by itself; the user presses Refresh (F-14).
 
@@ -1807,15 +1814,18 @@ When the list is empty: with no filter set, the screen's "no records yet" senten
 - **Isolation.** Every piece of API text sits in its own direction-isolated element (`<bdi>` or `unicode-bidi: isolate`), so a right-to-left name can never reorder the id, unit or words beside it. Long words wrap anywhere rather than run off a 360 px screen. Notes and reasons keep their line breaks.
 - **People** are their email (F-9).
 - **Ids beside names** (F-10): a customer is "Deli Norte (#4)" everywhere it appears (lists, details, pickers, dialogs, banners), with " (inactive)" after it when `isActive` is false: "Cafe Sur (#7) (inactive)". An item is "Cheese (#3)" in every picker, on Stock, on the Items list and detail, and on recipe lines. Order lines, sales order lines and dialogs name items without the id (row 72).
+- **An id is never cut off** (SEC-25, SEC-27, AC-37.4; decision #220). Wherever a name is shown with its id, the id and the unit after it never wrap apart, shrink or hide. In tables, titles, facts and options the name wraps onto more lines instead. In a one-line field (a picker that holds a chosen record) the id and unit sit in a fixed suffix inside the field box, and only the name may shorten with an ellipsis; the full name is in the option list and in the record. No cell, column or field that shows a name with an id has a fixed width that could cut the id; a table too wide for its frame scrolls inside the frame (20.2).
 
 ### 12.9 Pickers (F-13)
 
 One picker component serves items, customers and units: a text field with a list under it (the ARIA combobox and listbox pattern).
 
 - **Data.** When the screen opens, the picker reads every page of its list with `pageSize=100` (500 records are 5 requests, row 81) and keeps it for the life of that screen. Sources: raw materials `GET /items?type=RawMaterial`; finished products `GET /items?type=FinishedProduct`; any item `GET /items`; active customers `GET /customers?isActive=true`; every customer `GET /customers`; units `GET /units`.
-- **Options** show the name, then the id, then for items the unit: "Cheese (#3) · kg", "Deli Norte (#4)", "kg (#1)". In a filter picker that offers inactive customers, they carry " (inactive)".
+- **Options** show the name, then the id, then for items the unit: "Cheese (#3) · kg", "Deli Norte (#4)", "kg (#1)". In a filter picker that offers inactive customers, they carry " (inactive)". A long name wraps inside its option; the id stays whole on the right.
+- **The field after choosing** holds the name; the id and unit ("(#7) · Bag", or "(#4)" for a customer, plus " (inactive)" where it applies) are shown in a fixed suffix at the right end of the same field box, read by screen readers through `aria-describedby`. The suffix never shrinks; the name shortens with an ellipsis when the field is narrow (12.8). While the user types, the suffix is hidden, because nothing is chosen.
+- **Width:** a picker is as wide as its form field (640 px forms). In a line table (new sales order, edit recipe) the picker column takes all the width the quantity and Remove columns leave, at least 280 px, and the form with lines may be up to 880 px wide; on a phone the picker is full width (decision #220). The open list is exactly as wide as its field, at every width.
 - **Typing narrows** the list to names containing the typed text, ignoring letter case, or to the record whose id equals the typed number (a leading "#" is ignored). A line above the options says how many match ("12 matches"), read out politely. Nothing matching: "No matches. Check the spelling or type an id." The narrowed list appears within 1 second with 500 records.
-- **Keyboard:** Down arrow opens the list, Up and Down move, Enter chooses, Escape closes the list and puts back the chosen record's text. Choosing fills the field with the option text and sets the record. Typing after choosing clears the choice.
+- **Keyboard:** Down arrow opens the list, Up and Down move, Enter chooses, Escape closes the list and puts back the chosen record's text. Choosing fills the field with the name, shows the id and unit in the suffix, and sets the record. Typing after choosing clears the choice.
 - **Only a chosen record is sent.** If the field holds typed text that was not chosen, sending shows "Choose an item from the list." ("a customer", "a unit", "a material", by picker), and nothing is sent. Empty and required shows the API's required wording (12.4).
 - **States:** while loading, "Loading items…" in the list and the field is read-only; if loading fails, the F-1 or F-2 message under the field with a "Try again" button; with no records at all, the screen's own sentence (for example "No raw materials yet. A Manager adds them.") replaces the picker, and the form's send button is not shown, so nothing can be saved (AC-39.4, AC-41.3, AC-57.2).
 
@@ -1868,7 +1878,7 @@ Each flow starts at sign-in (16.1), which opens Stock. "If something fails" name
 
 **Change own password (US-35).** 1. "Change password" in the header or menu. 2. Current password, new password twice, "Change password". 3. The sign-in screen opens with "Password changed. Sign in with your new password." If something fails: the passwords differ, "The new passwords do not match." and nothing is sent; a wrong current password, "Current password is incorrect." under that field; the policy message under the new password; the three fields are emptied each time.
 
-**Session ends by itself.** After 15 idle minutes, the sign-in screen says "You were signed out after 15 minutes without activity."; after signing in, Stock. After a `401`, "Your sign-in is missing or has expired. Sign in again."; after signing in, the screen that was open.
+**Session ends by itself.** After 14 idle minutes the warning "You'll be signed out in 1 minute." appears; "Stay signed in", or any key, click, touch or mouse movement, keeps the session and the screen as it was. Ignored for one more minute, the sign-in screen says "You were signed out after 15 minutes without activity."; after signing in, Stock. After a `401`, "Your sign-in is missing or has expired. Sign in again."; after signing in, the screen that was open.
 
 **Look things up.** Stock (every role), Items and Units (every role), a finished product's recipe (W, P, M), customers (W, M, S).
 
@@ -1955,6 +1965,7 @@ Every screen of PRD 17.2, with its stories. "Mockup" names the file in `design/m
 | 16.33 | Not allowed | A screen the roles do not allow | US-36 | (message pattern) |
 | 16.34 | Not found | A record or address that does not exist | F-12 | (message pattern) |
 | — | Menu panel, header, footer, dialogs, banner | Frame and components | US-36, US-49, F-4, F-5, F-8 | every mockup; `index.html` |
+| — | Idle warning | One minute before the idle sign-out | US-34 (AC-34.7), Q110 | `index.html` (#idle) |
 
 US-37 (safe text) applies to every screen (12.8). US-55 has no screen of its own: the ship dialog (16.23) is unchanged by it, and its busy state covers the wait.
 
@@ -2488,7 +2499,8 @@ Sentence case everywhere. No capitals-only labels, no letter spacing, no italics
 - **Spacing scale:** 4, 8, 12, 16, 24, 32, 48, 64 px (`--s-1` to `--s-8`), for every margin, gap and padding. Label to field 8; field to field 24; heading to content 12 to 16; sections 32.
 - **Page gutter** (`--gutter`), the same on the left and right of header and content so edges line up: 32 px at 1024 and wider, 24 from 640 to 1023, 16 below 640.
 - **Control height** (`--control-h`): 40 px for buttons, inputs and selects; 44 px below 640 px. Menu entries 40 px (44 below 1024). Every target is at least 24 by 24 (F-15); in practice the smallest is the 32 px banner close button.
-- **Sizes:** header 56 px; menu column 232 px; content at most 1200 px wide; forms at most 640 px; dialogs at most 560 px.
+- **Sizes:** header 56 px; menu column 232 px; content at most 1200 px wide; forms at most 640 px (a form with a line table up to 880 px, its single fields still 640); dialogs at most 560 px, the idle warning 420 px.
+- **Nothing refuses to shrink.** No element has a fixed minimum width that could push the page wider than 360 px: grid columns use `min(…, 100%)`, flex children that hold text get `min-width: 0`, the filter fields' 200 px minimum and the line table's 280 px picker column apply only from 640 px (below that they are blocks), and a wide table scrolls inside its own frame.
 - **Radius** (one family): 4 px inputs, badges, picker list, menu entries (`--r-sm`); 6 px buttons and messages (`--r-md`); 8 px panels, tables, dialogs (`--r-lg`).
 - **Borders:** 1 px `--line` around panels and tables and between rows; 1 px `--line-strong` around controls; 2 px `--danger` on a field with an error.
 - **Shadows:** only the dialog (`0 8px 32px rgba(28,31,29,.18)`) and the open picker list. Nothing else floats.
@@ -2516,11 +2528,11 @@ Every component lists its states. Focus is always the 2 px `--action` outline 2 
 | **Text field** | text, email, password, date, number-as-text (`inputmode="decimal"`, right-aligned, 140 px wide in line tables, full width on a phone), textarea (88 px tall to start, grows by the user). Unit beside a quantity field in `--muted`. | default, hover (ink border), focus, error (2 px red border, `aria-invalid`, message under it starting with "Error:"), read-only (while a picker loads). |
 | **Checkbox, radio** | 20 px, green when checked, the label to the right inside a 40 px row that is all clickable; grouped in a fieldset with a legend. | default, checked, focus, error (message under the fieldset). |
 | **Select** | Native `<select>`, used only for filters. | as text field. |
-| **Picker** | 12.9. A text field with a list 280 px tall at most under it; the highlighted option has the green tint. | closed, open, loading, no matches, empty source, load failed, error. |
+| **Picker** | 12.9. A field box holding the text input and, once a record is chosen, a fixed muted suffix with its id and unit; the focus ring and error border are drawn on the box. A list 280 px tall at most under it; the highlighted option has the green tint. | closed, chosen (suffix shown), typing (suffix hidden), open, loading, no matches, empty source, load failed, error. |
 | **Table** | White, 8 px radius, 1 px border; grey heading row of `--t-meta` muted labels; 12 px cell padding; numbers right-aligned; the lead cell bold. Every table has a caption (visually hidden where the heading above says it) and `scope="col"` headings. | populated, row hover, empty (replaced by the empty sentence, no empty table), loading (12.11). |
 | **Status badge** | 24 px tall, 13 px bold words on a tint, 4 px radius, with a transparent 1 px border that shows in Windows high-contrast mode. Mapping in 17.6. | static. |
 | **Message area** | Error (red-tinted, red 4 px left edge, "!" disc), info (blue tint, "i"), success banner (green tint, tick, close button). Text in `--ink`. | hidden when empty; error areas take focus (12.4); the banner and info have `role="status"`. |
-| **Dialog** | 12.5. 560 px wide, title, scrolling body, footer with "Go back" then the confirm button. A dark ground (45% ink) covers the page. | open, busy (both buttons held), refused (message in the body). |
+| **Dialog** | 12.5. 560 px wide, title, scrolling body, footer with "Go back" then the confirm button. A dark ground (45% ink) covers the page. | open, busy (both buttons held), refused (message in the body). Compact variant, the idle warning only: 420 px, `role="alertdialog"`, one primary button, above every other layer, and a centred box (not full screen) on a phone. |
 | **Panel and facts** | White box, 24 px padding (16 on a phone), an h2, and a grid of label-above-value pairs, 200 px columns that wrap. | |
 | **Line blocks** | On the order detail: a material's heading, then groups (Plan, Estimate, Sent, Result) of label and right-aligned value pairs. | Groups that do not apply yet are not shown. |
 | **Pager** | "Page 2 of 3", "Previous page", "Next page" (secondary buttons). | each button hidden when there is no such page. |
@@ -2554,6 +2566,9 @@ API messages are shown as the API writes them (section 7); they are not repeated
 | Header and menu links | Notifications ({n}) / Notifications · Change password · Sign out · Menu · Close menu |
 | Menu groups | Production · Sales · Setup |
 | Footer | Times are local (UTC{±hh:mm}). |
+| Idle warning, title (after 14 idle minutes; owner's wording, Q110) | You'll be signed out in 1 minute. |
+| Idle warning, line | No one has used this screen for 14 minutes. Anything typed and not yet saved is lost when you are signed out. |
+| Idle warning, button | Stay signed in |
 | After 15 idle minutes | You were signed out after 15 minutes without activity. |
 | After a `401` | Your sign-in is missing or has expired. Sign in again. (the API's own words, design 7.1) |
 | After changing one's password | Password changed. Sign in with your new password. |
@@ -2571,7 +2586,7 @@ API messages are shown as the API writes them (section 7); they are not repeated
 
 ### 18.2 Buttons
 
-Sign in · Sign out · Change password · Refresh · Apply filters · Try again · Previous page · Next page · Close message · Go back · Record receipt · New production order · Create order · Send materials · Complete order · Request extra material · Request material · Cancel order · Approve · Reject · Send material · New return · Create return · Receive · Receive return · Cancel return · Mark read · Mark all read · Add customer · Save customer · Edit customer · Deactivate customer · Reactivate customer · Delete customer · New sales order · Create sales order · Add line · Remove · Ship · Ship sales order · Cancel sales order · Add unit · Save name · Delete unit · Add item · Save item · Edit item · Delete item · Set recipe · Edit recipe · Save recipe · Add user · Save roles · Change roles · Set password · Deactivate user · Reactivate user.
+Sign in · Sign out · Change password · Stay signed in · Refresh · Apply filters · Try again · Previous page · Next page · Close message · Go back · Record receipt · New production order · Create order · Send materials · Complete order · Request extra material · Request material · Cancel order · Approve · Reject · Send material · New return · Create return · Receive · Receive return · Cancel return · Mark read · Mark all read · Add customer · Save customer · Edit customer · Deactivate customer · Reactivate customer · Delete customer · New sales order · Create sales order · Add line · Remove · Ship · Ship sales order · Cancel sales order · Add unit · Save name · Delete unit · Add item · Save item · Edit item · Delete item · Set recipe · Edit recipe · Save recipe · Add user · Save roles · Change roles · Set password · Deactivate user · Reactivate user.
 
 ### 18.3 Checks on screen
 
@@ -2678,6 +2693,8 @@ The concrete list of PRD section 18 (row 75, WCAG 2.2 AA based), at every width 
 - **Everything works by keyboard alone:** pickers (12.9), dialogs (Escape closes when nothing is running, Tab stays inside, focus returns to the opener), the menu panel (Escape closes), row selection (the lead link), Enter submits a form once (F-3).
 - **Labels:** every field has a visible label tied to it with `for` or `aria-labelledby`; inputs in line tables are labelled by their column heading plus the row's material or line number; checkbox and radio groups have a fieldset and legend; hints and errors are tied with `aria-describedby`. A placeholder is never a label.
 - **Messages announced:** refusals and failed checks take focus in the message area (12.4); banners and the sign-in arrival message are `role="status"`; the picker's match count is polite; the notification count is not announced on its own.
+- **Idle warning** (12.3, Q110). A modal `role="alertdialog"` with `aria-modal="true"`, `aria-labelledby` on its title and `aria-describedby` on its line, so its whole message is read when focus enters. An alertdialog is used rather than a live region because the user must be able to act on it at once, and focus on its button makes "Stay signed in" one key press (Enter or Space) for keyboard and screen reader users. Focus moves to "Stay signed in"; Tab and Shift+Tab stay on it; the page behind is inert (`inert` on the rest of the page, or the native modal `<dialog>`). Closing it, by the button or by any activity, returns focus to where it was. It opens 60 seconds before the sign-out and staying takes one simple action, which meets WCAG 2.2 success criterion 2.2.1 (Timing Adjustable) by the "warned and given at least 20 seconds to extend" route; the 15-minute limit itself stays, as the owner chose it for a shared computer (Q106). The warning has no animation under reduced motion and keeps a visible border in high-contrast mode.
+- **Ids never cut:** 12.8. A name may wrap or, in a one-line picker field, end in an ellipsis; its id and unit are always read and shown in full.
 - **Not by colour alone:** statuses, Read and Unread, Active and Inactive, and "Above tolerance" are words; errors start with "Error:" and have a 2 px border; the current menu entry also has a bar and bold text.
 - **Structure:** `lang="en"`; one h1 per screen, h2 for its sections, no level skipped; landmarks header, nav ("Main menu"), main and footer; tables with captions and column headings. In the phone layout tables keep their meaning: either the table elements carry explicit `role="table"`, `row`, `cell` and `columnheader`, because changing `display` drops them in Chromium, or the phone layout is rendered as a list with the same labels; the tech lead chooses.
 - **A scrolling table frame** (640 to 1023 px) is a focusable region named after its table, so it can be scrolled by keyboard.
@@ -2711,7 +2728,7 @@ The page itself never scrolls sideways at any width from 360 px.
 
 - Fields are one column at every width, 640 px at most. On a phone the send button and every form button are full width.
 - **Line forms** (send, complete, request, complementary send, sales order lines, recipe lines): a table on desktop and tablet; on a phone each line is a block with the material as its heading, its figures as label and value pairs ("Accepted range 975 to 1,015 kg", "Warehouse now 1,200 kg"), then the input at full width with its unit beside it and its error under it. "Remove" sits at the end of the block.
-- The open picker list is as wide as its field and at most 280 px tall, at every width.
+- The open picker list is as wide as its field and at most 280 px tall, at every width. In line tables on desktop and tablet the picker column takes the spare width (at least 280 px), so a chosen record's name and id fit; the id and unit suffix never shrinks at any width (12.8, 12.9).
 
 ### 20.4 Details
 
@@ -2721,7 +2738,7 @@ The page itself never scrolls sideways at any width from 360 px.
 
 ### 20.5 Dialogs and menu
 
-- Dialogs: 560 px centred at desktop and tablet; full screen on a phone, with the body scrolling and the buttons stacked full width at the bottom, the confirm button above "Go back" (in focus order "Go back" still comes first after the fields).
+- Dialogs: 560 px centred at desktop and tablet; full screen on a phone, with the body scrolling and the buttons stacked full width at the bottom, the confirm button above "Go back" (in focus order "Go back" still comes first after the fields). The idle warning is the exception: a 420 px centred box at every width, 16 px from the screen edges on a phone, because it holds one line and one button.
 - Menu: column at desktop; full-screen panel below 1024 px with 44 px entries.
 
 ### 20.6 Screen notes at each width
@@ -2742,7 +2759,7 @@ The page itself never scrolls sideways at any width from 360 px.
 
 | Story or rule | Where it is designed |
 |---------------|----------------------|
-| US-34 Sign in, sign out, session end | 12.3, 14.1, 16.1, 18.1 |
+| US-34 Sign in, sign out, session end (with the idle warning, Q110) | 12.3, 14.1, 16.1, 18.1, 19 |
 | US-35 Change own password | 14.1, 16.2 |
 | US-36 Screens by role | 12.1, 12.10, 13, 16.33 |
 | US-37 Safe display of stored text | 12.8, 17.5 (direction marker); A-2, A-3, A-5 are server work for the tech lead |
@@ -2783,4 +2800,6 @@ The page itself never scrolls sideways at any width from 360 px.
 
 **Small choices made in this phase,** none of which changes scope, logged in `docs/decisions.md` as #193 to #214: status words as the API's enum names (#193); one light theme (#194); system font, no web font (#195); menu column at 1024 px and wider, identity and sign-out inside the menu panel below (#196); the confirmation as an in-flow banner that stays until closed (#197); dialogs with "Go back", red confirms for destructive actions, and a dialog for Approve (#198); the address scheme, filters in the query string, the return-path rule and replaced form history (#199); idle sign-out details (#200); filters applied with a button (#201); tables stacked below 640 px and scrolling in their frame between 640 and 1023 (#202); number details (amounts per unit to 6 decimals, unsigned tolerance, "0.00%") (#203); required checks in the API's words, "Choose … from the list.", no send button over an empty picker (#204); "own account" by email (#205); notification types in words (#206); the return's order number check (#207); "Actual usage" and "Required for actual output" as labels, `leftoverRemaining` not shown (#208); a Unit column where an AC lists unit, with units still on every quantity (#209); 300 ms before a loading line, Refresh keeps rows (#210); Remove on every line, the empty-lines messages (#211); Add unit on the Units list and rename on the unit's detail (#212); one back link on every detail and form screen (#213); form addresses opened in the wrong status, and stock or parent reads that fail on forms (#214).
 
-**Questions for the product manager or owner:** none that changes what is built. Two points for the delivery manager are in the phase report: no warning before the 15-minute sign-out, and the header identity moving into the menu panel below 1024 px.
+**Added after the owner's review (2026-11-27),** #215 to #220: the idle warning as a modal alertdialog with focus on "Stay signed in" and any input counting as activity (#215); what happens when it is ignored, and in a background tab (#216); it stacks above other dialogs and keeps their input (#217); a compact centred box on a phone (#218); no countdown, sound or title flashing (#219); ids never cut, the picker's id suffix, the wider line-table picker column, and the product name hidden below 640 px instead of 480 (#220). The owner's decision to add the warning (Q110) is recorded by the delivery manager.
+
+**Questions for the product manager or owner:** none that changes what is built. One point for the delivery manager is in the phase report: the header identity moves into the menu panel below 1024 px.

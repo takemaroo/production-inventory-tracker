@@ -121,6 +121,7 @@ v1.2 phase 2: `ux-designer` designs the front end (docs/02-design.md v1.2 part, 
 - 2026-11-26 Owner turned on GitHub Secret Protection and push protection (#186). Going-public preparation complete.
 - 2026-11-27 v1.2 (web front end) phase 1: `product-manager` wrote PRD sections 14-20; owner settled Q98-Q109 in a grilling session (#187-#192) and approved the PRD. Started v1.2 phase 2 with `ux-designer` (with the design-taste-frontend skill).
 - 2026-11-27 `ux-designer` finished the v1.2 design (docs/02-design.md sections 11-22, 34 screens, design system, #193-#214) and 8 static mockups in design/mockups/ (no external resources; not browser-checked by the designer, no shell). Owner question Q110 (idle sign-out warning) open.
+- 2026-11-27 Owner reviewed the mockups ("looks good"); Q110 idle warning added (#221, AC-34.7a). Designer fixed the id truncation, sidebar height, desktop Menu button and narrow-width overflow (#215-#220); delivery manager confirmed with headless Edge screenshots at 360 and 1280 px. v1.2 phase 2 done. Next: SEC-24 batching task, then phase 3.
 
 ## Follow-ups to route
 

@@ -877,6 +877,7 @@ As a staff member, I want to sign in on the browser with my email and password s
 - **AC-34.5** The token is held only in the page's memory (SEC-10). After signing in, the browser's local storage, session storage, IndexedDB, cookies and cache storage for the front end's address hold no token and no API data, and the token never appears in the address bar, on the page or in the browser console. Reloading the page, opening the front end in a second tab, or closing and reopening the browser shows the sign-in screen (Q106).
 - **AC-34.6** When any request is answered `401` (the 8-hour token has expired, the user was deactivated, or the user changed their password elsewhere), the sign-in screen opens with "Your sign-in is missing or has expired. Sign in again." After signing in, the screen that was open opens again. What was typed in a form is not kept.
 - **AC-34.7** After 15 minutes with no keyboard, mouse or touch input in the front end, the user is signed out as in AC-34.4, and the sign-in screen says "You were signed out after 15 minutes without activity." (Q106, because staff share one computer).
+- **AC-34.7a** (Q110) One minute before that idle sign-out, after 14 minutes without input, the front end warns "You'll be signed out in 1 minute." with a "Stay signed in" button; the button or any input closes the warning and restarts the 15 minutes. If the warning is ignored, AC-34.7 applies. (WCAG 2.2.1; details in design section 12.3.)
 - **AC-34.8** When the API is not running, signing in shows the F-2 message.
 
 ### US-35: Change own password

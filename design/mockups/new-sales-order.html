@@ -51,12 +51,14 @@
         <h1 class="title">New sales order</h1>
       </div>
 
-      <form class="form" action="#" novalidate>
+      <form class="form form--lines" action="#" novalidate>
         <div class="field">
           <label class="label" id="l-cust" for="cust">Customer</label>
           <div class="picker">
-            <input class="input" id="cust" type="text" role="combobox" aria-expanded="true" aria-controls="cust-list"
-                   aria-autocomplete="list" aria-activedescendant="opt-4" aria-describedby="cust-hint" autocomplete="off" value="Deli">
+            <div class="picker__field">
+              <input id="cust" type="text" role="combobox" aria-expanded="true" aria-controls="cust-list"
+                     aria-autocomplete="list" aria-activedescendant="opt-4" aria-describedby="cust-hint" autocomplete="off" value="Deli">
+            </div>
             <div class="picker__list">
               <p class="picker__count" role="status">2 matches</p>
               <ul id="cust-list" role="listbox" aria-labelledby="l-cust">
@@ -74,16 +76,21 @@
           <p class="hint" id="ref-hint">Up to 100 characters, for example the customer's order number.</p>
         </div>
 
-        <fieldset class="field">
+        <fieldset class="field lines">
           <legend class="label">Lines</legend>
           <div class="table-wrap">
             <table class="stack">
               <caption class="vh">Lines of the new sales order</caption>
-              <thead><tr><th scope="col" id="h-item">Item</th><th scope="col" id="h-qty">Quantity</th><th scope="col"><span class="vh">Remove</span></th></tr></thead>
+              <thead><tr><th scope="col" class="col-pick" id="h-item">Item</th><th scope="col" id="h-qty">Quantity</th><th scope="col"><span class="vh">Remove</span></th></tr></thead>
               <tbody>
                 <tr>
                   <td class="wide" data-label="Item">
-                    <input class="input" type="text" role="combobox" aria-expanded="false" aria-labelledby="h-item" aria-describedby="n-1" autocomplete="off" value="Shredded cheese 1 kg bag (#7) · Bag">
+                    <div class="picker">
+                      <div class="picker__field">
+                        <input type="text" role="combobox" aria-expanded="false" aria-labelledby="h-item" aria-describedby="n-1 id-1" autocomplete="off" value="Shredded cheese 1 kg bag">
+                        <span class="picker__id" id="id-1">(#7) · Bag</span>
+                      </div>
+                    </div>
                     <span class="vh" id="n-1">Line 1</span>
                   </td>
                   <td data-label="Quantity"><div class="with-unit"><input class="input input--qty" inputmode="decimal" aria-labelledby="h-qty" aria-describedby="n-1" value="500"><span class="unit">Bag</span></div></td>
@@ -91,7 +98,12 @@
                 </tr>
                 <tr>
                   <td class="wide" data-label="Item">
-                    <input class="input" type="text" role="combobox" aria-expanded="false" aria-labelledby="h-item" aria-describedby="n-2" autocomplete="off" value="Grated cheese 200 g bag (#9) · Bag">
+                    <div class="picker">
+                      <div class="picker__field">
+                        <input type="text" role="combobox" aria-expanded="false" aria-labelledby="h-item" aria-describedby="n-2 id-2" autocomplete="off" value="Grated cheese 200 g bag">
+                        <span class="picker__id" id="id-2">(#9) · Bag</span>
+                      </div>
+                    </div>
                     <span class="vh" id="n-2">Line 2</span>
                   </td>
                   <td data-label="Quantity"><div class="with-unit"><input class="input input--qty" inputmode="decimal" aria-labelledby="h-qty" aria-describedby="n-2" value="50"><span class="unit">Bag</span></div></td>
