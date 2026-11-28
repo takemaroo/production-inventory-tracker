@@ -1,6 +1,6 @@
 # Continuous integration: on every push to main and every pull request into main, a fresh GitHub-hosted machine
-# restores, builds with warnings as errors and runs the whole test suite. The same steps as scripts\build.ps1 and
-# scripts\test.ps1, so a green local run predicts a green CI run.
+# builds and tests the web front end (v1.2), then restores, builds with warnings as errors and runs the whole .NET test
+# suite. The same steps as scripts\build.ps1 and scripts\test.ps1, so a green local run predicts a green CI run.
 #
 # No secrets are needed: the tests set their own throwaway JWT_SIGNING_KEY, ADMIN_EMAIL and ADMIN_PASSWORD in code
 # (tests/InventoryTracker.Api.Tests/Infrastructure/TestApiFactory.cs) and use temporary SQLite files.
@@ -49,6 +49,29 @@ jobs:
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
+
+      # (v1.2) Node.js for the web front end, at the version in src/InventoryTracker.Web/.nvmrc (24, the LTS line). The
+      # npm download cache is kept between runs, keyed on package-lock.json, so unchanged packages are not downloaded again.
+      - name: Install Node.js from .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: src/InventoryTracker.Web/.nvmrc
+          cache: npm
+          cache-dependency-path: src/InventoryTracker.Web/package-lock.json
+
+      # The same front-end steps as scripts\build.ps1 and scripts\test.ps1 (Build-FrontEnd and Invoke-FrontEndNpm in
+      # scripts\common.ps1). npm ci installs exactly the versions in package-lock.json.
+      - name: Install front-end packages
+        working-directory: src/InventoryTracker.Web
+        run: npm ci --no-audit --no-fund
+
+      - name: Build the front end (TypeScript check, then Vite into the API's wwwroot)
+        working-directory: src/InventoryTracker.Web
+        run: npm run build
+
+      - name: Test the front end
+        working-directory: src/InventoryTracker.Web
+        run: npm test
 
       - name: Restore
         run: dotnet restore InventoryTracker.slnx

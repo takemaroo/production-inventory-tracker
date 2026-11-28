@@ -14,6 +14,11 @@
 
   Nothing is deleted: files in the output folder are overwritten. Never keep the database inside the output folder.
 
+  (v1.2) The web front end is built first (Build-FrontEnd in common.ps1, which needs Node.js 24.15 or later) into
+  src\InventoryTracker.Api\wwwroot, and dotnet publish copies that folder into the output's wwwroot. The published
+  API then serves the front end at its own address, so "run.ps1 -Published" is still one process serving both (A-1).
+  The machine that runs the published folder needs no Node.js.
+
 .PARAMETER RuntimeVersion
   The .NET and ASP.NET Core runtime version to bundle in a self-contained folder. At least 10.0.15.
 
@@ -67,6 +72,9 @@ if (Test-Path -LiteralPath $Output) {
     }
 }
 
+# (v1.2) The front end's built files must be in the API's wwwroot before dotnet publish copies that folder.
+Build-FrontEnd
+
 $project = Join-Path $RepoRoot 'src\InventoryTracker.Api\InventoryTracker.Api.csproj'
 $arguments = @('publish', $project, '--configuration', 'Release', '--output', $Output, '-warnaserror')
 if ($FrameworkDependent) {
@@ -79,6 +87,11 @@ else {
 }
 
 Invoke-Checked 'dotnet' $arguments
+
+# (v1.2) Check the front end arrived: without its page the published API would serve the API only.
+if (-not (Test-Path -LiteralPath (Join-Path $Output 'wwwroot\index.html'))) {
+    throw "The published folder has no wwwroot\index.html, so it would serve no front end. Check the front-end build output above."
+}
 
 if (-not $FrameworkDependent) {
     $kestrel = Get-Item -LiteralPath (Join-Path $Output 'Microsoft.AspNetCore.Server.Kestrel.Core.dll')

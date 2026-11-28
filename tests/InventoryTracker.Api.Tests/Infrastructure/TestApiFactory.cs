@@ -92,6 +92,26 @@ public class TestApiFactory : WebApplicationFactory<Program>
     public CapturingLoggerProvider Logs { get; } = new();
 
     /// <summary>
+    /// (v1.2) The app's web root, the folder it serves the front end's files from (A-1, <c>FrontEndSetup</c>). By default a
+    /// folder of this factory's own that does not exist, so a test never depends on whether someone has built the real
+    /// front end into <c>src/InventoryTracker.Api/wwwroot</c>: the app then serves no front end, exactly as before v1.2.
+    /// A test that needs one writes its own small files with <see cref="WriteFrontEndFile"/> before the app starts.
+    /// </summary>
+    public string WebRootPath { get; init; } =
+        Path.Combine(Path.GetTempPath(), $"inventory-tests-webroot-{Guid.NewGuid():N}");
+
+    /// <summary>
+    /// (v1.2) Writes a file into <see cref="WebRootPath"/>, for example <c>WriteFrontEndFile("index.html", "&lt;!doctype html&gt;...")</c>.
+    /// Call it before the app starts (before the first <c>CreateClient()</c>).
+    /// </summary>
+    public void WriteFrontEndFile(string relativePath, string content)
+    {
+        var fullPath = Path.Combine(WebRootPath, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        File.WriteAllText(fullPath, content);
+    }
+
+    /// <summary>
     /// Points the app at the temporary database, selects the Testing environment, sets the test secrets and, when
     /// asked, the fake clock.
     /// </summary>
@@ -99,6 +119,7 @@ public class TestApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:Default", $"Data Source={DatabasePath}");
+        builder.UseSetting(WebHostDefaults.WebRootKey, WebRootPath);
 
         // Added last, so it wins over every other source; null values included, so they hide earlier ones.
         builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(Settings));
@@ -176,6 +197,11 @@ public class TestApiFactory : WebApplicationFactory<Program>
         foreach (var suffix in new[] { "", "-wal", "-shm" })
         {
             File.Delete(DatabasePath + suffix);
+        }
+
+        if (Directory.Exists(WebRootPath))
+        {
+            Directory.Delete(WebRootPath, recursive: true);
         }
 
         GC.SuppressFinalize(this);

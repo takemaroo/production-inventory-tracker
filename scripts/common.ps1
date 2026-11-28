@@ -30,6 +30,12 @@ Set-StrictMode -Version Latest
 # The repository root is the folder above scripts\.
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
 
+# (v1.2) The web front end's folder: its package.json, its tests, and the build that writes the API's wwwroot.
+$script:FrontEndRoot = Join-Path $RepoRoot 'src\InventoryTracker.Web'
+
+# (v1.2) The oldest Node.js the front end's tools accept (jsdom, used by the tests, needs 24.15 or later).
+$script:MinimumNodeVersion = [version]'24.15.0'
+
 function Test-SavedUserVariable {
     <#
     .SYNOPSIS
@@ -253,6 +259,64 @@ function Invoke-Checked {
     if ($LASTEXITCODE -ne 0) {
         throw "'$FilePath $($Arguments -join ' ')' failed with exit code $LASTEXITCODE."
     }
+}
+
+function Get-NpmPath {
+    <#
+    .SYNOPSIS
+      (v1.2) Checks that Node.js 24.15 or later is installed and returns the full path of npm.cmd. Throws otherwise.
+    .DESCRIPTION
+      Building and testing the web front end needs Node.js, which brings npm, its package manager. The running product
+      does not: the published folder holds the built files and the API serves them (PRD section 18).
+      npm.cmd is called rather than plain "npm" because the npm.ps1 that Node.js also installs may be blocked by the
+      machine's script execution policy, while a .cmd file is not.
+    #>
+    $node = Get-Command 'node.exe' -ErrorAction SilentlyContinue
+    if (-not $node) {
+        throw ('Node.js is not installed, and the web front end needs it to build. Install the LTS version 24 (free) from ' +
+            'https://nodejs.org, then open a new PowerShell window (docs/03-architecture.md, part v1.2).')
+    }
+    $installed = [version](& $node.Source '--version').Trim().TrimStart('v')
+    if ($installed -lt $MinimumNodeVersion) {
+        throw "Node.js $installed is installed; the web front end needs $MinimumNodeVersion or later. Install the LTS version 24 from https://nodejs.org."
+    }
+    $npm = Join-Path (Split-Path -Parent $node.Source) 'npm.cmd'
+    if (-not (Test-Path -LiteralPath $npm)) {
+        throw "npm.cmd was not found next to $($node.Source). Reinstall Node.js from https://nodejs.org."
+    }
+    $npm
+}
+
+function Invoke-FrontEndNpm {
+    <#
+    .SYNOPSIS
+      (v1.2) Runs one npm command in the front end's folder, src\InventoryTracker.Web, and stops the script if it fails.
+    .EXAMPLE
+      Invoke-FrontEndNpm @('run', 'build')
+    #>
+    param([Parameter(Mandatory)] [string[]] $Arguments)
+    $npm = Get-NpmPath
+    Push-Location $FrontEndRoot
+    try {
+        Invoke-Checked $npm $Arguments
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Build-FrontEnd {
+    <#
+    .SYNOPSIS
+      (v1.2) Installs the front end's packages exactly as package-lock.json lists them, checks its types and builds it
+      into src\InventoryTracker.Api\wwwroot, where the API serves it from (A-1).
+    .DESCRIPTION
+      "npm ci" (clean install) deletes node_modules and installs exactly the versions in package-lock.json, so every
+      machine, CI included, builds with the same packages. It never changes package.json or package-lock.json.
+      "npm run build" runs the TypeScript check and then Vite, which empties wwwroot and writes the new files.
+    #>
+    Invoke-FrontEndNpm @('ci', '--no-audit', '--no-fund')
+    Invoke-FrontEndNpm @('run', 'build')
 }
 
 function Get-DefaultDatabasePath {

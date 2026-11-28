@@ -8,6 +8,9 @@
   "Testing" environment, so your own environment variables and user-secrets are never used.
   It takes about 2 to 4 minutes on the owner's machine; the performance tests run last, on their own.
 
+  (v1.2) The web front end's tests (Vitest, a few seconds) run first, right after build.ps1 has built both parts.
+  They need Node.js 24.15 or later, like the build.
+
 .PARAMETER ArtifactsPath
   Optional folder for all build and test output. Passed to both the build and the test run, which must agree.
 
@@ -29,11 +32,14 @@ param(
 $extra = @()
 if ($ArtifactsPath) { $extra = @('--artifacts-path', $ArtifactsPath) }
 
+# The front end's unit and component tests ("vitest run": once, then exit).
+Invoke-FrontEndNpm @('test')
+
 Push-Location $RepoRoot
 try {
     # --no-build: test exactly what build.ps1 just produced, rather than building a second time.
     Invoke-Checked 'dotnet' (@('test', '--solution', 'InventoryTracker.slnx', '--no-build', '--configuration', 'Release') + $extra)
-    Write-Host 'All tests passed.' -ForegroundColor Green
+    Write-Host 'All tests passed (front end and API).' -ForegroundColor Green
 }
 finally {
     Pop-Location

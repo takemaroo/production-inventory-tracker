@@ -11,7 +11,7 @@ Based on `docs/01-prd.md` (approved 2026-11-11) and `docs/02-design.md`. Decisio
 - the movement type `ShippedToCustomer`, written only by the ship action through `StockLedger` (5.1, 5.3);
 - open demand on the stock view and two computed reports, with no stored totals (3.5).
 
-(v1.2) Updated on 2026-11-27 for T-035 (US-55, SEC-24; decisions #222 and #223). The front-end parts of v1.2 are not in this document yet. Changes, marked "(v1.2)" in place: the ledger's batch method `AddRangeAsync` (5.1), the shipment's steps 1, 4 and 6 (5.3), the covering index `IX_Movements_StockSums` and its migration (3.2, 3.4, 5.1), the AC-55 timing test (7), and risks 19 and 21 (9).
+(v1.2) Updated on 2026-11-28 for the web front end: the part "Version 1.2: Web front end" at the end of this document (sections 11 to 23: stack, layout, A-1 to A-5, session, API client, routing, accessibility, build and CI, versioning, risks; decisions #225 to #245). Pointers marked "(v1.2)" were added in sections 1, 2, 4.1, 6, 7 and 8. Updated earlier, on 2026-11-27, for T-035 (US-55, SEC-24; decisions #222 and #223). Changes, marked "(v1.2)" in place: the ledger's batch method `AddRangeAsync` (5.1), the shipment's steps 1, 4 and 6 (5.3), the covering index `IX_Movements_StockSums` and its migration (3.2, 3.4, 5.1), the AC-55 timing test (7), and risks 19 and 21 (9).
 
 ## 1. Stack
 
@@ -30,7 +30,7 @@ Checked on the owner's machine on 2026-11-11: .NET SDK 10.0.401 (runtimes 10.0.1
 | Tests | xUnit v3 on Microsoft.Testing.Platform, `Microsoft.AspNetCore.Mvc.Testing` | xunit.v3 4.0.3, Mvc.Testing 10.0.15 | xUnit is the most common .NET test framework. `WebApplicationFactory` runs the real app in memory. T-003 adds `Microsoft.Extensions.TimeProvider.Testing` 10.11.0 for token-expiry and lock-out tests. |
 | Tools | `dotnet-ef` as a local tool (`dotnet-tools.json`) | 10.0.15 | `dotnet tool restore` installs the same version on any machine. |
 | Scripts and CI | PowerShell scripts in `scripts/` (Windows PowerShell 5.1 or PowerShell 7, plain ASCII); GitHub Actions on `windows-latest` | | Owner's machine is Windows (CLAUDE.md). The scripts wrap build, test, publish, run, backup and restore (decisions #128, #129, #133); CI runs the same build and tests (decision #131). |
-| Front end | none | | No user interface in v1 (PRD section 3). |
+| Front end | none | | No user interface in v1 (PRD section 3). (v1.2) A web front end: React, TypeScript, Vite, served by the API; section 11. |
 
 (v1.1) Checked again on 2026-11-24: .NET SDK 10.0.404 and 10.0.401, runtimes 10.0.15 and 10.0.12, git 2.55. On nuget.org, 10.0.15 is still the latest 10.0.x of every Microsoft package above, and 4.0.3 the latest xunit.v3. Version 1.1 adds no package and no tool.
 
@@ -125,6 +125,8 @@ tests/InventoryTracker.Api.Tests/
                                  CancelSalesOrderTests, ReportsTests
     Scenarios/                   (v1.1) SalesScenarioTests (worked examples), SalesPerformanceTests (v1.1 volume)
 ```
+
+(v1.2) The front end lives in `src/InventoryTracker.Web/` and is built into `src/InventoryTracker.Api/wwwroot/` (git-ignored); the API gains `Common/FrontEnd/` and `Common/Security/`. See section 12.
 
 Inside a feature folder, for example `Features/ProductionOrders/`:
 
@@ -498,7 +500,7 @@ var lines = db.SalesOrderLines.Where(line => line.SalesOrder.Status == SalesOrde
 5. **Sign-in and lock-out** (AC-01.3, AC-01.4). In order: unknown email or inactive user → `401` `invalid-credentials` (no failure counted); account currently locked → `401` `account-locked`, even with the right password; wrong password → failure counted, `401` `invalid-credentials` (the fifth failure in a row also gets this message and starts the 15-minute lock); right password → failure count reset, `200`. The whole sequence runs one attempt at a time per account (section 5.2, decision #61).
 6. **Token rules** (AC-01.2, AC-01.5, AC-03.5, AC-03.6). Lifetime exactly 8 hours, with no clock-skew allowance. Every authenticated request checks that the token's user exists, is active, and has the same security stamp as when the token was issued; otherwise `401` `not-authenticated`. Deactivating a user changes their stamp, so their old tokens stay invalid even after reactivation. Changing or resetting a password also changes the stamp (Identity's default), so that user's existing tokens stop working and they sign in again. Changing roles does **not** end existing tokens: the new roles apply from the next sign-in (AC-03.5, PRD row 15).
 7. **401 and 403 bodies.** `401` responses carry the design 7.1 ProblemDetails body and the header `WWW-Authenticate: Bearer`. `403` bodies name the allowed roles from the endpoint's `[Authorize(Roles = ...)]`: "the Manager role", "the Warehouse or Manager role".
-8. **Other framework errors**: unknown route `404` code `not-found` "No endpoint matches this path."; wrong method `405` code `method-not-allowed` "This method is not allowed on this path."; a body sent with a non-JSON `Content-Type` `415` code `unsupported-media-type` "The request body must be JSON, sent with Content-Type: application/json." (decision #40); a body the web server refuses `413` `request-too-large`, `408` `request-timeout` or `400` `validation` (item 2, decision #124), with the fixed titles "Request too large" and "Request timeout" for the first two; unhandled exception `500` code `internal-error` "An unexpected error occurred." (details only in the log). Whole-body errors (invalid JSON, missing body, wrong root type, a body that could not be read) and `408`/`413` have no `errors` field; field type errors do (decision #41). **Without a token, every path answers `401`, including an unknown one**: the fallback "signed-in" policy (section 6, Authorization) runs before routing can say `404`. With a valid token an unknown path gets the `404` above. This matches design 2.2's check order (authentication first).
+8. **Other framework errors**: unknown route `404` code `not-found` "No endpoint matches this path."; wrong method `405` code `method-not-allowed` "This method is not allowed on this path."; a body sent with a non-JSON `Content-Type` `415` code `unsupported-media-type` "The request body must be JSON, sent with Content-Type: application/json." (decision #40); a body the web server refuses `413` `request-too-large`, `408` `request-timeout` or `400` `validation` (item 2, decision #124), with the fixed titles "Request too large" and "Request timeout" for the first two; unhandled exception `500` code `internal-error` "An unexpected error occurred." (details only in the log). Whole-body errors (invalid JSON, missing body, wrong root type, a body that could not be read) and `408`/`413` have no `errors` field; field type errors do (decision #41). **Without a token, every path answers `401`, including an unknown one**: the fallback "signed-in" policy (section 6, Authorization) runs before routing can say `404`. With a valid token an unknown path gets the `404` above. This matches design 2.2's check order (authentication first). (v1.2) With the front end built, a GET or HEAD outside `/api`, `/health` and `/openapi` is answered before the token check: a screen address gets the front end's page and a missing file `404` (section 13, A-1). Every path under `/api/` keeps the rule above.
 9. **Times** in responses are whole seconds, UTC, with `Z` (stored that way, section 3.1).
 10. **Stock list order**: by the item's `createdAt` descending, then id descending (design 2.5).
 11. **Concurrency fallback** (decision #46): when a UNIQUE or PRIMARY KEY constraint (for example the unique InProduction index) rejects a write that the in-transaction checks did not catch, the response is `409` `concurrent-change` (design 7.2), logged at Warning. With the transaction rule in 5.2 this should never happen; it exists as a backstop. Every other database failure, including NOT NULL, CHECK and FOREIGN KEY constraint failures, is a programming error, not a race: it gives `500` `internal-error` and is logged at Error with the exception.
@@ -685,7 +687,8 @@ A new password check added later follows the same pattern: hash outside, re-conf
 - **First Manager and start-up checks** (T-003, US-02, PRD row 18). In `Program.cs`, before the app listens: (1) tolerance 0–100; (2) `JWT_SIGNING_KEY` set and at least 32 characters; (3) migrations; (4) the three roles exist, created if missing; (5) if the database has no users, `ADMIN_EMAIL` and `ADMIN_PASSWORD` must be set and the password must pass the policy, and then one active user is created with the Manager role only. If any users exist, nothing about users is touched (AC-02.2). A failed check throws `StartupException` with the exact message from design 7.4. Program catches it, logs it at Critical level, and exits with code 1 without listening. (v1.1) Step 3 also applies `SalesOrders` to a v1 database (section 3.4). Step 4 creates the four roles of `Roles.All`, so an existing database gains `Seller` on its first v1.1 start, and nothing else changes (AC-30.3, decision #155).
 - **Validation.** Hand-written in each service, using `Common/Validation/ValidationErrors`. The collector gathers messages keyed by camelCase JSON path (`lines[0].quantity`) and throws one `ValidationException`. Shared helpers: `Quantity.HasAtMostDecimals(value, 3)` (true when `Math.Round(value, n) == value`, so trailing zeros do not count), `Quantity.Round3` (`MidpointRounding.AwayFromZero`), the input maximums `Quantity.IsWithinMax` / `IsWithinMaxAmountPerUnit` with their messages `AboveMaxMessage`, `BelowMinMessage` and `AmountPerUnitAboveMaxMessage` (section 3.1, decisions #80, #103), `Text.Clean` (trim; empty becomes null), and for order bodies `Features/ProductionOrders/OrderLineMatcher` (item required, item on the order, no duplicates, the missing-lines message; options in `OrderLineRules`), used by the send, the completion, the complementary request and the complementary send (decisions #100, #105g, #106b). Each field gets at most one message, from the first rule it fails (decision #75). The collector keeps at most `ValidationErrors.MaxMessages` (100) messages; later ones are only counted, and `Detail` ends with the "{n} more problems are not shown." sentence, which `ToDictionary` (the `errors` field) leaves out (decision #122). Size limits live in `Common/Validation/RequestLimits`: `MaxBodyBytes` (1 MB, applied to Kestrel and IIS in `Program.cs`), and `MaxLines` (500) and `MaxRoles` (10) with their checks `CheckLineCount` and `CheckRoleCount`, which every service with a `lines` or `roles` body calls first, before its write transaction (section 4.1 item 12, section 5.2). `[ApiController]`'s automatic `400` stays on only for unreadable bodies (section 4.1 item 2), with a custom `InvalidModelStateResponseFactory` that produces the design's body. Request records carry no data annotations, so all other validation happens in the service, in the design's check order. (v1.1) Two helpers move into `Common/Validation`, so each rule exists once (decision #161). `BoolParser.ParseOptional(value, parameter, errors)` reads `true`/`false` in any letter case (missing or blank means not set; anything else gets "{parameter} must be true or false."); `NotificationService` (`unreadOnly`, unchanged behaviour and message) and `CustomerService` (`isActive`) use it. `DayRange.Start(day)` and `DayRange.EndExclusive(day)` give 00:00:00 UTC of a day and of the next one (`null` for 9999-12-31, which has no next day, decision #89); `MovementService` and `ShippedTotalsService` use them.
 - **Error handling** (T-001). Services throw `ApiException` subclasses: `NotFoundException`, `ConflictException`, `BadRequestException`, `ValidationException`. Each carries a status, a `code` and a `detail`, plus optional field `errors`. A `code` used by more than one feature is a constant in `Common/Errors/ErrorCodes.cs` (`order-cancelled`, `material-in-use`, `too-many-lines`, and the framework codes, including `request-too-large` and `request-timeout`); a code used by one feature may be a constant in that feature (for example `StockLedger.InsufficientStockCode`). One `IExceptionHandler` turns them into ProblemDetails through `IProblemDetailsService`, adding `code`, the fixed `title` per status (design 6; `ProblemResponse` holds them, including "Request timeout" for `408` and "Request too large" for `413`) and `traceId`. A `BadHttpRequestException`, which Kestrel throws when model binding starts reading a body it will not deliver, is mapped by its own `StatusCode`: `413` → `413` `request-too-large`, `408` → `408` `request-timeout`, anything else → `400` `validation` "The request body could not be read.", none with `errors` (section 4.1 item 2, decision #124). Unknown exceptions become `500` `internal-error` and are logged with their stack trace. A `DbUpdateException` from a UNIQUE or PRIMARY KEY constraint becomes `409` `concurrent-change`; any other `DbUpdateException` is a `500` (section 4.1 item 11, decision #46). `UseStatusCodePages` covers bodiless `404` and `405` responses. Number formatting in messages follows design 6.1 through `Common/Quantities/MessageFormat` (invariant culture, `#,0.###`, percentages with a sign and two places).
-- **JSON** (skeleton, `Program.cs`). camelCase; string enums; `NumberHandling = Strict` (strings for numbers refused); null fields always written.
+- **JSON** (skeleton, `Program.cs`). camelCase; string enums; `NumberHandling = Strict` (strings for numbers refused); null fields always written. (v1.2) HTML-sensitive characters in strings are escaped, on controller and ProblemDetails output alike (A-5, section 14, T-038).
+- (v1.2) **Front end and headers.** The front end's files are served before authentication (section 13); every response carries the A-2 headers, and the API has no CORS policy (section 14).
 - **Time.** Services get the time from `Clock` (T-001), which wraps .NET's `TimeProvider` and truncates to whole seconds. Tests replace `TimeProvider` with `FakeTimeProvider` to test token expiry, lock-out and newest-first ordering.
 - **Logging.** Built-in `Microsoft.Extensions.Logging` to the console. Information for start-up and each state change, with the record's number and the user id: order sent, completed, cancelled; complementary order requested, approved, rejected, sent; return instructed, received, cancelled; sign-in, user created, roles set, deactivated, reactivated, password changed or set. Order, complementary-order and return changes are logged only after their write transaction has committed, so the log never reports one that was rolled back; new code follows this rule. (As built, the user and password services log inside the transaction, just before it commits; a failed commit there could leave a log line for a change that was not saved. Low impact; noted for a later tidy-up, not a v1 task.) Receipts and adjustments are not logged: the movement itself is the record (decision #103). (v1.1) Sales orders: "Sales order {number} created by user {userId}.", "... shipped by user {userId}.", "... cancelled by user {userId}.", each after its commit. Customer changes (rename or notes edit, deactivate, reactivate, delete) are logged after the commit with the customer id, the user id and, for an edit, the names of the changed fields only; creating a customer, no-ops and refused changes write no line (SEC-26, decisions #177 and #179). A customer's name and notes may hold business contact details and must never appear in a log line (decision #163). Warning for `concurrent-change`. Error for `500`, with the stack trace. A refused body (`413`, `408`, or the unreadable-body `400`, section 4.1 item 2) is one Information line from `ApiExceptionHandler`, with the status, method, path and Kestrel's reason, and no stack trace: anyone can send such requests without signing in, and before SEC-02 each one wrote about 27 lines at Error. In Production, `appsettings.Production.json` raises the level of the category `InventoryTracker.Api.Common.Errors.ApiExceptionHandler` to Warning, which drops those lines; its Warning and Error lines stay (decision #126, applied by #130). Development and the tests keep Information. Passwords, tokens, the signing key and request bodies are never logged. EF SQL logging is at Warning.
 - **Configuration.** Non-secret settings are in `appsettings.json`, then `appsettings.{Environment}.json` (`appsettings.Production.json` in Production), then environment variables; later sources win. Secrets come only from environment variables, or from `dotnet user-secrets` in Development; Production never reads user-secrets. Both feed the same configuration keys. Nothing secret is in a tracked file (PRD section 5, AC-02.5). `docs/07-release.md` section 3 is the owner's full list for Production.
@@ -739,10 +742,11 @@ A new password check added later follows the same pattern: hash outside, re-conf
 - (v1.1) **Suite time.** The role matrix roughly doubles and the v1.1 performance test adds a seed of about 30,000 rows. Expect the full suite to grow from about 2 minutes 15 seconds (measured 2026-11-24) to 3 or 4 minutes. That is well inside CI's 25-minute timeout (decision #131).
 - **Acceptance tests:** written by `qa-engineer` in phase 5. Suggested location: `tests/InventoryTracker.Api.Tests/Acceptance/`, so the one command still runs everything.
 - **Run everything:** `dotnet test` from the repository root. The full suite takes about 1.5 to 2 minutes on the owner's machine, mostly because each test factory migrates a fresh database (decision #109f). Two runs at the same time in one working tree must use separate `--artifacts-path` folders, or they lock each other's `bin/` files (decision #67). `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1` runs the same suite after a Release build with warnings as errors (`scripts\build.ps1`), and CI runs those steps on every push and pull request to `main` (decision #131). None of them needs secrets: the tests set their own values.
+- (v1.2) **The front end's tests** (Vitest; from T-044 also Playwright with axe) run in `scripts\test.ps1` and CI before the .NET suite (section 19). `dotnet test` alone still runs only the .NET suite.
 
 ## 8. Running locally
 
-Prerequisites: .NET SDK 10.0.x (10.0.401 confirmed on this machine). Nothing else. Commands are for PowerShell on Windows, from the repository root.
+Prerequisites: .NET SDK 10.0.x (10.0.401 confirmed on this machine). Nothing else. Commands are for PowerShell on Windows, from the repository root. (v1.2) Building the web front end also needs Node.js 24.15 or later (24.21.0 here); its commands are in section 19.
 
 ```powershell
 # once per machine: install the pinned dotnet-ef tool
@@ -818,3 +822,369 @@ Made in this architecture update, for the delivery manager to log in `docs/decis
 | 162 | Sales order numbers and customer ids are `AUTOINCREMENT` keys and never reused (a deleted customer's id stays `404`). Sales order lines: `Restrict` foreign keys, unique (sales order, item), `LineNo` = position in the body. | 3.1, 3.2 |
 | 163 | Logging: sales order created, shipped and cancelled are logged after the commit with the number and the user id. Customer changes are logged with ids only since #177/#179; customer names and notes are never logged. | 6 |
 | 164 | Tests: role-matrix callers are Warehouse, Production, Manager, Seller, Warehouse+Production and Production+Seller. Every endpoint task adds its matrix rows, OpenAPI expectations and `.http` sample in its own commit, and raises `DesignEndpointCount`. `UpgradeTests` builds its own v1 database. | 2, 7 |
+
+# Version 1.2: Web front end
+
+Written on 2026-11-28 by `tech-lead` for phase 3 of version 1.2. Based on `docs/01-prd.md` sections 14 to 20 (US-34 to US-59, conventions F-1 to F-15, section 18, the API changes A-1 to A-5 of section 19.1, and AC-34.7a), `docs/02-design.md` sections 11 to 22 with `design/mockups/`, decisions #187 to #224, and SEC-10 and SEC-27 of `docs/06-security-review.md`. The tech-lead decisions of this part are #225 to #245 in `docs/decisions.md` (section 22 lists them). Sections 1 to 10 still hold for the API. This part adds the front end and the five API-side changes; nothing here changes an endpoint, a request or response shape, a status code, a message or a role.
+
+**Checked on the owner's machine on 2026-11-28:** Node.js 24.21.0 and npm 11.19.0 (already installed, so nothing new was installed), .NET SDK 10.0.404, git 2.55, Windows PowerShell 5.1, Microsoft Edge (installed with Windows 11). Package versions follow the 14-day rule (decision #245): for each package, the newest stable release on npmjs.com that was at least 14 days old on that date, so published on or before 2026-11-14. The same cut-off was applied to every transitive package.
+
+**The skeleton proves the stack end to end** (section 19 has the commands and results): the front end builds (`npm run build`: TypeScript check, then Vite); the API serves it at the same address (`Common/FrontEnd/FrontEndSetup.cs`); the placeholder page loads through the published build started by `scripts\run.ps1 -Published` and renders in Edge, also under the planned Content-Security-Policy; the front end's tests pass (Vitest, 32 tests); the .NET suite still passes; and `scripts\build.ps1`, `scripts\test.ps1`, `scripts\publish.ps1` and CI build and test the front end too.
+
+## 11. Front-end stack (v1.2)
+
+| Layer | Choice | Version | Why |
+|-------|--------|---------|-----|
+| Tool runtime | Node.js, LTS line 24 (`.nvmrc`: `24`; `package.json` `engines`: 24.15 or later) | 24.21.0 here | Builds and tests the front end; the running product does not need it (PRD section 18). LTS, supported to April 2028. jsdom needs 24.15 or later. |
+| Packages | npm with `package-lock.json`, exact versions only, `npm ci` in scripts and CI | 11.19.0 | Comes with Node.js; the lock file makes every machine install the same packages. |
+| Language | TypeScript, strict, checks only (`noEmit`) | 7.0.2 | Owner's preference. Types catch wrong field names and missing cases before the code runs. 7.0 is the current stable line (the native compiler, July 2026); Vite compiles the code, TypeScript only checks it. |
+| UI library | React with React DOM | 19.3.1 | The most used and most documented front-end library. JSX inserts text as text, so "text binding only" (AC-37.2) is the default, and the only raw-HTML door is a prop the source guard forbids. Needs no `eval`, so `script-src 'self'` holds. |
+| Routing | React Router, declarative mode (`BrowserRouter`, `Routes`, `Route`) | 8.5.1 (2026-10-27) | The standard router for React; real addresses for every screen, Back and Forward (AC-36.3), query-string filters (`useSearchParams`). |
+| Build and dev server | Vite with `@vitejs/plugin-react` | 8.3.8 (2026-11-11) / 6.3.0 (2026-11-09) | The standard React build tool. One plain config file; the production build has no inline script; `npm run dev` reloads a changed screen at once. |
+| Unit and component tests | Vitest with jsdom; React Testing Library (`@testing-library/react`, `/dom`, `/user-event`) | 5.1.0 (2026-11-02); 31.0.1 (2026-11-13); 16.3.3, 10.4.2, 14.6.10 (2026-11-12) | Vitest reads Vite's config, so tests compile exactly like the app. Testing Library finds things by role and visible text, as a user and a screen reader do. |
+| End-to-end and accessibility (T-044) | Playwright Test driving the **installed** Microsoft Edge and Google Chrome (`channel: 'msedge'`, `'chrome'`), with `@axe-core/playwright` | T-044 pins the newest releases at least 14 days old when it runs (#245) | Microsoft's own browser test tool, which drives Edge with no browser download. axe-core is the automated checker PRD section 18 asks the tech lead to choose (row 75). |
+| Styles | One plain stylesheet, `src/styles/app.css`, taken from `design/mockups/app.css` | | The design's tokens as CSS custom properties (design 17). No CSS framework and no CSS-in-JS, so `style-src 'self'` holds without `'unsafe-inline'`. |
+| State and data | React state, one session context, small hand-written request module | | No store or caching library: every screen shows the data as it was when it opened (F-14), so a cache would only add rules. |
+
+**Compared (decision #225).** Three options were weighed for the owner, who maintains this code and learns from it:
+
+| | React + React Router | Vue 3 + Vue Router | No framework (TypeScript and DOM APIs) |
+|---|---|---|---|
+| Documentation, examples, hiring | largest | large | the platform's own docs only |
+| TypeScript | native in `.tsx`; `tsc` checks the markup too | needs `vue-tsc` to check templates | native |
+| Safe text binding (AC-37.2) | default; one raw-HTML prop, guarded | default; one raw-HTML directive (`v-html`), guarded | by discipline: every element built by hand with `textContent` |
+| Strict CSP | yes, verified on the skeleton | yes, with the precompiled runtime | yes |
+| 34 screens with pickers, dialogs and line forms | component model fits | component model fits | a hand-built component model, which is a framework the owner must maintain |
+
+**Recommendation: React.** Vue would also work and its templates read more like HTML, but React's ecosystem, the TypeScript checking of markup with the plain compiler, and the amount of current material to learn from decide it. No framework at all would mean writing and maintaining a small framework for 34 screens.
+
+**Deliberately not used** (decisions #225, #241): ESLint (strict TypeScript plus the source guard test cover the rules that matter here; revisit if reviews find mistakes with React's hook rules), a UI component kit (the design defines every component), a state library (Redux, Zustand), a data-caching library (TanStack Query), a date library (the built-in `Date` and `Intl` cover F-8), a decimal library (quantities stay exact text, section 16), an HTTP library (`fetch`), CSS frameworks.
+
+**Size.** Direct packages: 3 at run time (`react`, `react-dom`, `react-router`) and 10 for building and testing. Installed: 92 packages, about 114 MB in `src/InventoryTracker.Web/node_modules` (git-ignored). The built front end is one script of about 257 KB (82 KB compressed) plus `index.html`; screens will add to it. `npm audit` on 2026-11-28, after the 14-day pins: **0 vulnerabilities** (all packages, and run-time packages only).
+
+**The 14-day rule (decision #245).** Every package, direct or transitive, is pinned to a stable release that was at least 14 days old when it was chosen. A malicious or broken release is usually found and withdrawn within days, so the newest versions carry the most supply-chain risk, and the owner prefers settled tools. How it is applied:
+
+- Choosing a version: run `npm view <package> time` and take the newest stable release at least 14 days old.
+- Rebuilding the lock file: `npm install --before=<date 14 days ago>`, which also holds back every transitive package. Checked for the skeleton: all 142 entries in `package-lock.json` were published on or before 2026-11-14.
+- Dependabot: `cooldown: default-days: 14` for npm and for GitHub Actions (`.github/dependabot.yml`), so its monthly pull requests propose only releases at least 14 days old. Its security updates, for a known vulnerability, are not delayed by the cooldown.
+- A task that adds a package (only T-044 is planned to) follows the same rule and reports each version's release date.
+
+The rule held back five packages: Vite 8.4.0 (2 days old) became 8.3.8; React Router 8.5.3 became 8.5.1; Vitest 5.1.2 became 5.1.0; `@testing-library/user-event` 14.6.13 became 14.6.10; `@types/react` 19.3.3 became 19.3.0. React 19.3.1, TypeScript 7.0.2, `@vitejs/plugin-react` 6.3.0, jsdom 31.0.1 and the other Testing Library packages were already old enough.
+
+**TypeScript 7 (decision #243).** 7.0 is the native rewrite of the compiler. 7.0.2 is its first stable release (after 7.0.1-rc), published on 2026-07-08, so it had been out for 143 days on 2026-11-28; it passes the 14-day rule easily. It checks this code as 6.0 would, much faster, but its programmatic interface differs, so tools that load TypeScript as a library (for example typescript-eslint) may not support it yet. None is used. If one is ever needed, use TypeScript 6.0.3 with the same `tsconfig.json`. TypeScript 7.0's own library has no types yet for two newer parts of `JSON` that the decimal handling uses (`JSON.rawJSON` and the reviver's source text); `src/types/json-source-text.d.ts` declares them, and can be deleted when TypeScript adds them.
+
+**Departures from the owner's preferred stack:** none. The front end is TypeScript, and the back end, database and tests are unchanged.
+
+## 12. Project layout (v1.2)
+
+```
+src/InventoryTracker.Web/            the web front end (decision #226)
+  package.json, package-lock.json    exact versions; scripts: dev, typecheck, test, test:watch, build (and e2e from T-044)
+  .nvmrc                             the Node.js line for CI (24)
+  index.html                         the one page: no inline script, no inline style
+  vite.config.ts                     build into ../InventoryTracker.Api/wwwroot; dev server on :5173 with /api passed
+                                     to :5133; Vitest settings
+  tsconfig.json                      strict TypeScript, checks only
+  playwright.config.ts               (T-044) end-to-end and accessibility runs
+  e2e/                               (T-044) Playwright tests, one file per area (<area>.spec.ts); e2e/support/ starts
+                                     the API on a temporary database
+  src/
+    main.tsx                         entry: mounts <App/> in #root
+    guards.test.ts                   source guard: no raw HTML, no browser storage, no console, no inline style
+                                     (AC-37.2, AC-34.5, AC-37.5)
+    types/                           ambient type declarations (json-source-text.d.ts)
+    app/                             App, the route table (routes.tsx), page frame (Header, Menu, Footer), RequireSession,
+                                     RequireRole, Not allowed and Not found screens (T-041, T-042)
+    session/                         token in memory, sign-in, sign-out and every other end of a session, idle timer
+                                     (T-041, T-046)
+    api/                             json.ts (exact decimals, skeleton), http.ts (requests, timeout, failures),
+                                     paging.ts, stockLookup.ts (T-039); one file per resource, for example units.ts,
+                                     salesOrders.ts, with its request and response types (the screen tasks)
+    format/                          quantities, percentages, times and the UTC offset, names with ids, direction
+                                     markers (T-040)
+    components/                      shared UI: SafeText, DataTable, FilterBar, CountLine, Pager, MessageArea, Banner,
+                                     Field, BusyButton, Dialog, Picker, StatusBadge, Facts (T-043, T-045, T-046, T-047)
+    screens/<area>/                  one folder per area: auth, stock, receipts, production-orders, complementary-orders,
+                                     returns, notifications, customers, sales-orders, units, items, users
+    styles/app.css                   the design system, from design/mockups/app.css (T-042)
+src/InventoryTracker.Api/
+  wwwroot/                           the built front end: generated by `npm run build`, git-ignored, never edited by hand
+  Common/FrontEnd/FrontEndSetup.cs   (skeleton, T-036) serves the front end's files and its page (A-1, section 13)
+  Common/Security/SecurityHeaders.cs (T-037) the A-2 headers on every response (section 14)
+tests/InventoryTracker.Api.Tests/
+  Infrastructure/TestApiFactory.cs   (skeleton) WebRootPath and WriteFrontEndFile: each test app gets its own web root
+  Integration/FrontEndSkeletonTests.cs  (skeleton) becomes FrontEndTests.cs in T-036
+  Integration/SecurityHeadersTests.cs, JsonEscapingTests.cs  (T-037, T-038)
+```
+
+`InventoryTracker.slnx` is unchanged: the front end is not an MSBuild project, and the API project does not run npm. The scripts do (section 19), so `dotnet build` and `dotnet test` alone still work without Node.js; they simply serve no front end until it has been built.
+
+**Rules that keep front-end tasks parallel-safe:**
+
+- **The route table is written once, whole, by T-042**: every address of design 12.1 with its roles, title and menu entry, pointing at a placeholder component in each area's folder. A screen task then replaces the placeholder and touches only `src/screens/<area>/`, `src/api/<area>.ts` and `e2e/<area>.spec.ts`.
+- **Shared code** (`src/components/`, `src/api/http.ts`, `src/format/`, `src/session/`, `src/styles/app.css`) is changed only by the task that owns it. A screen task that needs a change there stops and reports it; the delivery manager runs the change alone.
+- **`package.json` and `package-lock.json`** change only in T-044 (Playwright). Any other new package needs the tech lead's agreement first, recorded in `docs/decisions.md`, with `npm audit` run and reported.
+- The backend tasks T-036 to T-038 all edit `Program.cs` and run one after another.
+
+## 13. How the API serves the front end (A-1)
+
+**Where the files come from.** `npm run build` writes the front end into `src/InventoryTracker.Api/wwwroot` (Vite's `outDir`, emptied first). ASP.NET Core's *web root* is that folder; `dotnet publish` copies it into the published folder by itself, and the published app's web root is `<publish folder>\wwwroot`. The SDK also writes `.br` and `.gz` copies of each file at publish time; they are unused and harmless (T-036 may switch them off).
+
+**Pipeline order in `Program.cs`** (decision #227; T-037 adds the first step):
+
+1. `UseSecurityHeaders` (T-037): first, so every response, errors included, gets the A-2 headers.
+2. `UseExceptionHandler`, `UseStatusCodePages`, and in Production `UseHttpsRedirection`, as today.
+3. **`UseFrontEnd`** (`Common/FrontEnd/FrontEndSetup.cs`): the files, then the page for screen addresses.
+4. `UseBearerChallengeHeader`, `UseAuthentication`, `UseAuthorization`, then the endpoints, as today.
+
+`UseFrontEnd` runs **before** the token check because the front end must load without a token: the sign-in screen is part of it. It is middleware, not an endpoint, on purpose. It adds nothing to `EndpointDataSource`, so the role matrix (62 endpoints) and `OpenApiTests` are unaffected. And a fallback *endpoint* (`MapFallbackToFile`) would match `/api/v1/unknown` too and turn its `401` or `404` into the page.
+
+**What each request gets:**
+
+| Request | Answer | Who |
+|---------|--------|-----|
+| GET or HEAD of a file that exists in the web root (`/index.html`, `/assets/index-BNfstYFL.js`) | the file, no token needed | skeleton |
+| GET or HEAD of a **screen address**: no API endpoint matched, not under `/api`, `/health` or `/openapi` (whole path segments, PRD row 88), and the last segment has no dot (`/`, `/stock`, `/production-orders/12`, `/sign-in?return=...`) | `index.html`, `200`, `text/html; charset=utf-8`, no token needed. The front end then shows the screen, or 16.34 for an address it does not know. | skeleton |
+| GET or HEAD of a path outside those three prefixes whose last segment has a dot, with no such file (`/assets/missing.js`, `/favicon.ico`) | `404` ProblemDetails `not-found` "No endpoint matches this path.", no token needed, never the page (a missing script must not be answered with HTML) | T-036 |
+| Any other method on such a path (`POST /stock`) | as before v1.2: `401` without a token; `404` or `405` with one | unchanged |
+| Anything under `/api/`, `/health`, `/openapi/` | exactly as before v1.2, including `401` first and the `404` ProblemDetails for an unknown `/api/` path | unchanged |
+| The front end has not been built (no `wwwroot/index.html`) | everything as before v1.2; one Warning at start-up: "The web front end is not built (no wwwroot/index.html), so only the API is served. Build it with scripts\build.ps1 or scripts\publish.ps1." | T-036 |
+
+**Cache headers** (T-036): `index.html`, at any address: `Cache-Control: no-cache`, so a new build is picked up at the next load. Files under `/assets/`, whose names carry a content hash: `Cache-Control: public, max-age=31536000, immutable`. Any other file in the web root: `no-cache`. Every response under `/api/`: `no-store` (A-2, section 14).
+
+**Changed on purpose, for QA.** Without a token, `GET /` and `GET /nope` used to answer `401`. With the front end built they answer the page (`200`), which is A-1. AC-01.5 still holds for every API endpoint. `Acceptance/UnknownPathAcceptanceTests` has these rows, so T-036 moves them to a new test of the page and replaces `/nope` in the "with a token" contrast with an unknown `/api/` path. `/api`, `/health/details` and `/openapi/v1.json` keep their `401`.
+
+**Tests never depend on a local build.** `TestApiFactory.WebRootPath` gives each test app its own web root, a folder that does not exist unless the test writes files into it with `WriteFrontEndFile`. So the suite behaves the same whether or not someone has built `src/InventoryTracker.Api/wwwroot`, and existing tests see the API exactly as before (skeleton, verified).
+
+**Development.** `dotnet run --project src/InventoryTracker.Api` serves whatever was last built into `wwwroot`. For quick changes, also run `npm run dev` in `src/InventoryTracker.Web` and open `http://localhost:5173`: Vite serves the front end and passes `/api` and `/health` to the API on `http://localhost:5133`, so the browser still sees one origin and needs no CORS. The Vite dev server sends no Content-Security-Policy (its live reload needs inline scripts). The rules of section 14 are therefore tested on the built front end, never on the dev server.
+
+**`run.ps1 -Published`** stays the owner's one command. It now also starts the front end, because the published folder holds `wwwroot`. T-036 adds the line `Front end:   http://localhost:5133/ (open it in Edge or Chrome)` to its start-up text, and a warning when the published folder has no `wwwroot\index.html`.
+
+## 14. Security headers, CSP, CORS and JSON escaping (A-2, A-3, A-5)
+
+**A-2, headers** (T-037, decision #228). One middleware, `Common/Security/SecurityHeaders.cs` (`app.UseSecurityHeaders()`), registers `Response.OnStarting` and sets, on **every** response (pages, files, API, errors, `/health`):
+
+- `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; require-trusted-types-for 'script'; trusted-types 'none'`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: no-referrer`
+- `Cache-Control: no-store` when the path is under `/api/`, replacing any other value.
+
+And `Program.cs` adds `kestrel.AddServerHeader = false` to its existing `ConfigureKestrel` call, so no response has a `Server` header.
+
+Why these choices:
+
+- **One CSP for every response.** AC-37.5 asks for it on pages; on JSON it does nothing harmful. One rule is simpler to write and to test than "pages only".
+- **No `'unsafe-inline'` anywhere.** `style-src` does not need it: the design uses no inline style (design 17), and the source guard forbids the `style={...}` prop. So there is no `'unsafe-inline'` for `security-reviewer` to accept under AC-37.5.
+- **Trusted Types** (`require-trusted-types-for 'script'`; `trusted-types 'none'`) make the browser itself refuse any assignment of a string to `innerHTML` and similar sinks. That turns AC-37.2 from a review rule into a browser rule. React's own code uses such a sink only to render a `<script>` element or `dangerouslySetInnerHTML`, and the front end does neither. Verified on the skeleton in Edge: the built page renders under this exact policy. A control with `script-src 'none'` stays blank, which proves the header was enforced. If a later library needs a sink, the e2e CSP check (T-044) shows it. The fix is then a record in `docs/decisions.md` and removing these two directives, never `'unsafe-inline'`.
+- **Not added:** HSTS (plain HTTP on localhost; it comes with HTTPS on the cloud path), `X-Frame-Options` (covered by `frame-ancestors 'none'` in Edge and Chrome), a CSP `report-uri` (AC-37.8: the front end sends nothing anywhere), `Permissions-Policy` (no powerful feature is used).
+
+**A-3, no CORS** (T-037, decision #229). Nothing to add: the API registers no CORS service and no CORS middleware, so it never sends `Access-Control-Allow-Origin`. T-037 pins this with the AC-37.7 tests: a `GET /api/v1/units` with `Origin: http://localhost:5999` and a preflight `OPTIONS` from that origin get no `Access-Control-*` header. A further test asserts that `ICorsService` is not registered, so a later `AddCors()` fails the suite.
+
+**A-5, JSON escaping** (T-038, decision #230). Set `JsonSerializerOptions.Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)` on **both** JSON settings the API uses: the controllers' (`AddJsonOptions` in `Program.cs`) and `Microsoft.AspNetCore.Http.Json.JsonOptions`, which `IProblemDetailsService` uses for every ProblemDetails body. Effects:
+
+- Inside strings, `<`, `>`, `&` and `'` are written as `<`, `>`, `&`, `'` (AC-37.9). The encoder also escapes `"` as `"`, `+` as `+` and `` ` `` as ```, and writes characters beyond the Basic Multilingual Plane (emoji) as surrogate escapes. Accented letters and other BMP text stay readable.
+- After parsing, every client reads exactly the same strings: the PowerShell helper, the `.http` samples and the front end need no change.
+- **Effect on tests that compare raw bytes:** a search of the suite on 2026-11-28 found none that compares response text with these characters. Every test reads bodies through `ApiJson.ReadAsync` (parsed) or checks for absence ("no password in the body"). T-038 adds the raw-byte tests: the AC-37.9 customer name, a ProblemDetails `detail` with a quote ("A unit named 'kg' already exists."), a notification message and its `data`, an accented name kept raw, and each parsed back unchanged.
+- Out of scope: the `/health` text, and the OpenAPI document (Development only, written by its own generator; T-038 notes what it does).
+
+## 15. Session design (US-34)
+
+**Where the token lives** (decision #236, SEC-10, AC-34.5). `src/session/session.ts` holds the sign-in response (token, `expiresAt`, email, roles) in one module-level variable and nowhere else. Screens never see the token. A React context gives the frame the email and roles; `api/http.ts` asks the session module for the `Authorization` header. The source guard fails the build on any use of `localStorage`, `sessionStorage`, `indexedDB`, `document.cookie`, cache storage or the console. Reloading, a second tab or a browser restart starts with an empty variable, so the sign-in screen opens (Q106).
+
+**Signing in.** `POST /auth/sign-in`; on `200` the session is set and the front end opens the return path when it starts with a single `/`, does not start with `//` and is not `/sign-in`; otherwise `/stock` (design 12.3, no open redirect). Opening any screen without a session goes to `/sign-in?return=<path and query>` (history entry replaced).
+
+**Every end of a session is a full page load** (decision #236): the token and all API data are dropped, React unmounts the page (it goes blank at once), then `window.location.replace(url)` loads the sign-in screen as a new document. A new document is the one sure way to leave no API data in memory (design 12.3), and `replace` means Back does not return to the screen that was open (AC-34.4). The sign-in screen's arrival message is picked from a fixed list by a value in the address. That value is not API data:
+
+| End | Address | Message (design 18.1) |
+|-----|---------|-----------------------|
+| Sign out | `/sign-in` | none |
+| 15 minutes idle (AC-34.7) | `/sign-in?ended=idle` | "You were signed out after 15 minutes without activity." |
+| Any `401` with code `not-authenticated` (AC-34.6) | `/sign-in?ended=expired&return=<current path and query>` | "Your sign-in is missing or has expired. Sign in again." |
+| Own password changed (AC-35.1) | `/sign-in?ended=password-changed` | "Password changed. Sign in with your new password." |
+
+**Back after sign-out (risk 23.2).** Edge and Chrome may keep the previous page in their back-forward cache and show it again on Back, with its memory. Two guards cover it. The page is blanked and the session variable cleared *before* leaving. And a `pageshow` listener with `event.persisted` true replaces any restored page with `/sign-in`. T-041 tests both in a unit test, and T-044 checks it in Edge.
+
+**401 and 403** (design 12.3, 12.4). The rule goes by the response's `code`, not by the endpoint. `401` `not-authenticated` on *any* request ends the session as above: an expired token, a deactivated user, a password changed elsewhere, the notification refresh, and change-password itself when its token has ended. Other `401` codes (`invalid-credentials`, `account-locked`) are refusals shown in their form (AC-34.3, AC-35.3). `403` is a refusal shown word for word (F-1, AC-36.4); the session continues. There is no timer for the 8-hour expiry: the first `401` after it does the work (design 12.3: no warning, no renewal).
+
+**Idle sign-out and the warning** (AC-34.7, AC-34.7a, design 12.3, decisions #200, #215 to #219; decision #239). `src/session/idle.ts`:
+
+- Activity is `keydown`, `pointerdown`, `pointermove`, `wheel` and `touchstart` on `window`, listened to in the capture phase and passive. Each sets `lastActivity = Date.now()`. The notification refresh is not an input event, so it never counts (AC-49.5).
+- The time is the clock's, not a countdown. A check runs every second and on `visibilitychange`. It compares `Date.now() - lastActivity` with 14 and 15 minutes, so a background tab or a sleeping computer is judged on waking. At 15 minutes or more, it signs out at once with no warning. Between 14 and 15 minutes, the warning opens for the time left.
+- The warning is the compact variant of the shared Dialog (T-046): `<dialog>` opened with `showModal()`, `role="alertdialog"`, focus on "Stay signed in". `showModal()` puts it in the browser's top layer above any open dialog or the menu panel, and makes the rest of the page inert. Any activity, or the button, closes it and restarts the 15 minutes; nothing is sent to the API.
+- Not running on the sign-in screen. Tests use Vitest's fake timers, which also move `Date.now()`.
+
+**Ready for tenants later** (owner context, 2026-11-28; decision #244). The session is one object built from the sign-in response. A tenant, if the product ever has tenants, would be one more field or token claim there. It would not be a new storage place.
+
+## 16. API client conventions
+
+**One request function** (`src/api/http.ts`, T-039, decision #236):
+
+- The address is always **relative**, `/api/v1` plus the path, so the same build works at any host, port or subdomain. Query values are built with `URLSearchParams` under the API's own parameter names; empty values are left out.
+- Headers: `Accept: application/json`; `Authorization: Bearer ...` when signed in; `Content-Type: application/json` when there is a body.
+- **30-second timeout** with `AbortSignal.timeout(30000)` (F-2). **Never retried:** a changing request is never sent again by itself. A failed read offers "Try again" on screen (design 12.4). Pressing a button twice sends one request: the busy state of F-3 lives in one shared `useSubmit` hook (T-045).
+- The answer is parsed with `parseApiJson` (exact decimals, below) and returned as either `{ ok: true, status, data }` or `{ ok: false, failure }`:
+
+| Failure | When | What the screen shows |
+|---------|------|-----------------------|
+| `refused` | status 400 or more with a ProblemDetails body | `detail` **word for word** in the message area (F-1). For a change, the bold line "Nothing was changed." comes first. Each `errors` key the form knows goes next to its field. `status`, `code`, `detail` and `errors` are kept as sent. |
+| `no-message` | status 400 or more without a ProblemDetails body | "The API answered with status {status} and no message. Try again." |
+| `no-answer` | network failure or the 30-second timeout | "Cannot reach the API. Check that it is running, then try again." (F-2) |
+| session ended | `401` `not-authenticated` | nothing: the session module ends the session (section 15) |
+
+- **Field messages.** `fieldErrors(failure, map)` turns `errors` keys (`lines[0].quantity`, camelCase JSON paths, design 6) into the form's fields. The one form that sends only some rows (Request extra material, 16.10) passes its map from body position to row (design 12.4). The message text itself is never changed or rebuilt.
+
+**Exact decimals** (`src/api/json.ts`, written in the skeleton; decision #231; the follow-up "build quantity JSON from the typed digits, with no JavaScript number rounding"):
+
+- **Sending.** `parseTypedDecimal(typed)` applies F-7: spaces trimmed, then one or more digits with at most one dot. Anything else gives `null`, so the screen shows "Enter a number such as 995 or 995.5." and sends nothing. The digits are put into JSON form (".5" becomes "0.5", "5." becomes "5", "007.50" becomes "7.50") and wrapped in an `ExactDecimal`. Its `toJSON` returns `JSON.rawJSON(digits)`, so `JSON.stringify` writes the typed digits as a bare JSON number. No JavaScript number is ever made from them. Proven by the skeleton test: `999999999999999.999` is sent as typed; as a JavaScript number it would become `1000000000000000`.
+- **Receiving.** `parseApiJson(text)` uses the reviver's source text. Any JSON number with a dot or exponent, or outside the safe whole-number range, becomes its exact source text (a `string`). Safe whole numbers (ids, numbers, counts, pages) stay `number`. Response types declare quantities as `ApiNumber` (`number | string`).
+- **Showing.** The formatting functions (`src/format/`, T-040) work on that text: comma thousands, dot decimals, trailing zeros removed, at most 3 decimals (6 for amounts per unit), the unit after a space, and percentages with a sign and two decimals (F-7, design 12.7). If the API ever sent more decimals than a format shows, the text is rounded half away from zero on its digits, as the API rounds, never through a JavaScript number. The front end does **no arithmetic** on quantities (PRD row 70).
+- **Times** are not business figures. `new Date(iso)` and the computer's own time zone give "2026-11-26 08:05" and the footer's "UTC-06:00" (F-8). The receipt date's `<input type="date">` value is sent as entered.
+
+**Paging** (T-039; decision #240). `readPage(path, query)` returns the API's envelope (`items`, `page`, `pageSize`, `totalCount`; design 2.5). List screens ask for `pageSize=50` and the page in the address (`page`, a whole number of 1 or more, otherwise 1) (F-6). `readAllPages(path, query)` reads `pageSize=100` pages one after another until `totalCount` is reached. Pickers use it (500 records are 5 requests, row 81), and so does the stock lookup.
+
+**Live stock per line** (`src/api/stockLookup.ts`, T-039; decision #232; the follow-up "avoid one GET /stock/{id} per line on 500-line forms"). The send, complementary-send and completion forms and the ship dialog show each line's current stock. `readStockFor(itemIds, itemType?)` reads it once when the form or dialog opens (F-14, never refreshed by itself):
+
+- **10 distinct items or fewer:** `GET /stock/{itemId}` for each, at most 4 at a time (real orders have 1 to 10 lines, PRD section 5).
+- **More than 10:** the pages of `GET /stock?itemType=...&pageSize=100` (`RawMaterial` for the production forms, no filter for a shipment), stopping as soon as every needed item has been found. With the PRD's 500 items that is at most 5 requests instead of 500.
+- An item whose figure could not be read shows "-" and the design's line "Warehouse stock could not be loaded. You can still send; the API checks the stock." (decision #214). The figures are shown, never compared (row 70). No API change is needed.
+
+## 17. State, routing and screen addresses
+
+**State** (decision #237). There is no store library. Each screen holds its own data in React state, loaded when it opens through one hook, `useApiRead(load)`, which returns loading, loaded or failed, plus `reload` for Refresh. Refresh keeps the old rows on screen while it runs (design 12.6, decision #210). There are only three shared states: the session (section 15); the Manager's notification count (refreshed when a screen opens, every 60 seconds and after Mark read, AC-49.5); and the **flash banner**. The flash banner is the F-4 confirmation a form hands to the record screen it opens next. It sits in a module variable in memory, not in the browser's `history.state`, because the browser keeps `history.state` across reloads and the banner holds API text (AC-34.5).
+
+**Routing** (decision #238). One route table, `src/app/routes.tsx` (T-042), has one entry per address of design 12.1. Each entry has the React Router path (`/production-orders/:number`), the roles that may open it (or every role), the menu entry it marks as current, the page title and the screen component. On top of it:
+
+- `RequireSession`: with no session, it replaces the address with `/sign-in?return=...` (AC-34.1).
+- `RequireRole`: with no allowed role, it shows 16.33 and sends no request for the screen's data (AC-36.2, design 12.10).
+- **Parameters are checked before any request.** A record number must be a whole number from 1 to 2,147,483,647, and a user id must have the shape of the API's ids. Anything else, and any address not in the table, shows 16.34 "Page not found". A `404` when reading a record shows 16.34 with the API's message (F-12).
+- `/` replaces itself with `/stock`; `/sign-in` with a session open goes to `/stock` (design 12.3).
+- **Filters and the page are in the query string** under the API's parameter names. Each list reads only the values it knows; anything else counts as not set (design 12.1). "Apply filters" pushes a new address without `page`, so Back and Forward restore the filters (AC-36.3).
+- **After a form succeeds,** `navigate(recordPath, { replace: true })`, so Back never returns to a used form (design 12.1).
+- The menu is built from the same table, so the menu and the role rules can never disagree (AC-36.1). A link to a record goes through `RecordLink`, which renders plain text when the user's roles cannot open that record's address (AC-36.5).
+- **Document title:** React 19's `<title>` element in each screen, "{page title} – Production & Inventory Tracker" (design 12.2). It is text, like everything else.
+- One bundle, with no code splitting (decision #226). On localhost the sign-in screen appears well within 3 seconds (PRD section 18); splitting is only worth its rules if a measurement says so.
+
+## 18. Responsive and accessibility approach
+
+- **One stylesheet, three layouts by media query** (design 20: below 640, 640 to 1023, 1024 and up). No layout is chosen in script; script only opens and closes the menu panel.
+- **Native elements first:** `<button>`, `<a>`, `<input>`, `<select>`, `<fieldset>` and `<legend>`, and `<dialog>` with `showModal()`. The browser then provides the top layer, the inert page behind a dialog, and Escape. The Dialog component intercepts Escape (`cancel`) while a request runs (design 12.5). ARIA is added only where HTML has no element: the picker (the ARIA 1.2 combobox and listbox pattern, with a polite match count), the phone tables below, and the alertdialog role of the idle warning.
+- **Phone tables** (decision #233; the follow-up "stacked tables need ARIA table roles or a list rendering"). One `DataTable` component renders a real `<table>` whose elements also carry explicit `role="table"`, `rowgroup`, `row`, `columnheader` and `cell`, and a `data-label` on each cell. Below 640 px the stylesheet turns rows into blocks (design 20.2). Chromium drops a table's meaning when CSS changes its `display`; the explicit roles keep it, so headers stay tied to cells. The visible labels are generated with `content: attr(data-label) / ""`. The `/ ""` part gives the generated text an empty spoken alternative, so a screen reader does not hear each label twice (once from the header, once from the label). Every table has a caption. Between 640 and 1023 px a wide table scrolls inside a frame with `role="region"`, an `aria-label` and `tabindex="0"`, so the keyboard can scroll it (design 19).
+- **Messages:** an error message area takes focus (`tabindex="-1"`); banners are `role="status"`; each field with a message has `aria-invalid` and `aria-describedby` (design 12.4).
+- **Safe text** (T-040): one `SafeText` component prints every API string. It puts the text in `<bdi>`, replaces each bidirectional control (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069) with a visible "[U+202E]" marker, and keeps line breaks where the design asks. Edit fields hold the stored text exactly, with the "This text contains hidden direction characters: ..." line (AC-37.3).
+- **Automated checks** (T-044, every screen task, T-066; decision #240): axe-core in Playwright, rules tagged `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` and `wcag22aa`. The run fails on any `critical` or `serious` finding, at 360 by 640, 768 by 1024 and 1280 by 720 (F-15), plus 640 by 360 for 200% zoom (design 19), in Edge, with Chrome as a second project. axe is not run in jsdom, which has no layout and so cannot judge contrast or sizes.
+
+## 19. Build, test, publish and CI
+
+**Commands** (PowerShell 5.1, from the repository root unless stated):
+
+```powershell
+# once per clone (and after package-lock.json changes): install the exact front-end packages
+cd src\InventoryTracker.Web; npm ci; cd ..\..
+
+# front end alone, in src\InventoryTracker.Web
+npm run typecheck        # TypeScript check
+npm test                 # Vitest, once
+npm run build            # check, then build into ..\InventoryTracker.Api\wwwroot
+npm run dev              # dev server on http://localhost:5173 (with the API running from source on :5133)
+
+# everything, as CI does: front-end install, build and tests, then the .NET Release build (0 warnings) and suite
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1
+
+# the release folder, front end included, then the one process that serves both
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run.ps1 -Published
+```
+
+**What each script does** (skeleton; the helpers are in `scripts\common.ps1`):
+
+- `Get-NpmPath` checks for Node.js 24.15 or later. If it is missing or older, it stops with the install advice (the LTS version 24 from https://nodejs.org, free). It returns `npm.cmd`, which runs whatever the machine's script execution policy is.
+- `Build-FrontEnd` = `npm ci --no-audit --no-fund`, then `npm run build`. `build.ps1` and `publish.ps1` run it first.
+- `test.ps1` runs `build.ps1`, then `npm test`, then the .NET suite. From T-044 it also runs the end-to-end tests, with a `-SkipEndToEnd` switch for quick runs (decision #240).
+- `publish.ps1` builds the front end before `dotnet publish`, then checks that the output has `wwwroot\index.html`, and stops with a message if not.
+- `run.ps1 -Published` is unchanged: the published app's web root is its own `wwwroot`. T-036 adds the printed address.
+
+**CI** (`.github/workflows/ci.yml`, skeleton). Before the .NET steps, it adds `actions/setup-node`, pinned to the full SHA of v7.1.0 like the other actions (SEC-19), with the Node.js line from `.nvmrc` and the npm download cache. Then `npm ci`, `npm run build` and `npm test`, in `src/InventoryTracker.Web`. T-044 adds the end-to-end step; `windows-latest` already has Edge and Chrome installed. `.github/dependabot.yml` now also watches the npm packages: monthly, all in one grouped pull request (decision #234). CI does not run `npm audit`: an advisory published overnight in a build-only tool should not turn every run red. Whoever changes a dependency runs `npm audit` and reports it, and Dependabot proposes fixed versions.
+
+**Verified for the skeleton on 2026-11-28** (commands in the phase report). Everything was re-run on the 14-day pins of decision #245, with the same results:
+
+- `npm run typecheck`: 0 errors. `npm test`: 3 files, 32 tests passed.
+- `npm run build`: `index.html` and one script, no inline script.
+- `scripts\test.ps1 -ArtifactsPath TestResults\v12-lead`: front-end build and tests, Release build with 0 warnings, and 2,739 of 2,739 .NET tests passed.
+- `scripts\publish.ps1 -Output <scratch folder>`: the output's `wwwroot` holds the front end, with the bundled runtime 10.0.15.
+- `scripts\run.ps1 -Published -PublishFolder <scratch folder> -Port 5191`, on a throwaway database, key and first Manager. `GET /` and `GET /production-orders/12` gave `200` with the page; the script gave `200` `text/javascript`; `GET /api/v1/units` gave `401` ProblemDetails; `/health` gave `200`. Headless Edge rendered the placeholder at `/production-orders/12`.
+
+## 20. Versioning (v1.2)
+
+The product version is **1.2.0**. The front end carries it as `"version"` in `package.json`; the API keeps its base path `/api/v1` (decision #187) and no new version setting. The front end and the API are built by one `publish.ps1` run and served by one process, so they are always the same build. No version check between them is needed, and no version endpoint or version on screen is added (neither is designed). The release phase raises the `package.json` version with each product release and writes the release notes. Package versions are exact, and they change only through a reviewed Dependabot pull request or a task, each followed by `npm audit` and `scripts\test.ps1` (decision #242).
+
+## 21. DataProtection (follow-up, confirmed not needed)
+
+The follow-up asked the tech lead to confirm that version 1.2 needs no explicit DataProtection configuration. **Confirmed (decision #235).** ASP.NET Core's DataProtection protects cookies, antiforgery tokens and emailed tokens. Version 1.2 has none of these: the token is a JWT signed with `JWT_SIGNING_KEY`, held in page memory and sent as a header (PRD 19.1, Q106). Nothing in `src/` calls a data protector. `AddDefaultTokenProviders`, cookies and antiforgery are not used.
+
+The key folder is still read because `AddAuthentication` (in `Auth/AuthSetup.cs`) registers DataProtection by default. Its start-up service, `DataProtectionHostedService`, present in the installed runtime, loads the key ring when the app starts. That is why every run, tests included, reads `%LOCALAPPDATA%\ASP.NET\DataProtection-Keys` (the practice note in `docs/00-status.md`). If no valid key exists, it writes a new one. On 2026-11-28 the folder's four keys were unchanged before and after the published run. Configuring a key folder of the app's own is part of the cloud path, where it matters for any future cookie, and stays on the Later list.
+
+## 22. Tech-lead decisions for version 1.2
+
+Logged in `docs/decisions.md` with these numbers (#225 to #245).
+
+| # | Decision | Section |
+|---|----------|---------|
+| 225 | Front-end stack: React 19.3.1 and React Router 8.5.1 (declarative mode), TypeScript 7.0.2 strict, Vite 8.3.8; Vitest 5.1.0 with jsdom and React Testing Library; Playwright with the installed Edge and Chrome and axe-core for end-to-end and accessibility checks. Chosen over Vue 3 and over no framework. | 11 |
+| 226 | Layout: `src/InventoryTracker.Web`, built into the API's git-ignored `wwwroot`; no MSBuild project for it, the solution unchanged; one bundle, no code splitting. | 12, 17 |
+| 227 | A-1 is middleware placed before authentication, not an endpoint. A screen address is a GET or HEAD outside `/api`, `/health` and `/openapi`, with no dot in its last segment. A missing file is `404`; an unbuilt front end leaves the API as before, with a start-up warning. Cache headers: `no-cache` for the page, a year and `immutable` for hashed assets. Each test app gets its own web root. | 13 |
+| 228 | A-2: one CSP on every response, exactly as in section 14, with Trusted Types and no `'unsafe-inline'`; `nosniff`, `no-referrer`, no `Server` header, `no-store` under `/api/`. No HSTS, `X-Frame-Options` or CSP reporting. | 14 |
+| 229 | A-3: no CORS service or middleware; tests pin the missing headers and that `ICorsService` is not registered. | 14 |
+| 230 | A-5: `JavaScriptEncoder.Create(UnicodeRanges.All)` on both the MVC and the minimal-API JSON settings, so ProblemDetails bodies are escaped too. Raw-byte tests are added; no existing test compares raw text. | 14 |
+| 231 | Exact decimals: typed digits go into JSON through `JSON.rawJSON`; response numbers that are not safe whole numbers are kept as their source text; formatting works on text; no arithmetic on quantities. | 16 |
+| 232 | Live stock per line: per-item reads for 10 items or fewer (4 at a time), stock-list pages of 100 for more, read once per form or dialog. No API change. | 16 |
+| 233 | Phone tables: one real table with explicit ARIA table roles; CSS-generated labels with an empty spoken alternative. | 18 |
+| 234 | Dependabot also watches the npm packages, monthly, one grouped pull request. | 19 |
+| 235 | DataProtection: no configuration in v1.2; confirmed unused; the start-up key-ring read is a framework default; the key folder setting stays with the cloud path. | 21 |
+| 236 | Session: token in a module variable only. Every session end is a full page load to `/sign-in` with a fixed `ended` value, guarded against the back-forward cache. `401` `not-authenticated` ends the session from any request; other `401` codes and `403` are refusals. One request function, relative paths, 30-second timeout, no retries. | 15, 16 |
+| 237 | State: no store or cache library; one read hook per screen; the flash banner in memory, never in `history.state`. | 17 |
+| 238 | Routing: one route table (written whole by T-042) drives routes, role checks, menu, titles and links; parameters checked before any request. | 17 |
+| 239 | Idle: activity events on `window`; the clock is checked every second and on `visibilitychange`; the warning is the shared `<dialog>` in the top layer. | 15 |
+| 240 | Tests: Vitest for units and components; Playwright and axe for end-to-end and accessibility, at four window sizes in Edge (Chrome second), failing on critical or serious. `test.ps1` and CI run all of them from T-044 (`-SkipEndToEnd` for quick local runs). CI does not run `npm audit`. | 18, 19 |
+| 241 | No ESLint in v1.2: strict TypeScript and the source guard test instead. | 11 |
+| 242 | Versioning: product 1.2.0 in `package.json`; `/api/v1` unchanged; front end and API always ship as one build; exact package versions. | 20 |
+| 243 | TypeScript 7.0.2, with 6.0.3 as the fallback if a tool needs TypeScript's programmatic interface; two `JSON` type declarations written by hand until TypeScript ships them. | 11 |
+| 244 | Possible SaaS later (owner context, 2026-11-28): nothing built for it in v1.2. The front end uses relative API paths, names no company, and keeps the tenant-to-be in the session object; section 23, risk 16. | 15, 16, 23 |
+| 245 | The 14-day rule: every npm package, direct and transitive, is pinned to a stable release at least 14 days old (lock file rebuilt with `npm install --before`); Dependabot's cooldown is 14 days for npm and GitHub Actions. TypeScript 7.0.2 qualifies (143 days). | 11, 19 |
+
+## 23. Risks and open points (v1.2)
+
+1. **Young major versions.** Every package is pinned to a release at least 14 days old (decision #245), so the brand-new releases that carry the most supply-chain risk are out; Vite 8.4.0, two days old when this plan was first written, was replaced by 8.3.8. What remains: Vite 8, React Router 8, Vitest 5 and TypeScript 7 are still recent major lines (TypeScript 7.0.2, the first native compiler, has been stable since 2026-07-08). The skeleton builds, type-checks, tests and runs under the strict CSP on these exact versions. If one regresses, step back one release in a task of its own (for TypeScript, 6.0.3), keeping the 14-day rule.
+2. **The back-forward cache could show a signed-out page** (section 15). The page is blanked and the token dropped before leaving, and the `pageshow` guard replaces a restored page. T-041 and T-044 test it. If Edge still shows data on Back, the fallback is to send `Cache-Control: no-store` on the page as well.
+3. **Trusted Types and later code.** Verified on the skeleton only. A library or a React feature that writes HTML would be blocked at run time; T-044's CSP-violation check catches it, and the fix is decided as in section 14, never `'unsafe-inline'`.
+4. **The dev server is not the product.** `npm run dev` has no CSP and no A-1 rules. Everything in sections 13 and 14 is tested on the built front end served by the API: the .NET tests, and the Playwright runs against the API.
+5. **A-1 changes two answers without a token** (`GET /` and `GET /nope` now give the page). This is deliberate (PRD A-1). It changes rows in QA's `UnknownPathAcceptanceTests`, so T-036 updates them and QA should know.
+6. **Two builds at once write the same `wwwroot`.** Like decision #67 for `bin/`: never run two `build.ps1`, `test.ps1` or `publish.ps1` at the same time in one working tree.
+7. **A-5 escapes more than the four characters** (`"`, `+`, `` ` ``, emoji). Parsed values are identical; only a client that compares raw bytes sees a change, and none is known.
+8. **Browser features.** `JSON.rawJSON`, the reviver's source text, `<dialog>`, `inert` and CSS alternative text for generated content are in current Edge and Chrome, the only browsers in scope (row 74). Firefox and Safari are not tested.
+9. **Large forms.** A 500-line send or recipe renders 500 input rows in React, and a picker filters 500 records within 1 second (F-13). Both are expected to be fast, but are not measured yet: T-047 measures the picker, and T-053 and T-063 measure a 500-line form and dialog.
+10. **CI time.** The front-end steps add well under a minute, and the end-to-end step (T-044) will add a few minutes per run; T-044 reports the measured time. While the repository is **private**, Windows minutes count double against the free allowance (`docs/07-release.md` section 4). Once it is **public**, as planned, GitHub Actions on standard GitHub-hosted runners (`windows-latest` included) is free and the minutes no longer count, so the cost becomes only the wait for a run. `docs/07-release.md` section 4 should say so after the repository goes public (technical-writer).
+11. **Node.js is now a build prerequisite** on the owner's machine and on CI. It is installed (24.21.0). LTS 24 ends in April 2028; moving to the next LTS line is then a one-line change (`.nvmrc`, `engines`) plus a test run.
+12. **The stock lookup's threshold** (10 items) is a judgement. With a catalogue far larger than the PRD's 500 items, a large form could read many stock pages; then the per-item reads, at 4 at a time, would be cheaper. It is one constant in `stockLookup.ts`.
+13. **The test suite's web root.** Tests set the web root through `WebHostDefaults.WebRootKey`. This works with `WebApplicationFactory` on .NET 10 (verified), but it is a host setting a future framework version could treat differently. `FrontEndSkeletonTests` (later `FrontEndTests`) would fail at once.
+14. **DataProtection key folder** (section 21): read at every start, and written only when no valid key is left. Accepted for v1.2; it belongs to the cloud path.
+15. **Hand-written `JSON` type declarations** (section 11): if TypeScript adds its own with a different shape, the type check reports a clash. Then delete `src/types/json-source-text.d.ts`.
+16. **Multi-tenancy later (SaaS), for awareness only, nothing built** (owner context, 2026-11-28; decision #244). Offering the product to several paying companies would need:
+    - a tenancy model: a database per company (strong isolation, simple queries, many migrations to run) or one shared database with a `TenantId` on every row and every query (cheaper to run, every query must filter);
+    - tenant resolution on each request: a subdomain, or a tenant claim in the token;
+    - onboarding: create the company's database or tenant row and its first Manager;
+    - billing: a payment provider and a subscription state that can lock a company out;
+    - email: invitations and password reset, which the product does not have today.
+
+    Choices that help:
+    - the front end uses relative paths and names no company, so one build works for every subdomain;
+    - the token-in-memory session can carry a tenant claim;
+    - all data access goes through one `AppDbContext`, two transaction helpers and one ledger, so either model has few places to change;
+    - SQLite's file per database already maps naturally to a database per company.
+
+    Choices that hurt:
+    - SQLite's single writer, and the in-process sign-in lock that assumes one process (risk 9);
+    - first-Manager seeding from `ADMIN_EMAIL` and `ADMIN_PASSWORD`, migrations at start-up and one global tolerance setting, all of which assume one company per process;
+    - unique emails across one user table (a person in two companies);
+    - per-table number sequences, which a shared database would have to make per tenant.
+
+    It belongs with the PostgreSQL/cloud path and would need its own PRD.

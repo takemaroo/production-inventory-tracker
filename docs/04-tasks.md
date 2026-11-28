@@ -44,6 +44,37 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-033 | (v1.1) Log who changed a customer (SEC-26, decision #177) | backend-developer | T-024 | done |
 | T-034 | Tighter name rules (SEC-25, decision #176) | backend-developer | BUG-002 fix | done |
 | T-035 | (v1.2) Batch a shipment's movements (SEC-24, US-55, A-4) | backend-developer | T-027 | done |
+| T-036 | (v1.2) Serve the front end: finish A-1 | backend-developer | none (skeleton) | todo |
+| T-037 | (v1.2) Security headers, CSP, no CORS (A-2, A-3) | backend-developer | T-036 | todo |
+| T-038 | (v1.2) Escape HTML characters in JSON output (A-5) | backend-developer | T-037 | todo |
+| T-039 | (v1.2) API client: requests, failures, paging, stock lookup | frontend-developer | none (skeleton) | todo |
+| T-040 | (v1.2) Formatting and safe text | frontend-developer | none (skeleton) | todo |
+| T-041 | (v1.2) Session: sign in, sign out, end of a session | frontend-developer | T-039 | todo |
+| T-042 | (v1.2) Design system, page frame, menu, route table | frontend-developer | T-040, T-041 | todo |
+| T-043 | (v1.2) List toolkit and the Stock screen (thin slice complete) | frontend-developer | T-042 | todo |
+| T-044 | (v1.2) End-to-end and accessibility harness | frontend-developer | T-036, T-037, T-043 | todo |
+| T-045 | (v1.2) Form toolkit and Change password | frontend-developer | T-042 | todo |
+| T-046 | (v1.2) Dialogs, idle warning and idle sign-out | frontend-developer | T-045 | todo |
+| T-047 | (v1.2) Picker and Record a receipt | frontend-developer | T-045 | todo |
+| T-048 | (v1.2) Units | frontend-developer | T-043, T-046, T-047 | todo |
+| T-049 | (v1.2) Items | frontend-developer | T-043, T-046, T-047 | todo |
+| T-050 | (v1.2) Recipes | frontend-developer | T-049 | todo |
+| T-051 | (v1.2) Production orders: list, detail, cancel | frontend-developer | T-043, T-046 | todo |
+| T-052 | (v1.2) New production order | frontend-developer | T-047, T-051 | todo |
+| T-053 | (v1.2) Send materials | frontend-developer | T-051 | todo |
+| T-054 | (v1.2) Complete an order | frontend-developer | T-051 | todo |
+| T-055 | (v1.2) Request extra material | frontend-developer | T-051 | todo |
+| T-056 | (v1.2) Complementary orders: list, detail, approve, reject | frontend-developer | T-043, T-046 | todo |
+| T-057 | (v1.2) Send a complementary order | frontend-developer | T-056 | todo |
+| T-058 | (v1.2) Leftover returns | frontend-developer | T-043, T-046, T-047 | todo |
+| T-059 | (v1.2) Notifications and the unread count | frontend-developer | T-043, T-045 | todo |
+| T-060 | (v1.2) Customers | frontend-developer | T-043, T-046, T-047 | todo |
+| T-061 | (v1.2) Sales orders: list, detail, cancel | frontend-developer | T-043, T-046, T-047 | todo |
+| T-062 | (v1.2) New sales order | frontend-developer | T-061 | todo |
+| T-063 | (v1.2) Ship a sales order | frontend-developer | T-061 | todo |
+| T-064 | (v1.2) Users: list and add | frontend-developer | T-043, T-045 | todo |
+| T-065 | (v1.2) User detail: roles, access, password | frontend-developer | T-046, T-064 | todo |
+| T-066 | (v1.2) Close-out: safe text, roles, storage, performance across every screen | frontend-developer | T-048 to T-065 | todo |
 
 **Build phase complete (2026-11-21):** 22 of 22 tasks done, each reviewed by `code-reviewer` and committed as `T-0NN: ...` (last: `d09c6db T-021`). No task is open. Nothing was added after the decision on a full "only writer" guard for movements (decision #112: not adopted, so no post-QA task).
 
@@ -54,6 +85,12 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 **(v1.1) Thin slice first.** T-022 to T-027 give one path through every layer: schema and migration, the Seller role and read rules, a customer, a sales order, a shipment that writes movements, and the stock and movement history that show it. T-028 to T-030 add breadth (cancel, open demand, reports). T-031 and T-032 close out, as T-020 and T-021 did.
 
 **(v1.1) Running tasks at the same time.** T-022 adds the one v1.1 migration, so it runs alone. Every endpoint task (T-024, T-025, T-027, T-028, T-030) edits the same three test-and-sample files: `RoleMatrixTests.cs`, `OpenApiTests.cs` and `InventoryTracker.Api.http`. The suite compares each of them with the endpoints the app serves (architecture section 2, decision #164), so those tasks run one after another. Safe pairs once their dependencies are met: T-029 with T-030 (stock files against report files; T-029 touches none of the three shared files), and T-031 with T-032 (scenario tests against OpenAPI, the sample file and `.env.example`). The delivery manager's standing note to run one agent at a time still applies; these pairs are only where parallel work would be safe.
+
+**(v1.2) The web front end.** Tasks T-036 to T-066 build it from `docs/01-prd.md` sections 14 to 20, `docs/02-design.md` sections 11 to 22 with `design/mockups/`, and `docs/03-architecture.md` part "Version 1.2" (sections 11 to 23, decisions #225 to #245). T-035 (A-4) is already done. The skeleton (phase 3) already gives: the Vite and React project in `src/InventoryTracker.Web`, the build into the API's `wwwroot`, the minimal A-1 serving, exact decimal JSON (`src/api/json.ts`), the source guard test, and the front end in `build.ps1`, `test.ps1`, `publish.ps1` and CI.
+
+**(v1.2) Thin slice first.** T-036 to T-044 give one path through every layer: the API serves the built front end with its headers and escaping (T-036 to T-038); the client, formatting and session (T-039 to T-041); the frame and route table (T-042); then sign-in to Stock, the one screen every role has (T-043), proved in Edge through the API by the end-to-end harness (T-044). T-045 to T-047 add the shared form, dialog and picker toolkit, each with a first real screen (Change password, the idle warning, Record a receipt). T-048 to T-065 add the screens area by area. T-066 closes out, as T-020 and T-031 did.
+
+**(v1.2) Running tasks at the same time.** T-036, T-037 and T-038 all edit `Program.cs` and run one after another; they share no file with the front-end tasks, so one backend and one front-end task can run side by side. T-039 and T-040 touch different folders and can run together. Shared front-end code (`src/components/`, `src/api/http.ts`, `src/api/paging.ts`, `src/format/`, `src/session/`, `src/app/`, `src/styles/`) is owned by T-039 to T-047; a screen task must not change it (architecture 12). From T-048 on, each screen task touches only `src/screens/<area>/`, `src/api/<area>.ts` and `e2e/<area>.spec.ts`, so screen tasks of different areas are safe together once their dependencies are done. Same-area chains are on purpose: T-049 then T-050 (`items`); T-051 then T-052 to T-055 (`production-orders`, which may then run together only if each keeps to its own screen file, see each task); T-056 then T-057; T-061 then T-062 and T-063; T-064 then T-065. Only T-044 changes `package.json`. The standing note to run one agent at a time still applies; these are only where parallel work would be safe.
 
 ## Done criteria for every task
 
@@ -71,6 +108,10 @@ Each task is done only when all of these hold, as well as its own criteria below
 - (v1.1) Role strings come from the `Roles` constants of architecture 4.1 item 13, one `[Authorize(Roles = ...)]` per action, never typed out and never on a controller class whose actions differ.
 - (v1.1) PRD sentences are checked against `ExpectedMessages`, where they are typed out in full, never built from the code under test (decision #88).
 - (v1.1) Tests use their own temporary databases. Nothing in a task opens, copies or migrates the owner's database at `%LOCALAPPDATA%\InventoryTracker\inventory.db`, or reads or changes user-secrets.
+- (v1.2) **Front-end tasks** are done only when, from `src/InventoryTracker.Web`, `npm run typecheck` gives 0 errors, `npm test` passes in full (the source guard included), `npm run build` succeeds, and, from T-044 on, `npm run e2e` passes. `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test.ps1` passes too, which also runs the .NET suite. The report includes the commands and their results.
+- (v1.2) **The owner's comment standard applies to TypeScript too**: a `/** ... */` comment on every exported function, component and type saying what it does and why, the PRD or design id beside each rule (`// F-7: ...`, `// AC-42.1: ...`), a short explanation the first time a React, router or browser concept appears (component, hook, effect, context, `<dialog>`, ARIA role), and a comment on each test naming the criterion it proves. `code-reviewer` checks it.
+- (v1.2) **Front-end rules** (architecture 15 to 18): every API string goes through `SafeText` or a form field's value, never HTML; API messages are shown word for word and never rewritten; the token stays in the session module; quantities are sent as `ExactDecimal` and shown through `src/format/`, with no arithmetic; requests go through `src/api/http.ts` with relative paths; every text the screen owns is the design's (design 18) exactly. No inline style, no new package (see "Running tasks at the same time"); any package that is added follows the 14-day rule (decision #245).
+- (v1.2) **Each screen task** adds Vitest component tests for its criteria (the API answered by a stub of `src/api/http.ts`, never a real network), and one `e2e/<area>.spec.ts` that opens each of its screens through the API in Edge, checks the main path, and runs the axe check of architecture 18 at the four window sizes with no critical or serious finding.
 
 ## Task details
 
@@ -786,3 +827,386 @@ From SEC-24 (docs/06-security-review.md Part 2), owner decision #175 and PRD v1.
 - Comments that quote the old figures or explanation: `Features/Stock/StockQueries.cs` (class remarks, `GetStockAsync(itemIds, ...)`), `StockLedger.AddRangeAsync` where it repeats them, and the AC-55 test's remarks.
 
 Done when the AC-55 test passes 3 times out of 3 on a quiet machine (report the median and p95 of both requests, and the warm-up rounds), the migration script is as above, the query-plan test passes, and the full suite passes.
+
+## (v1.2) Task details: the web front end
+
+Every task below also meets the "Done criteria for every task" above, the (v1.2) items included. "Architecture" means `docs/03-architecture.md`, part "Version 1.2"; "design" means `docs/02-design.md`.
+
+### T-036: (v1.2) Serve the front end: finish A-1
+
+- **Owner:** backend-developer
+- **Serves:** US-34 (AC-34.1), US-36 (AC-36.3); PRD A-1, row 88
+- **Depends on:** none (the skeleton's `Common/FrontEnd/FrontEndSetup.cs`)
+- **Touches:** `src/InventoryTracker.Api/Common/FrontEnd/`, `Program.cs` (start-up warning only), `scripts/run.ps1`; `tests/.../Integration/FrontEndSkeletonTests.cs` (renamed `FrontEndTests.cs`), `tests/.../Acceptance/UnknownPathAcceptanceTests.cs`
+- **What to build:** complete the request rules and cache headers of architecture 13. A GET or HEAD outside `/api`, `/health` and `/openapi` whose last segment has a dot and no file answers `404` ProblemDetails `not-found` without a token. `Cache-Control` is `no-cache` on the page and on other files, and `public, max-age=31536000, immutable` under `/assets/`. One Warning at start-up when `wwwroot/index.html` is missing, with the architecture's wording. `run.ps1` prints `Front end:   http://localhost:<port>/ (open it in Edge or Chrome)`, and with `-Published` warns when the folder has no `wwwroot\index.html`. Optionally switch off the SDK's publish-time `.br`/`.gz` copies if one MSBuild property does it; record either way.
+- **Acceptance criteria:**
+  - Tests (with `WriteFrontEndFile`) for every row of the architecture 13 table, with and without a token: `/`, a deep screen address with a query string, `/sign-in`, `/index.html`, an asset, a missing asset, `/favicon.ico`, HEAD of the page, `POST /stock`, `/api`, `/api/v1/does-not-exist`, `/health`, `/health/details`, `/openapi/v1.json`, plus each cache header.
+  - The default `TestApiFactory` (no front end) still gives every answer exactly as before v1.2. The start-up warning is proved through `factory.Logs`.
+  - `UnknownPathAcceptanceTests`: the `GET /` and `GET /nope` rows move to a test showing that with a front end they answer the page. The "with a token" `/nope` row becomes an unknown `/api/` path. The rest is unchanged. QA is named in the report (architecture risk 23.5).
+- **Done when:** the full suite passes, and a published run (`publish.ps1 -Output` a scratch folder, then `run.ps1 -Published -PublishFolder` it, on a scratch database with throwaway secrets) shows the printed address, the page, a `404` for `/assets/missing.js`, and the cache headers. The run must not touch the owner's database or the repository's `publish\` folder.
+
+### T-037: (v1.2) Security headers, CSP, no CORS (A-2, A-3)
+
+- **Owner:** backend-developer
+- **Serves:** US-37 (AC-37.5, AC-37.6, AC-37.7); SEC-10, SEC-11, SEC-27
+- **Depends on:** T-036
+- **Touches:** `src/InventoryTracker.Api/Common/Security/SecurityHeaders.cs` (new), `Program.cs` (first pipeline step, `AddServerHeader = false` in the existing `ConfigureKestrel`), `tests/.../Integration/SecurityHeadersTests.cs` (new)
+- **What to build:** `app.UseSecurityHeaders()` as the first pipeline step, setting through `Response.OnStarting` exactly the headers and the CSP value of architecture 14 on every response; no `Server` header. No CORS code at all.
+- **Acceptance criteria:**
+  - Tests on the page, an asset, an API `200`, a `401`, a `404` under `/api/`, a `400` with ProblemDetails, a `500` from the existing error probe, and `/health`: CSP exactly the architecture's string, `nosniff`, `no-referrer`, no `Server` header (on real Kestrel too, in the way `RequestBodyLimitTests` does), and `Cache-Control: no-store` under `/api/` only.
+  - A test that parses the CSP and checks each AC-37.5 rule: the required directives are present; no `*`, `http:`, `https:` or `data:` in `script-src`; no `'unsafe-inline'` or `'unsafe-eval'` anywhere.
+  - AC-37.7: `GET /api/v1/units` with `Origin: http://localhost:5999` (with a token) and a preflight `OPTIONS /api/v1/units` with `Origin` and `Access-Control-Request-Method: POST` get no `Access-Control-*` header. `ICorsService` is not registered.
+- **Done when:** the full suite passes and the published run of T-036 shows the headers (curl output in the report).
+
+### T-038: (v1.2) Escape HTML characters in JSON output (A-5)
+
+- **Owner:** backend-developer
+- **Serves:** US-37 (AC-37.9); SEC-27 server hardening (Q108)
+- **Depends on:** T-037
+- **Touches:** `Program.cs` (controllers' JSON options), `src/InventoryTracker.Api/Common/Errors/ErrorHandlingSetup.cs` or a new `Common/Json/` file for the minimal-API `JsonOptions`, `tests/.../Integration/JsonEscapingTests.cs` (new); any test the change turns red, with the reason in the report
+- **What to build:** `JavaScriptEncoder.Create(UnicodeRanges.All)` on both JSON settings, as architecture 14 says, with a comment explaining why and what changes in the raw bytes.
+- **Acceptance criteria:**
+  - Raw-byte tests: `GET /customers/{id}` for the AC-37.1 customer name `</script><script>alert(1)</script>` holds no `<` and holds `<`, and the parsed name is unchanged. Notes `<b>bold</b> & 'quote'` hold no `<`, `>`, `&` or `'`. A ProblemDetails `detail` with a quote ("A unit named 'kg' already exists.") holds `'` and parses back exactly. A notification's `message` and `data` hold no `<`. An accented name ("Crème") stays readable in the raw bytes.
+  - The whole existing suite passes, with any changed test explained. The report states what the OpenAPI document (Development) does.
+- **Done when:** the full suite passes and the AC-37.9 example is shown with curl on the published run.
+
+### T-039: (v1.2) API client: requests, failures, paging, stock lookup
+
+- **Owner:** frontend-developer
+- **Serves:** F-1, F-2, F-3 (request side), F-6 (paging), F-13 (reading all pages); US-42, US-43, US-47, US-53 (live stock); US-34 (AC-34.6 detection)
+- **Depends on:** none (the skeleton's `src/api/json.ts`)
+- **Touches:** `src/InventoryTracker.Web/src/api/http.ts`, `paging.ts`, `stockLookup.ts`, `stock.ts` (the stock types and reads), their tests
+- **What to build:** architecture 16, all of it. `apiRequest` with relative `/api/v1` paths, the headers, the 30-second timeout, no retries, `parseApiJson`, and the four failure kinds with their exact texts. A small hook that `session/` registers to be told of `401` `not-authenticated` (T-041 connects it). `fieldErrors` with the position map. `readPage`, `readAllPages` (pageSize 100). `readStockFor` with its two strategies and the threshold constant.
+- **Acceptance criteria:**
+  - Unit tests with a stubbed `fetch`: each failure kind and its exact text; `detail` and `errors` passed through unchanged; the token header only when a session exists; no second request after a timeout or failure; the timeout at 30 s with fake timers; `401` `not-authenticated` triggers the hook while `invalid-credentials` does not; quantities in a body are written from `ExactDecimal`.
+  - `readAllPages` stops at `totalCount`. `readStockFor`: 3 items give 3 item reads, at most 4 at a time; 500 items over 500 stock records give at most 5 page reads, stopping when every item is found; a failed read leaves that item missing.
+- **Done when:** the front-end done criteria hold.
+
+### T-040: (v1.2) Formatting and safe text
+
+- **Owner:** frontend-developer
+- **Serves:** F-7, F-8, F-9, F-10; US-37 (AC-37.1, AC-37.3, AC-37.4)
+- **Depends on:** none
+- **Touches:** `src/InventoryTracker.Web/src/format/`, `src/components/SafeText.tsx`, their tests
+- **What to build:** formatting from `ApiNumber` text (design 12.7, architecture 16): quantities with unit, amounts per unit (up to 6 decimals), signed differences, percentages (signed, two decimals; the tolerance unsigned), "-" with the hidden "none", ranges "975 to 1,015 kg", local times "2026-11-26 08:05", the footer offset "UTC-06:00" ("UTC+00:00"), today's local date for the receipt field, customers and items with ids, " (inactive)". Plus `SafeText` (`<bdi>`, direction markers, line breaks kept where asked) and `hiddenDirectionCharacters(text)` for the edit-field line.
+- **Acceptance criteria:**
+  - Unit tests with the design's examples: "1,015 kg", "0.6 kg", "0.000125 kg", "+15 kg", "-25 kg", "+1.50%", "0.00%", "2.00%", "-", "Deli Norte (#4)", "Cafe Sur (#7) (inactive)"; large values beyond 15 digits are printed exactly; extra decimals are rounded half away from zero on the digits; times in two time zones (set `TZ` for the test run, or inject the zone).
+  - Component tests: the AC-37.1 strings render as text (no element, no link, nothing bold); "Milk" + U+202E + "gnp.exe" shows "Milk[U+202E]gnp.exe" with the marker element, for each of the 13 code points; the line "This text contains hidden direction characters: U+202E." lists each code point once, in order.
+- **Done when:** the front-end done criteria hold.
+
+### T-041: (v1.2) Session: sign in, sign out, end of a session
+
+- **Owner:** frontend-developer
+- **Serves:** US-34 (AC-34.1 to AC-34.6, AC-34.8)
+- **Depends on:** T-039
+- **Touches:** `src/InventoryTracker.Web/src/session/` (not `idle.ts`), `src/screens/auth/SignInScreen.tsx`, `src/app/App.tsx` (a minimal router with `/sign-in`, `RequireSession` and a temporary signed-in placeholder; T-042 replaces the placeholder), tests
+- **What to build:** architecture 15 except the idle timer: the session module and context, the sign-in screen of design 16.1 (fields, autocomplete, focus, arrival messages from `ended`, the refusal texts, the F-2 text, the busy button), the safe return path, sign-out and every session end as a full page load with blanking first, the `pageshow` guard, and the `401` hook from T-039.
+- **Acceptance criteria:**
+  - Component and unit tests: AC-34.1 (any address without a session goes to `/sign-in?return=...`, and after signing in that address opens); AC-34.2 (opens `/stock`); AC-34.3 (each message, email kept, password emptied, blank fields checked without a request); AC-34.4 (sign-out replaces the history entry); AC-34.6 (a `401` from any request ends at `/sign-in?ended=expired&return=...`); AC-34.8 (F-2 text); the return-path rule (`//evil.example`, `/sign-in`, `https://...` all give `/stock`); a restored page (`pageshow` persisted) is replaced.
+  - The source guard still passes, so the token is in no storage and not in the console.
+- **Done when:** the front-end done criteria hold. The AC-34.5 browser check is T-044's.
+
+### T-042: (v1.2) Design system, page frame, menu, route table
+
+- **Owner:** frontend-developer
+- **Serves:** US-36 (AC-36.1 to AC-36.5), US-34 (AC-34.2 header), F-8 (footer), F-11 (mechanism), F-15 (frame), PRD section 18 (titles, `lang`, landmarks)
+- **Depends on:** T-040, T-041
+- **Touches:** `src/InventoryTracker.Web/src/styles/app.css`, `src/app/` (routes, frame, guards, Not allowed, Not found, `RecordLink`, notification-count slot), one placeholder component per screen in every `src/screens/<area>/` folder, `src/main.tsx`, tests
+- **What to build:** port `design/mockups/app.css` (no inline styles; fix nothing the design did not ask for). Write the **whole route table** of design 12.1 (architecture 17), with roles, menu entries, titles and parameter checks, and each screen as a placeholder in its own file. Build the frame of design 12.2 and 13: skip link, header at both widths, menu column and panel (focus, Escape, `aria-expanded`), current entry, footer with the offset, document titles. Add 16.33 and 16.34. The Manager's "Notifications (n)" slot shows "Notifications" until T-059.
+- **Acceptance criteria:**
+  - Component tests: the five menus of AC-36.1 exactly, in order, with groups hidden when empty; AC-36.2 for a sample of addresses per role, and no data request made; AC-36.3 (a direct address opens, with the query string kept); the header identity "maria.lopez@example.com (Manager)" with roles in the API's order; `RecordLink` as text for a role that cannot open the record (AC-36.5); parameter checks (`/production-orders/abc`, `/production-orders/0`, `/production-orders/2147483648`) show 16.34; each document title follows design 12.2.
+  - Below 1024 px, the identity, Change password and Sign out are in the menu panel (#196).
+- **Done when:** the front-end done criteria hold.
+
+### T-043: (v1.2) List toolkit and the Stock screen (thin slice complete)
+
+- **Owner:** frontend-developer
+- **Serves:** US-38 (AC-38.1 to AC-38.5), F-6, F-14, design 12.6 and 12.11; the phone-table follow-up
+- **Depends on:** T-042
+- **Touches:** `src/InventoryTracker.Web/src/components/` (DataTable, FilterBar, CountLine, Pager, LoadState, `useApiRead`), `src/screens/stock/`, tests
+- **What to build:** the list pattern of design 12.6 and 12.11 as shared pieces: `DataTable` with the explicit ARIA roles, `data-label` and the scrolling region (architecture 18); filters applied with the button into the query string; count line with singular and plural; pager; empty sentences; past-the-end; loading after 300 ms; load failure with Try again; Refresh keeping rows. Then the Stock screen of design 16.3.
+- **Acceptance criteria:**
+  - Component tests: AC-38.1 columns and "-" for finished products; AC-38.2 type filter and paging (F-6: 50 rows, total count, the pager hidden as specified, filter change shows page 1); AC-38.3 the worked example's figures exactly; AC-38.4 the committed order as a link for W, P and M and as text for S (AC-36.5); AC-38.5; refresh only on Refresh (F-14).
+  - The table's roles are present on every element, and the phone label is spoken once (the CSS rule of architecture 18).
+- **Done when:** the front-end done criteria hold. Sign-in then Stock works with `npm run dev` against the API.
+
+### T-044: (v1.2) End-to-end and accessibility harness
+
+- **Owner:** frontend-developer
+- **Serves:** PRD section 18 (accessibility checker, browsers, sizes), US-34 (AC-34.4, AC-34.5), US-37 (AC-37.5 no violations, AC-37.8), F-15
+- **Depends on:** T-036, T-037, T-043
+- **Touches:** `src/InventoryTracker.Web/package.json` and `package-lock.json` (add `@playwright/test` and `@axe-core/playwright` at the newest releases at least 14 days old (decision #245), exact versions, each release date and `npm audit` reported), `playwright.config.ts`, `e2e/`, `scripts/test.ps1` (end-to-end step and `-SkipEndToEnd`), `.github/workflows/ci.yml` (end-to-end step), `src/InventoryTracker.Web/.gitignore` entries if needed
+- **What to build:** Playwright with `channel: 'msedge'` (and a `chrome` project), no browser download. `e2e/support/` starts the API from the Release build through Playwright's `webServer`, on a free local port and a temporary database, with throwaway `JWT_SIGNING_KEY`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` set only for that process. It never uses the owner's database, user-secrets or `.env`. It serves the front end built into `wwwroot`. Shared helpers: sign in as a role (users created through the API as the first Manager), the axe check of architecture 18 at the four sizes, a listener that fails a test on any CSP violation or console error, and a network listener that fails on any request to another origin. Add `npm run e2e`.
+- **Acceptance criteria:**
+  - `e2e/thin-slice.spec.ts`: sign in, Stock shows; axe clean at every size; AC-34.4 (Back after sign-out shows the sign-in screen, also with the back-forward cache); AC-34.5 (after sign-in, local and session storage, IndexedDB, cookies and cache storage are empty; reload and a second tab show sign-in); AC-37.5 (the CSP header present, no violation); AC-37.8 (same-origin requests only).
+  - `scripts\test.ps1` runs it after the Vitest step; CI runs it; the measured CI time is reported.
+- **Done when:** the front-end done criteria hold, and `scripts\test.ps1` passes with the end-to-end step.
+
+### T-045: (v1.2) Form toolkit and Change password
+
+- **Owner:** frontend-developer
+- **Serves:** US-35 (AC-35.1 to AC-35.3); F-1, F-3, F-4, F-7 (on screen), design 12.4 and 12.5 (banner)
+- **Depends on:** T-042
+- **Touches:** `src/InventoryTracker.Web/src/components/` (Field, MessageArea, Banner, BusyButton, `useSubmit`, check helpers, flash banner), `src/screens/auth/ChangePasswordScreen.tsx`, tests
+- **What to build:** the form pattern. Labelled fields with hints and errors (`aria-invalid`, `aria-describedby`, the "Error:" prefix). The message area: refusal with "Nothing was changed.", focus moved to it, front-end checks without that line. `useSubmit`: one request per click or Enter, `aria-disabled` and the spinner. Password fields emptied after any refusal. The banner (`role="status"`, close, flash through navigation). Then Change password (design 16.2), ending with `ended=password-changed`.
+- **Acceptance criteria:**
+  - Component tests: AC-35.1 to AC-35.3 with every message; F-3 (double click and double Enter send one request); F-1 (input kept, field messages placed, focus on the message area); F-7 text for "1,5", "1 000" and "-5" with nothing sent; the banner flash shows once.
+- **Done when:** the front-end done criteria hold.
+
+### T-046: (v1.2) Dialogs, idle warning and idle sign-out
+
+- **Owner:** frontend-developer
+- **Serves:** F-5, design 12.5; US-34 (AC-34.7, AC-34.7a)
+- **Depends on:** T-045
+- **Touches:** `src/InventoryTracker.Web/src/components/Dialog.tsx` (with the compact variant), `src/session/idle.ts`, the frame's mount point for the warning in `src/app/`, tests
+- **What to build:** the Dialog of design 12.5 on `<dialog>` with `showModal()`: title, body, "Go back" and the confirm button (red for destructive actions). Initial focus on the first field or "Go back". Focus returns to the opener. Escape and Go back are held while busy. A refusal stays inside the dialog and is copied to the screen when it closes. Then the idle timer and warning of architecture 15 and design 12.3.
+- **Acceptance criteria:**
+  - Component tests: F-5 (only confirm sends; Go back, Escape and closing send nothing); the busy hold; focus rules.
+  - Idle tests with fake timers: the warning at 14 minutes, text and role; each activity type closes it and restarts the time; the notification refresh is not activity; sign-out at 15 minutes to `ended=idle` and Stock after signing in again (#200); a gap of 14.5 minutes on `visibilitychange` shows the warning, and 15 minutes or more signs out with no warning (#216); the warning sits above an open dialog, and the dialog keeps its input (#217); nothing runs on the sign-in screen.
+- **Done when:** the front-end done criteria hold.
+
+### T-047: (v1.2) Picker and Record a receipt
+
+- **Owner:** frontend-developer
+- **Serves:** F-13; US-39 (AC-39.1 to AC-39.4); design 12.9
+- **Depends on:** T-045
+- **Touches:** `src/InventoryTracker.Web/src/components/Picker.tsx`, `src/api/items.ts` (reads only: list and detail, for pickers), `src/api/customers.ts` and `src/api/units.ts` (list reads only), `src/screens/receipts/`, tests
+- **What to build:** the combobox picker of design 12.9: all pages at pageSize 100, options with ids and units, narrowing by name or id ("#" ignored), match count, keyboard, the fixed id suffix (#220), only a chosen record sent, the "Choose ... from the list." texts, the loading, failure and empty states. Then Record a receipt (design 16.4). The later area tasks add their write functions to these API files in new functions only, never changing these reads.
+- **Acceptance criteria:**
+  - Component tests: F-13 narrowing, case-insensitive, and by id; 500 records narrowed within 1 second (measured in the test, the time printed in the output); typed but unchosen text refused; AC-39.1 to AC-39.4 including "Received 1,000 kg of Cheese.", fields emptied but the date kept, focus back on the picker, and the empty-source sentence with no button.
+  - `e2e/receipts.spec.ts` with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-048: (v1.2) Units
+
+- **Owner:** frontend-developer
+- **Serves:** US-56 (AC-56.1 to AC-56.5)
+- **Depends on:** T-043, T-046, T-047 (it creates `src/api/units.ts`)
+- **Touches:** `src/InventoryTracker.Web/src/screens/units/`, `src/api/units.ts` (add the writes), `e2e/units.spec.ts`
+- **What to build:** design 16.24 and 16.25: the list with Add unit for Managers, the detail with rename and delete.
+- **Acceptance criteria:** component tests for each criterion, with the API's messages shown word for word and the hidden-direction line on the name field; `e2e/units.spec.ts` with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-049: (v1.2) Items
+
+- **Owner:** frontend-developer
+- **Serves:** US-57 (AC-57.1 to AC-57.6), US-37 (AC-37.3 edit fields)
+- **Depends on:** T-043, T-046, T-047
+- **Touches:** `src/InventoryTracker.Web/src/screens/items/` (not the recipe files), `src/api/items.ts` (add the writes), `e2e/items.spec.ts`
+- **What to build:** design 16.26 to 16.28 without the recipe panel's content (T-050 fills it): list with type filter, add and edit (full replacement, the unit picker), detail, delete.
+- **Acceptance criteria:** component tests for each criterion, including AC-57.3's refusal with the input kept and AC-57.2's empty unit picker; e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-050: (v1.2) Recipes
+
+- **Owner:** frontend-developer
+- **Serves:** US-58 (AC-58.1 to AC-58.6)
+- **Depends on:** T-049
+- **Touches:** `src/InventoryTracker.Web/src/screens/items/` (recipe panel and Edit recipe files), `src/api/recipes.ts`, `e2e/recipes.spec.ts`
+- **What to build:** the recipe panel on the item detail (design 16.28; not requested for Seller-only users), and Edit recipe (design 16.29) as a line form with Add line and Remove.
+- **Acceptance criteria:** component tests for each criterion. AC-58.2: no recipe request for a Seller-only user. AC-58.5: field messages under the right line. AC-58.6 end to end in `e2e/recipes.spec.ts` (two orders show 1,000 kg and 1,010 kg), with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-051: (v1.2) Production orders: list, detail, cancel
+
+- **Owner:** frontend-developer
+- **Serves:** US-40 (AC-40.1 to AC-40.7), US-44 (AC-44.1 to AC-44.3)
+- **Depends on:** T-043, T-046
+- **Touches:** `src/InventoryTracker.Web/src/screens/production-orders/` (list and detail files), `src/api/productionOrders.ts` (**every** production-order call, including create, send, complete, cancel and request extra material, so T-052 to T-055 do not edit it), `e2e/production-orders.spec.ts`
+- **What to build:** design 16.5 and 16.7: the list with status filter; the detail with facts, line blocks (Plan, Estimate while Created, Sent, Result), "Above tolerance" and "n/a", complementary orders and history; actions per status and role; the cancel dialog.
+- **Acceptance criteria:** component tests for each criterion, with AC-40.5 examples A and B exact; F-11 actions per status and role; AC-44.2's extra sentence; AC-40.7 not found. e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-052: (v1.2) New production order
+
+- **Owner:** frontend-developer
+- **Serves:** US-41 (AC-41.1 to AC-41.3)
+- **Depends on:** T-047, T-051
+- **Touches:** `src/InventoryTracker.Web/src/screens/production-orders/NewProductionOrderScreen.tsx` (and its test), `e2e/new-production-order.spec.ts`
+- **What to build:** design 16.6.
+- **Acceptance criteria:** component tests for each criterion; on success the detail opens with the form's history entry replaced and the banner shown; e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-053: (v1.2) Send materials
+
+- **Owner:** frontend-developer
+- **Serves:** US-42 (AC-42.1 to AC-42.5)
+- **Depends on:** T-051
+- **Touches:** `src/InventoryTracker.Web/src/screens/production-orders/SendMaterialsScreen.tsx` (and its test), `e2e/send-materials.spec.ts`
+- **What to build:** design 16.8 as a line form: Warehouse stock through `readStockFor` (raw materials); every row required; the dialog listing quantities; refusals under rows, with the "See pending returns" link for `pending-return`; the wrong-status message of #214.
+- **Acceptance criteria:** component tests for each criterion, AC-42.3's range message under the Cheese row included. A 500-line order renders and sends one request whose body carries the typed digits. The stock lookup makes at most 5 requests (measured, reported). e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-054: (v1.2) Complete an order
+
+- **Owner:** frontend-developer
+- **Serves:** US-43 (AC-43.1 to AC-43.4)
+- **Depends on:** T-051
+- **Touches:** `src/InventoryTracker.Web/src/screens/production-orders/CompleteOrderScreen.tsx` (and its test), `e2e/complete-order.spec.ts`
+- **What to build:** design 16.9, with the production storage figures through `readStockFor`.
+- **Acceptance criteria:** component tests for each criterion; the dialog repeats the produced quantity; e2e with the axe check, ending on example A's variances.
+- **Done when:** the front-end done criteria hold.
+
+### T-055: (v1.2) Request extra material
+
+- **Owner:** frontend-developer
+- **Serves:** US-45 (AC-45.1 to AC-45.3)
+- **Depends on:** T-051
+- **Touches:** `src/InventoryTracker.Web/src/screens/production-orders/RequestMaterialScreen.tsx` (and its test), `e2e/request-material.spec.ts`
+- **What to build:** design 16.10: empty rows not sent, with the body-position-to-row map for field messages; no dialog.
+- **Acceptance criteria:** component tests for each criterion, including a field message for body line 0 placed under the second screen row when the first is empty; e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-056: (v1.2) Complementary orders: list, detail, approve, reject
+
+- **Owner:** frontend-developer
+- **Serves:** US-46 (AC-46.1 to AC-46.3)
+- **Depends on:** T-043, T-046
+- **Touches:** `src/InventoryTracker.Web/src/screens/complementary-orders/` (list and detail files), `src/api/complementaryOrders.ts` (every call, send included), `e2e/complementary-orders.spec.ts`
+- **What to build:** design 16.11 and 16.12: the list with status and order-number filters (#207); the detail with the parent product sub-line (#214 fallback); the approve and reject dialogs (#198).
+- **Acceptance criteria:** component tests for each criterion and F-11 per role; e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-057: (v1.2) Send a complementary order
+
+- **Owner:** frontend-developer
+- **Serves:** US-47 (AC-47.1 to AC-47.3)
+- **Depends on:** T-056
+- **Touches:** `src/InventoryTracker.Web/src/screens/complementary-orders/SendComplementaryScreen.tsx` (and its test), `e2e/send-complementary.spec.ts`
+- **What to build:** design 16.13, with Warehouse stock through `readStockFor`.
+- **Acceptance criteria:** component tests for each criterion, AC-47.2's 20.4 accepted and 20.401 refused under the row; e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-058: (v1.2) Leftover returns
+
+- **Owner:** frontend-developer
+- **Serves:** US-48 (AC-48.1 to AC-48.4)
+- **Depends on:** T-043, T-046, T-047
+- **Touches:** `src/InventoryTracker.Web/src/screens/returns/`, `src/api/returns.ts`, `e2e/returns.spec.ts`
+- **What to build:** design 16.14 to 16.16: the list with status and material filters, New return with "Free leftover now", the detail with Receive and Cancel return dialogs.
+- **Acceptance criteria:** component tests for each criterion, including `/returns?status=Pending` from AC-42.4's link; e2e with the axe check, AC-48.3's stock example included.
+- **Done when:** the front-end done criteria hold.
+
+### T-059: (v1.2) Notifications and the unread count
+
+- **Owner:** frontend-developer
+- **Serves:** US-49 (AC-49.1 to AC-49.5)
+- **Depends on:** T-043, T-045
+- **Touches:** `src/InventoryTracker.Web/src/screens/notifications/`, `src/api/notifications.ts`, the notification-count provider file that T-042 left as a slot (the only shared file this task may change; it runs alone while it does), `e2e/notifications.spec.ts`
+- **What to build:** design 16.17 and 13: the list with the unread filter, Mark read, Mark all read, rows staying in place; the Manager's count, read on every screen opened, every 60 seconds and after marking, never counted as activity, a `401` ending the session.
+- **Acceptance criteria:** component tests for each criterion, with fake timers for the 60 seconds; no count control and no count request for other roles; e2e with the axe check, AC-49.4's example included.
+- **Done when:** the front-end done criteria hold.
+
+### T-060: (v1.2) Customers
+
+- **Owner:** frontend-developer
+- **Serves:** US-50 (AC-50.1 to AC-50.6), US-37 (AC-37.3, AC-37.4)
+- **Depends on:** T-043, T-046, T-047 (it creates `src/api/customers.ts`)
+- **Touches:** `src/InventoryTracker.Web/src/screens/customers/`, `src/api/customers.ts` (add the writes), `e2e/customers.spec.ts`
+- **What to build:** design 16.18 to 16.20: the list with status filter; the detail with notes and line breaks kept; add and edit with the SEC-28 line; deactivate, reactivate and delete dialogs; delete success to the list.
+- **Acceptance criteria:** component tests for each criterion and F-11 for Warehouse; AC-37.4's two look-alike customers each shown with its id; e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-061: (v1.2) Sales orders: list, detail, cancel
+
+- **Owner:** frontend-developer
+- **Serves:** US-51 (AC-51.1 to AC-51.3), US-54 (AC-54.1, AC-54.2)
+- **Depends on:** T-043, T-046, T-047
+- **Touches:** `src/InventoryTracker.Web/src/screens/sales-orders/` (list and detail files), `src/api/salesOrders.ts` (every call, create and ship included), `e2e/sales-orders.spec.ts`
+- **What to build:** design 16.21 and 16.23 without the ship dialog: combined filters with customer and item pickers; the detail facts, lines and history; the cancel dialog.
+- **Acceptance criteria:** component tests for each criterion, with F-11 per status and role; e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-062: (v1.2) New sales order
+
+- **Owner:** frontend-developer
+- **Serves:** US-52 (AC-52.1 to AC-52.4)
+- **Depends on:** T-061
+- **Touches:** `src/InventoryTracker.Web/src/screens/sales-orders/NewSalesOrderScreen.tsx` (and its test), `e2e/new-sales-order.spec.ts`
+- **What to build:** design 16.22 as a line form, with active customers only, Add line and Remove with the focus rules, and no stock check.
+- **Acceptance criteria:** component tests for each criterion, AC-52.3's messages under the second line and under the customer; e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-063: (v1.2) Ship a sales order
+
+- **Owner:** frontend-developer
+- **Serves:** US-53 (AC-53.1 to AC-53.3), US-55 (the busy state on screen)
+- **Depends on:** T-061
+- **Touches:** `src/InventoryTracker.Web/src/screens/sales-orders/ShipDialog.tsx` (and its test), the one line in the detail file that opens it, `e2e/ship-sales-order.spec.ts`
+- **What to build:** the ship dialog of design 16.23: lines with quantity and Warehouse stock through `readStockFor` ("Loading…", "-" and the line on failure), the optional note, the busy state until the answer.
+- **Acceptance criteria:** component tests for each criterion, AC-53.2's message in the dialog; a 500-line order's dialog opens with at most 5 stock requests and scrolls with the buttons visible. In `e2e/ship-sales-order.spec.ts`, the axe check, and a 500-line shipment answered and shown as Shipped (the time reported).
+- **Done when:** the front-end done criteria hold.
+
+### T-064: (v1.2) Users: list and add
+
+- **Owner:** frontend-developer
+- **Serves:** US-59 (AC-59.1 to AC-59.3, AC-59.8)
+- **Depends on:** T-043, T-045
+- **Touches:** `src/InventoryTracker.Web/src/screens/users/` (list and add files), `src/api/users.ts` (every call), `e2e/users.spec.ts`
+- **What to build:** design 16.30 and 16.31: four role checkboxes, the password entered twice.
+- **Acceptance criteria:** component tests for each criterion; no password or hash anywhere on screen; e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-065: (v1.2) User detail: roles, access, password
+
+- **Owner:** frontend-developer
+- **Serves:** US-59 (AC-59.4 to AC-59.7)
+- **Depends on:** T-046, T-064
+- **Touches:** `src/InventoryTracker.Web/src/screens/users/UserScreen.tsx` (and its test), `e2e/user-detail.spec.ts`
+- **What to build:** design 16.32: the roles, password and access panels, with their dialogs. "Own account" is decided by email (#205): no Set password, and the self-deactivate warning.
+- **Acceptance criteria:** component tests for each criterion. AC-59.5's self-deactivation ends at the sign-in screen through the `401`. AC-59.6's message appears in the dialog. AC-59.7's own-detail line replaces the panel. e2e with the axe check.
+- **Done when:** the front-end done criteria hold.
+
+### T-066: (v1.2) Close-out: safe text, roles, storage, performance across every screen
+
+- **Owner:** frontend-developer
+- **Serves:** US-36 (AC-36.1 whole), US-37 (AC-37.1, AC-37.8 across screens), US-34 (AC-34.5 across a session), F-15, PRD section 18 (performance, 200% zoom, both browsers)
+- **Depends on:** T-048 to T-065
+- **Touches:** `src/InventoryTracker.Web/e2e/close-out/` (new files only), `e2e/support/` (a seed helper for the section 5 volume, if needed)
+- **What to build:** the cross-screen checks, as T-020 and T-031 did for the API. Run the AC-37.1 test data (item, customer, notes, completion reason) through every screen where it appears: text only, no dialog, no request to another address. Sign in with each role combination of AC-36.1 and check its menu and refused addresses. Check storage after a working session. Measure performance at the section 5 volume (sign-in within 3 s; 95% of screens within 2 s; pickers within 1 s). Run every screen at the four sizes in Edge and Chrome with axe, and check every screen for CSP violations.
+- **Acceptance criteria:** each check above is a test that passes. The performance figures are in the report. Any failure that belongs to an earlier task is reported, not patched here.
+- **Done when:** `scripts\test.ps1` passes in full, end-to-end included.
+
+## (v1.2) Coverage
+
+Every one of the 26 version 1.2 user stories (US-34 to US-59) is served by at least one task. So are the conventions F-1 to F-15, PRD section 18, and the API changes A-1 to A-5.
+
+| User story | Tasks | Acceptance criteria and where |
+|------------|-------|-------------------------------|
+| US-34 Sign in, sign out, end of a session | T-041, T-046, T-039, T-044, T-066 | AC-34.1 to 34.4, 34.6, 34.8 in T-041; 34.7 and 34.7a in T-046; 34.5 in T-041 (guard) and T-044 (browser); T-066 across a session |
+| US-35 Change own password | T-045 | AC-35.1 to 35.3 |
+| US-36 Screens by role | T-042, T-043 (AC-36.5 on Stock), every screen task (F-11), T-066 | AC-36.1 to 36.5 in T-042; AC-36.1 whole in T-066 |
+| US-37 Safe display of stored text | T-040, skeleton guard test, T-037, T-038, T-044, T-060, T-066 | AC-37.1 and 37.3 in T-040, across screens in T-066; 37.2 by the guard (skeleton) and Trusted Types (T-037); 37.4 in T-040 and T-060; 37.5 to 37.7 in T-037; 37.8 in T-044 and T-066; 37.9 in T-038 |
+| US-38 Stock | T-043 | AC-38.1 to 38.5 |
+| US-39 Record a receipt | T-047 | AC-39.1 to 39.4 |
+| US-40 Production orders, list and detail | T-051 | AC-40.1 to 40.7 |
+| US-41 Create a production order | T-052 | AC-41.1 to 41.3 |
+| US-42 Send materials | T-053, T-039 (stock lookup) | AC-42.1 to 42.5 |
+| US-43 Complete an order | T-054 | AC-43.1 to 43.4 |
+| US-44 Cancel a production order | T-051 | AC-44.1 to 44.3 |
+| US-45 Request a complementary order | T-055 | AC-45.1 to 45.3 |
+| US-46 Complementary orders, approve and reject | T-056 | AC-46.1 to 46.3 |
+| US-47 Send a complementary order | T-057 | AC-47.1 to 47.3 |
+| US-48 Leftover returns | T-058 | AC-48.1 to 48.4 |
+| US-49 Notifications | T-059, T-042 (count slot) | AC-49.1 to 49.5 |
+| US-50 Customers | T-060 | AC-50.1 to 50.6 |
+| US-51 Sales orders, list and detail | T-061 | AC-51.1 to 51.3 |
+| US-52 Create a sales order | T-062 | AC-52.1 to 52.4 |
+| US-53 Ship a sales order | T-063, T-039 (stock lookup) | AC-53.1 to 53.3 |
+| US-54 Cancel a sales order | T-061 | AC-54.1, 54.2 |
+| US-55 Shipment in one batch | T-035 (done), T-063 (busy state, 500-line run) | AC-55.1 to 55.3 in T-035 |
+| US-56 Units | T-048 | AC-56.1 to 56.5 |
+| US-57 Items | T-049 | AC-57.1 to 57.6 |
+| US-58 Recipes | T-050 | AC-58.1 to 58.6 |
+| US-59 User management | T-064, T-065 | AC-59.1 to 59.3 and 59.8 in T-064; 59.4 to 59.7 in T-065 |
+| F-1 to F-3 | T-039, T-045, T-046 | |
+| F-4, F-5 | T-045 (banner), T-046 (dialog) | |
+| F-6, F-14 | T-043, T-039 (paging) | |
+| F-7, F-8 | skeleton (`json.ts`), T-040, T-045 (on screen) | |
+| F-9, F-10 | T-040 | |
+| F-11 | T-042 (mechanism), every screen task | |
+| F-12 | T-042 (16.34), every detail screen | |
+| F-13 | T-047, T-039 (all pages) | |
+| F-15 | T-042, T-043, T-044, every screen's e2e, T-066 | |
+| PRD section 18 (accessibility, browsers, performance, data in the browser) | T-044, every screen's e2e, T-066 | |
+| A-1 to A-5 | T-036 (A-1), T-037 (A-2, A-3), T-035 (A-4, done), T-038 (A-5) | |

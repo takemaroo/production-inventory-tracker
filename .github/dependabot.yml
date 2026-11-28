@@ -2,12 +2,35 @@
 # updating both the pinned commit SHA and its version comment (security review SEC-19). The CI workflow then runs on
 # that pull request, so an update is tested before it is merged. Nothing is merged automatically.
 #
-# Only GitHub Actions are watched here. NuGet packages are left out on purpose: the .NET packages are pinned to the
-# 10.0.x line (decision #19) and are updated by hand with the monthly runtime patch (docs/07-release.md, section 1).
+# NuGet packages are left out on purpose: the .NET packages are pinned to the 10.0.x line (decision #19) and are
+# updated by hand with the monthly runtime patch (docs/07-release.md, section 1).
+#
+# (v1.2) The web front end's npm packages are watched too (decision #234): they are pinned to exact versions, and a
+# browser-facing package with a security fix should not wait for someone to notice. All npm updates of a month come as
+# one pull request (the "front-end" group), which CI builds and tests like any other.
+#
+# (v1.2) 14-day rule (decision #245): "cooldown" makes Dependabot propose only releases that are at least 14 days old.
+# A malicious or broken release is usually found and withdrawn within days, so a brand-new version carries the most
+# supply-chain risk. The cooldown applies to these monthly version updates only; Dependabot's security updates (a fix
+# for a known vulnerability) are not delayed by it.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 14
     open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /src/InventoryTracker.Web
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14
+    open-pull-requests-limit: 2
+    groups:
+      front-end:
+        patterns:
+          - "*"

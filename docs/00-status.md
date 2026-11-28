@@ -1,6 +1,6 @@
 # Project status: Production & Inventory Tracker API
 
-Kept current by the delivery manager. Last updated: 2026-11-21
+Kept current by the delivery manager. Last updated: 2026-11-28
 
 **Idea as the owner gave it:**
 
@@ -34,13 +34,25 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 6 | Security | done | `docs/06-security-review.md` (Part 2: clear to release localhost-only, 5 phase 7 conditions; SEC-24/25/26/29 settled, #175-#178; SEC-26 log line done in T-033) |
 | 7 | Release | done | `docs/09-release-notes.md`, README |
 
+## Version 1.2: web front end
+
+| # | Phase | Status | Output |
+|---|-------|--------|--------|
+| 1 | Discovery | done | `docs/01-prd.md` (Version 1.2 part, sections 14-20) |
+| 2 | Design | done | `docs/02-design.md` (sections 11-22), `design/mockups/` |
+| 3 | Architecture | done | `docs/03-architecture.md` (Version 1.2 part), `docs/04-tasks.md` (T-036 to T-066), front-end skeleton in `src/InventoryTracker.Web/`; approved by owner 2026-11-28 |
+| 4 | Build | in progress | code (T-035 done; T-036 to T-066 to do) |
+| 5 | QA | not started | |
+| 6 | Security | not started | |
+| 7 | Release | not started | |
+
 ## Waiting on the owner
 
 - nothing
 
 ## Next step
 
-v1.2 phase 3: `tech-lead` architecture and tasks for the front end (owner approval, including any new tool such as Node.js).
+v1.2 phase 4: T-036 (see `docs/04-tasks.md`), then `code-reviewer`.
 
 ## Log
 
@@ -123,6 +135,7 @@ v1.2 phase 3: `tech-lead` architecture and tasks for the front end (owner approv
 - 2026-11-27 `ux-designer` finished the v1.2 design (docs/02-design.md sections 11-22, 34 screens, design system, #193-#214) and 8 static mockups in design/mockups/ (no external resources; not browser-checked by the designer, no shell). Owner question Q110 (idle sign-out warning) open.
 - 2026-11-27 Owner reviewed the mockups ("looks good"); Q110 idle warning added (#221, AC-34.7a). Designer fixed the id truncation, sidebar height, desktop Menu button and narrow-width overflow (#215-#220); delivery manager confirmed with headless Edge screenshots at 360 and 1280 px. v1.2 phase 2 done. Next: SEC-24 batching task, then phase 3.
 - 2026-11-28 T-035 (batch a shipment's movements, SEC-24/US-55) done: StockLedger.AddRangeAsync, covering index IX_Movements_StockSums (migration StockSumsIndex) per tech-lead ruling #223; 500-line ship p95 ~0.45 s quiet, ~0.7 s under load (was ~1.7 s). Approved by `code-reviewer`; 2,733 tests pass. Owner Q111/Q112 to Later (#224). Next: v1.2 phase 3 (tech-lead).
+- 2026-11-28 `tech-lead` finished v1.2 phase 3: architecture sections 11-23, tasks T-036 to T-066, React/TypeScript/Vite skeleton served by the API (#225-#245; every npm package at least 14 days old, #245). Re-verified: npm audit 0, typecheck 0, Vitest 32/32, .NET 2,739/2,739. `code-reviewer` approved the skeleton (no must-fix; 2,739/2,739, Vitest 32/32, npm audit 0). Owner approved phase 3, Q113 SaaS to Later (#246), Q114 browser tests in CI on every push (#247), Q115 monthly grouped npm updates (#248); repository now public (#249).
 
 ## Follow-ups to route
 
@@ -158,3 +171,9 @@ v1.2 phase 3: `tech-lead` architecture and tasks for the front end (owner approv
 - qa-engineer (v1.2): identity and Sign out move into the menu below 1024 px (#196).
 - qa-engineer (v1.2): docs/05-test-plan.md still says eight movement indexes and 11 UpgradeTests; now nine and 12 (T-035). Watch the first CI run after T-035 for the AC-55 timing test on the 2-core runner (#223 (f)).
 - technical-writer (v1.2 release): the first v1.2 start applies the StockSumsIndex migration; repeat "back up before the first start".
+- technical-writer (v1.2 release): the repository is public, so `docs/07-release.md` section 4 "Minutes" (Windows minutes count double, 2,000 free private minutes) is outdated: standard runners are free for public repositories (#249). README still quotes 2,720 tests.
+- frontend-developer (T-039): `ExactDecimal.fromCheckedDigits` in `src/api/json.ts` is public, so unchecked text can become an ExactDecimal; its comment claims it is used only by parseTypedDecimal. Make it module-private or have it check the digits (phase 3 review, should-fix 2).
+- frontend-developer (T-040 or T-041): the source guard `src/guards.test.ts` misses `setHTMLUnsafe`, `parseHTMLUnsafe`, `Function(` without `new`, and string `setTimeout`/`setInterval`; add a self-test that each pattern matches a sample (phase 3 review, should-fix 1; #241).
+- T-036 owner: in FrontEndSetup check `IsScreenAddress` before the disk lookup; consider serving the page through the static-file step (rewrite to /index.html) for Content-Length and ETag; decide how to handle ASP.NET Core's own "WebRootPath was not found" warning next to the planned one.
+- technical-writer (v1.2 release): `ci.yml` comment and architecture risk 10 still say the repository is private (#249); `publish.ps1` never clears old `assets/` files from the output folder, worth one sentence in 07-release.
+- Dependabot (owner, optional later): the npm group also takes major updates, so a breaking major could hold back a month's patches; `update-types: [minor, patch]` would split majors out at the cost of more pull requests (#248).

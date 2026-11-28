@@ -510,3 +510,11 @@ CLAUDE.local.md
 # Backups and archives, such as a renamed database backup or a zipped publish folder.
 *.bak
 *.zip
+# (v1.2) The built front end. `npm run build` in src/InventoryTracker.Web writes it into the API's web root, and
+# scripts\publish.ps1 builds it before publishing; it is generated, so it is never committed (architecture, part v1.2).
+src/InventoryTracker.Api/wwwroot/
+# (v1.2) Front-end tool output: Vite's cache, Playwright's reports and traces (from T-044).
+src/InventoryTracker.Web/node_modules/
+src/InventoryTracker.Web/.vite/
+src/InventoryTracker.Web/test-results/
+src/InventoryTracker.Web/playwright-report/

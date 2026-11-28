@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Common.Configuration;
 using InventoryTracker.Api.Common.Errors;
+using InventoryTracker.Api.Common.FrontEnd;
 using InventoryTracker.Api.Common.OpenApi;
 using InventoryTracker.Api.Common.Time;
 using InventoryTracker.Api.Common.Validation;
@@ -100,6 +101,10 @@ if (app.Environment.IsProduction())
 {
     app.UseHttpsRedirection();
 }
+
+// (v1.2) A-1: the web front end's files, and its page for every screen address (see FrontEndSetup). Before the token
+// check, because the front end must load without a token (the sign-in screen); paths under /api/ are never touched.
+app.UseFrontEnd();
 
 // Architecture 4.1 item 7: every 401 response carries the header WWW-Authenticate: Bearer.
 app.UseBearerChallengeHeader();
