@@ -1,10 +1,13 @@
+using System.Data.Common;
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Json;
 using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Data;
 using InventoryTracker.Api.Domain;
 using InventoryTracker.Api.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using static InventoryTracker.Api.Tests.Infrastructure.OrderFlow;
 using static InventoryTracker.Api.Tests.Infrastructure.SalesFlow;
@@ -40,8 +43,19 @@ namespace InventoryTracker.Api.Tests.Integration.Scenarios;
 [Collection(nameof(PerformanceCollection))]
 public class SalesPerformanceTests
 {
-    /// <summary>Timed calls per request, after one warm-up call that is not counted.</summary>
+    /// <summary>Timed calls per request, after warm-up calls that are not counted (one by default; five for the AC-55 test, decision #223).</summary>
     private const int Samples = 20;
+
+    /// <summary>
+    /// (T-035, decision #223) Uncounted rounds before the AC-55 test's 20 timed ones. A freshly started .NET process
+    /// first runs code through a quick, unoptimised compile and recompiles the busiest methods with full optimisation
+    /// only after they have run many times ("tiered compilation"). A 500-line shipment's hot paths (EF Core's decimal sum
+    /// callback, run once per movement summed, and the 500-row save) need several large shipments before they are fully
+    /// optimised: the tech lead measured each round faster than the last for the first 5 to 20 rounds, and flat rounds
+    /// with tiered compilation turned off. With one warm-up, the p95 measured how fast the compiler warms up, not the
+    /// shipment of a server that has been running a while, which is what AC-55.1 describes.
+    /// </summary>
+    private const int WarmUpRounds = 5;
 
     /// <summary>PRD section 5's sizes.</summary>
     private const int ItemCount = 500, RawMaterialCount = 400, CustomerCount = 500, SalesOrderCount = 5000,
@@ -96,6 +110,94 @@ public class SalesPerformanceTests
         foreach (var (request, sorted) in times)
         {
             TestContext.Current.TestOutputHelper?.WriteLine(
+                $"{request}: median {sorted[Samples / 2]} ms, p95 {sorted[Samples - 2]} ms, max {sorted[^1]} ms.");
+        }
+
+        Assert.All(times, pair => Assert.True(pair.Value[Samples - 2] < 1000, $"{pair.Key} p95 was {pair.Value[Samples - 2]} ms."));
+    }
+
+    /// <summary>
+    /// (v1.2) AC-55.1, AC-55.2, SEC-24, T-035, PRD section 20 row 82: at the section 5 volume, shipping a Created sales
+    /// order of 500 lines (the line cap, one line per seeded item) whose stock covers every line answers <c>200</c>
+    /// within 1 second, and a receipt that another Warehouse user records while the shipment holds the write lock
+    /// answers within 1 second too. <see cref="WarmUpRounds"/> uncounted rounds, then 20 timed ones; the 95th percentile
+    /// of the 20 is asserted, as in the test above. Each shipment still writes exactly one movement per line (AC-55.3).
+    /// Every round, warm-ups included, is written to the test output in order.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Why the receipt is timed (AC-55.2). SQLite lets one write transaction run at a time (architecture 5.2), so a long
+    /// shipment makes every other save wait: before T-035, receipts waited up to 4.4 s behind a 500-line shipment. The
+    /// receipt is started at the moment the shipment holds the lock, by <see cref="WhenTheShipReadsStock"/>: when the
+    /// ship's transaction first reads <c>Movements</c> (its all-lines stock check), the receipt is sent. It then waits
+    /// for the rest of the shipment and runs. Its time is measured from that moment to its answer.
+    /// </para>
+    /// <para>
+    /// The receipt's times come in steps of about 150 ms: Microsoft.Data.Sqlite retries a busy lock every 150 ms, so a
+    /// waiting save answers at the first retry after the shipment commits.
+    /// </para>
+    /// <para>
+    /// Measured with this test on the owner's machine (in-process test server, as for every test here): before the
+    /// batching, the shipment's p95 was 1,689 ms and the receipt's 1,714 ms (the test failed). With the batching, the
+    /// covering index (decision #223) and five warm-ups, three runs on a quiet machine: shipment p95 436 to 490 ms
+    /// (median 198 to 267), receipt p95 470 to 626 ms (median 316 to 326). Three runs while other programs kept about
+    /// a third of the processor busy: shipment p95 675 to 711 ms, receipt p95 782 to 791 ms. In both, the timed rounds
+    /// kept getting faster until about round 11.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task AC_55_a_500_line_shipment_and_a_receipt_beside_it_answer_within_1_second_at_the_section_5_volume()
+    {
+        var output = TestContext.Current.TestOutputHelper;
+        var whenShipReadsStock = new WhenTheShipReadsStock();
+        await using var app = new TestApiFactory
+        {
+            ReplaceServices = services =>
+                services.ConfigureDbContext<AppDbContext>(options => options.AddInterceptors(whenShipReadsStock)),
+        };
+        var (manager, managerUser) = await SignedInAsync(app, Roles.Manager);
+        var (warehouse, _) = await SignedInAsync(app, Roles.Warehouse);
+        var (otherWarehouse, _) = await SignedInAsync(app, Roles.Warehouse);
+        var unit = await Seed.CreateUnitAsync(manager);
+        var volume = await SeedVolumeAsync(app, unit.Id, managerUser.Id);
+        await AssertVolumeAsync(app, manager);
+
+        // AC-55.1: 500 lines, the most a sales order may have (RequestLimits.MaxLines), one per seeded item. The seed
+        // leaves every item well over 1,000 in the Warehouse, so 25 shipments of 1 each are always covered.
+        var lines = Enumerable.Range(0, ItemCount).Select(index => (volume.Item(index), 1m)).ToArray();
+        var receivedItem = volume.Item(0);
+        var ship = new List<long>();
+        var receipt = new List<long>();
+        for (var round = 0; round < WarmUpRounds + Samples; round++)
+        {
+            var number = await CreateSalesOrderAsync(manager, volume.Customer(1), lines);
+
+            // Armed for this shipment only. Task.Run gives the receipt its own thread, because SQLite waits for the write
+            // lock by blocking the thread that asked for it, and that must not be the shipment's.
+            Task<long>? receiptTime = null;
+            whenShipReadsStock.Arm(() => receiptTime = Task.Run(() => TimeRequestAsync(
+                () => otherWarehouse.PostAsJsonAsync($"{ApiPath}/receipts",
+                    new { itemId = receivedItem, quantity = 100m, receiptDate = "2026-11-27" }, Cancel),
+                HttpStatusCode.Created), Cancel));
+
+            ship.Add(await TimeRequestAsync(() => ShipAsync(warehouse, number), HttpStatusCode.OK));
+
+            Assert.True(receiptTime is not null, $"Round {round}: the shipment never read Movements inside its transaction.");
+            receipt.Add(await receiptTime);
+            output?.WriteLine($"Round {round + 1}{(round < WarmUpRounds ? " (warm-up)" : "")}: ship {ship[^1]} ms, receipt {receipt[^1]} ms.");
+
+            // AC-55.3: still exactly one ShippedToCustomer movement per line.
+            Assert.Equal(ItemCount, await TotalAsync(manager, $"{ApiPath}/movements?salesOrderNumber={number}"));
+        }
+
+        var times = new Dictionary<string, long[]>
+        {
+            ["POST /sales-orders/{n}/ship (500 lines)"] = WithoutWarmUp(ship, WarmUpRounds),
+            ["POST /receipts while the 500-line shipment runs"] = WithoutWarmUp(receipt, WarmUpRounds),
+        };
+        foreach (var (request, sorted) in times)
+        {
+            output?.WriteLine(
                 $"{request}: median {sorted[Samples / 2]} ms, p95 {sorted[Samples - 2]} ms, max {sorted[^1]} ms.");
         }
 
@@ -239,11 +341,14 @@ public class SalesPerformanceTests
         return elapsed;
     }
 
-    /// <summary>The times of rounds 1 to 20, sorted: round 0 was the warm-up.</summary>
-    private static long[] WithoutWarmUp(List<long> times)
+    /// <summary>
+    /// The <see cref="Samples"/> timed rounds, sorted, after the first <paramref name="warmUps"/> uncounted ones (one, the
+    /// first round, unless a test says otherwise).
+    /// </summary>
+    private static long[] WithoutWarmUp(List<long> times, int warmUps = 1)
     {
-        Assert.Equal(Samples + 1, times.Count);
-        return [.. times.Skip(1).Order()];
+        Assert.Equal(warmUps + Samples, times.Count);
+        return [.. times.Skip(warmUps).Order()];
     }
 
     /// <summary>The number of the last page of 100 rows of a list, from its <c>totalCount</c>.</summary>
@@ -425,6 +530,35 @@ public class SalesPerformanceTests
     /// <summary>The <c>totalCount</c> of a list (design 2.5), asking for one row.</summary>
     private static async Task<int> TotalAsync(HttpClient reader, string path) =>
         (await GetAsync(reader, $"{path}{(path.Contains('?') ? '&' : '?')}pageSize=1")).GetProperty("totalCount").GetInt32();
+
+    /// <summary>
+    /// (T-035) An EF Core command interceptor for the AC-55.2 test: once armed, the next command inside a transaction that
+    /// reads <c>Movements</c> (the ship's stock check, while it holds the write lock) runs the armed action, once. Unlike
+    /// <see cref="AfterFirstReadInterceptor"/>, it can be armed again for every round, and it only <em>starts</em> the
+    /// other request: waiting for it here would deadlock, because the other request waits for this one's lock.
+    /// </summary>
+    private sealed class WhenTheShipReadsStock : DbCommandInterceptor
+    {
+        private Action? _armed;
+
+        /// <summary>The next stock read inside a transaction runs <paramref name="start"/>.</summary>
+        public void Arm(Action start) => Volatile.Write(ref _armed, start);
+
+        /// <inheritdoc />
+        public override ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
+            DbDataReader result, CancellationToken cancellationToken = default)
+        {
+            // Interlocked.Exchange takes the action and disarms in one step, so it runs exactly once.
+            if (command.Transaction is not null
+                && command.CommandText.Contains("\"Movements\"", StringComparison.Ordinal)
+                && Interlocked.Exchange(ref _armed, null) is { } start)
+            {
+                start();
+            }
+
+            return ValueTask.FromResult(result);
+        }
+    }
 
     /// <summary>
     /// Where the seed's rows start: the id of <c>sales-perf-item-001</c> and of <c>Customer 001</c>. The seed's ids are

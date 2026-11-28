@@ -100,17 +100,27 @@ public sealed class ShipSalesOrderService(
         var detail = await db.InWriteTransactionAsync(async () =>
         {
             // Architecture 5.3 step 1, design 2.2 step 3: the record named in the URL. Tracked (no AsNoTracking),
-            // because the shipment writes its status onto it. Its lines come with each item's name and unit, for the
-            // stock message. AsSplitQuery loads the sales order and its lines with two SELECTs instead of one JOIN: as
-            // one statement, SQLite built the lines-items-units join over every sales order line in the database before
-            // keeping this sales order's, while this transaction holds the single write lock (T-031 review; see
-            // SalesOrderService.ReadDetailAsync). Split, the lines query uses IX_SalesOrderLines_SalesOrderNumber_ItemId.
-            // Both SELECTs run inside this write transaction, so they read the same state.
+            // because the shipment writes its status onto it.
             var salesOrder = await db.SalesOrders
-                .Include(order => order.Lines).ThenInclude(line => line.Item).ThenInclude(item => item.Unit)
-                .AsSplitQuery()
                 .SingleOrDefaultAsync(order => order.Number == number, cancellationToken)
                 ?? throw new NotFoundException($"Sales order #{number} not found.");
+
+            // Its lines, with each item's name and unit for the stock message, in a second SELECT (decision #169: two
+            // SELECTs, not one JOIN of the sales order with its lines; as one statement, SQLite built the
+            // lines-items-units join over every sales order line in the database before keeping this sales order's,
+            // while this transaction holds the single write lock). This SELECT starts from the lines and finds them
+            // through IX_SalesOrderLines_SalesOrderNumber_ItemId; both run inside this write transaction, so they read
+            // the same state.
+            //
+            // (T-035, SEC-24) Not tracked: the shipment only reads the lines, items and units. Every SaveChangesAsync
+            // (and the ledger's check for stray movements) compares each tracked object with the copy EF Core kept
+            // when it loaded it. With 500 lines that meant some 1,000 extra objects to compare, several times per
+            // shipment: about a quarter of a 500-line shipment's time at the section 5 volume.
+            var loadedLines = await db.SalesOrderLines
+                .AsNoTracking()
+                .Where(line => line.SalesOrderNumber == number)
+                .Include(line => line.Item).ThenInclude(item => item.Unit)
+                .ToListAsync(cancellationToken);
 
             // Step 2: the body (AC-26.8), before the state, so a long note on a Shipped sales order is 400, not 409.
             var note = ValidateNote(request);
@@ -119,7 +129,7 @@ public sealed class ShipSalesOrderService(
             CheckCreated(salesOrder);
 
             // AC-24.1: line order is LineNo order, used for the stock message and for the movements.
-            var lines = salesOrder.Lines.OrderBy(line => line.LineNo).ToList();
+            var lines = loadedLines.OrderBy(line => line.LineNo).ToList();
 
             // Step 4: every line against Warehouse stock, before anything is written (AC-26.3).
             await CheckWarehouseStockAsync(number, lines, cancellationToken);
@@ -185,27 +195,31 @@ public sealed class ShipSalesOrderService(
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Why check here when the ledger checks too: <see cref="StockLedger.AddAsync"/> stops at the first short movement
+    /// Why check here when the ledger checks too: <see cref="StockLedger.AddRangeAsync"/> stops at the first short movement
     /// and names only that one, in its own shorter sentence. The PRD wants every short line, with the quantity the sales
     /// order needs (AC-26.3), so all lines are checked before the first movement is added, as the production send does
     /// (decision #158). The ledger still checks each movement as the last line of defence.
     /// </para>
     /// <para>
-    /// The figures are read once for all the lines' items (architecture 5.1: stock queries filter by item). Inside this
-    /// write transaction <see cref="StockQueries.GetFiguresAsync"/> reads on the same connection, so it sees exactly the
-    /// stock the movements will be checked against. Only <c>Warehouse</c> is used (D-11). A line whose quantity equals
-    /// the stock is covered (AC-26.4). Each item is on at most one line (a unique index), so no item is counted twice.
+    /// The Warehouse stock is read once for all the lines' items (architecture 5.1: stock queries filter by item). Inside
+    /// this write transaction the query runs on the same connection, so it sees exactly the stock the movements will be
+    /// checked against. Only Warehouse stock counts (D-11), so only the Warehouse is summed. (T-035, SEC-24) The ship
+    /// used to read every figure of the stock view (<see cref="StockQueries.GetFiguresAsync"/>) and use one of them; the
+    /// three queries it did not need (committed material, Pending returns and open demand) cost about 35 ms of the
+    /// write lock for a 500-line shipment at the section 5 volume. The Warehouse figure is the same sum either way. A
+    /// line whose quantity equals the stock is covered (AC-26.4). Each item is on at most one line (a unique index), so
+    /// no item is counted twice.
     /// </para>
     /// </remarks>
     private async Task CheckWarehouseStockAsync(
         int number, IReadOnlyList<SalesOrderLine> lines, CancellationToken cancellationToken)
     {
         var itemIds = lines.Select(line => line.ItemId).ToList();
-        var figures = await stock.GetFiguresAsync(itemIds, cancellationToken);
+        var warehouse = await stock.GetStockAsync(itemIds, Location.Warehouse, cancellationToken);
 
         var shortLines = lines
-            .Where(line => line.Quantity > figures[line.ItemId].Warehouse)
-            .Select(line => ShortLineMessage(number, line, figures[line.ItemId].Warehouse))
+            .Where(line => line.Quantity > warehouse[line.ItemId])
+            .Select(line => ShortLineMessage(number, line, warehouse[line.ItemId]))
             .ToList();
 
         if (shortLines.Count > 0)
@@ -228,8 +242,8 @@ public sealed class ShipSalesOrderService(
     }
 
     /// <summary>
-    /// Architecture 5.3 steps 5 to 7, AC-26.1, AC-28.1: one <c>ShippedToCustomer</c> movement per line, then status
-    /// Shipped with who shipped it, when and the note (AC-05.3).
+    /// Architecture 5.3 steps 5 to 7, AC-26.1, AC-28.1: one <c>ShippedToCustomer</c> movement per line, written as one
+    /// batch through the ledger (T-035, SEC-24), then status Shipped with who shipped it, when and the note (AC-05.3).
     /// </summary>
     private async Task WriteShipmentAsync(
         SalesOrder salesOrder, IReadOnlyList<SalesOrderLine> lines, string? note, string userId,
@@ -241,21 +255,26 @@ public sealed class ShipSalesOrderService(
         var shippedAt = clock.UtcNow;
 
         // Step 6, AC-26.1, AC-28.1, D-2: each line's full quantity leaves the Warehouse, linked to the sales order and
-        // the user. Production storage is never touched (D-11), so its change stays null. Every movement goes through
-        // the ledger (architecture 5.1, decision #112), which checks the stock again and saves each one at once, inside
-        // this transaction, so the next sum includes it.
-        foreach (var line in lines)
+        // the user. Production storage is never touched (D-11), so its change stays null. One movement per line, in
+        // LineNo order.
+        var movements = lines.Select(line => new Movement
         {
-            await ledger.AddAsync(new Movement
-            {
-                Type = MovementType.ShippedToCustomer,
-                ItemId = line.ItemId,
-                WarehouseChange = -line.Quantity,
-                OccurredAt = shippedAt,
-                UserId = userId,
-                SalesOrderNumber = salesOrder.Number,
-            }, cancellationToken);
-        }
+            Type = MovementType.ShippedToCustomer,
+            ItemId = line.ItemId,
+            WarehouseChange = -line.Quantity,
+            OccurredAt = shippedAt,
+            UserId = userId,
+            SalesOrderNumber = salesOrder.Number,
+        }).ToList();
+
+        // SEC-24, T-035, AC-55.1: all the movements go to the ledger in one call (architecture 5.1, decision #112: the
+        // ledger is still the only writer). It checks every movement again, as the last line of defence, against the
+        // stock it reads once for all the lines, and saves them with one SaveChangesAsync. Adding them one at a time
+        // made a 500-line shipment hold the write lock for seconds: each call scanned everything EF Core tracks, ran
+        // its own stock sum and its own save, and each save cost more than the last (see StockLedger.AddRangeAsync).
+        // The rules are unchanged: one movement per line (IX_Movements_OneShipmentPerLine still backs that up, and a
+        // duplicate still fails the one save), and if any movement were refused, none would be saved.
+        await ledger.AddRangeAsync(movements, cancellationToken);
 
         // Step 7, AC-26.1: Shipped is final (D-10). StatusChangedAt is the list's statusChangedAt (design 5.12).
         salesOrder.Status = SalesOrderStatus.Shipped;

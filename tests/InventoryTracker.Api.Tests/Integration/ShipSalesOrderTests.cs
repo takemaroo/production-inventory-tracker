@@ -838,6 +838,104 @@ public class ShipSalesOrderTests(TestApiFactory factory) : IClassFixture<TestApi
             StringComparison.Ordinal)) >= 2, string.Join("\n", plan));
     }
 
+    /// <summary>
+    /// SEC-24, AC-55.1, AC-55.2, T-035, decision #223: every stock sum reads the covering index
+    /// <c>IX_Movements_StockSums</c> and never fetches the movements' rows from the table. Checked on SQLite's query plan
+    /// (as the test above, see <see cref="QueryPlanRecorder"/>) for each statement that sums <c>Movements</c> while a
+    /// 2-line sales order ships (the all-lines Warehouse check, then the ledger's re-check: exactly two), and for the
+    /// stock read of <c>GET /stock/{itemId}</c>. The plan step must say <c>USING COVERING INDEX</c>: a plain
+    /// <c>USING INDEX</c> would mean one table fetch per movement, which made each sum of 500 items cost 330 to 370 ms at
+    /// the section 5 volume instead of about 60 ms.
+    /// </summary>
+    [Fact]
+    public async Task Stock_sums_of_the_ship_and_the_stock_read_use_the_covering_index()
+    {
+        var recorder = new QueryPlanRecorder();
+        await using var app = new TestApiFactory
+        {
+            ReplaceServices = services => services.ConfigureDbContext<AppDbContext>(options => options.AddInterceptors(recorder)),
+        };
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var seller = await app.CreateClientAsAsync(Roles.Seller);
+        var warehouse = await app.CreateClientAsAsync(Roles.Warehouse);
+        var product = await ProductAsync(manager, warehouse: 50m);
+        var material = await RawMaterialAsync(manager, warehouse: 50m);
+        var customer = await CreateCustomerAsync(seller);
+        var number = await CreateSalesOrderAsync(seller, customer.Id, (product.Id, 5m), (material.Id, 2.5m));
+
+        recorder.Arm();
+        Assert.Equal(HttpStatusCode.OK, (await ShipAsync(warehouse, number)).StatusCode);
+        var shipSums = StockSums(recorder.Queries);
+        await OrderFlow.StockAsync(warehouse, product.Id);
+        var stockReadSums = StockSums(recorder.Queries).Skip(shipSums.Count).ToList();
+
+        Assert.Equal(2, shipSums.Count);
+        Assert.Single(stockReadSums);
+        foreach (var query in shipSums.Concat(stockReadSums))
+        {
+            var plan = await QueryPlanRecorder.ExplainAsync(app, query, Cancel);
+            Assert.True(plan.Any(step => step.Contains(
+                    $"USING COVERING INDEX {Data.Configurations.MovementConfiguration.StockSumsIndexName}", StringComparison.Ordinal)),
+                $"The stock sum does not use the covering index.\nSQL:\n{query.Sql}\nPlan:\n{string.Join("\n", plan)}");
+        }
+    }
+
+    /// <summary>
+    /// The recorded statements that add up movements: a read of <c>Movements</c> calling EF Core's decimal sum
+    /// (<c>ef_sum</c>, architecture 3.1).
+    /// </summary>
+    private static List<RecordedQuery> StockSums(IEnumerable<RecordedQuery> queries) =>
+    [
+        .. queries.Where(query => query.Sql.Contains("FROM \"Movements\"", StringComparison.Ordinal)
+            && query.Sql.Contains("ef_sum(", StringComparison.Ordinal)),
+    ];
+
+    /// <summary>
+    /// SEC-24, AC-55.1, T-035: the ship's work does not grow line by line, apart from the one INSERT each line's movement
+    /// needs. A 1-line and a 40-line shipment run exactly the same SELECTs; each reads <c>Movements</c> exactly twice
+    /// (the all-lines Warehouse check, then the ledger's own check of the batch); and the 40-line one inserts 40
+    /// movements. Before T-035 every line added its own stock sum (and its own save), which is how a 500-line shipment
+    /// came to hold the write lock for seconds. A count of statements, not a timing, so it holds on any machine.
+    /// </summary>
+    [Fact]
+    public async Task Ship_runs_the_same_queries_whatever_the_line_count()
+    {
+        var recorder = new QueryPlanRecorder();
+        await using var app = new TestApiFactory
+        {
+            ReplaceServices = services => services.ConfigureDbContext<AppDbContext>(options => options.AddInterceptors(recorder)),
+        };
+        var manager = await app.CreateClientAsAsync(Roles.Manager);
+        var seller = await app.CreateClientAsAsync(Roles.Seller);
+        var warehouse = await app.CreateClientAsAsync(Roles.Warehouse);
+        var customer = await CreateCustomerAsync(seller);
+        var items = new List<CreatedItem>();
+        for (var i = 0; i < 40; i++)
+        {
+            items.Add(await RawMaterialAsync(manager, warehouse: 10m));
+        }
+
+        var oneLine = await CreateSalesOrderAsync(seller, customer.Id, (items[0].Id, 1m));
+        var fortyLines = await CreateSalesOrderAsync(seller, customer.Id, [.. items.Select(item => (item.Id, 2m))]);
+
+        recorder.Arm();
+        Assert.Equal(HttpStatusCode.OK, (await ShipAsync(warehouse, oneLine)).StatusCode);
+        var afterFirst = recorder.Queries.Count;
+        Assert.Equal(HttpStatusCode.OK, (await ShipAsync(warehouse, fortyLines)).StatusCode);
+        var first = recorder.Queries.Take(afterFirst).Select(query => query.Sql).ToList();
+        var second = recorder.Queries.Skip(afterFirst).Select(query => query.Sql).ToList();
+
+        static List<string> Selects(List<string> sql) => [.. sql.Where(text => text.TrimStart().StartsWith("SELECT", StringComparison.Ordinal))];
+        static int StockReads(List<string> sql) => Selects(sql).Count(text => text.Contains("FROM \"Movements\"", StringComparison.Ordinal));
+        static int MovementInserts(List<string> sql) => sql.Count(text => text.Contains("INSERT INTO \"Movements\"", StringComparison.Ordinal));
+
+        // Counted, not compared as text: a query filtering on a list of item ids may write one parameter per id.
+        Assert.Equal(Selects(first).Count, Selects(second).Count);
+        Assert.Equal((2, 2), (StockReads(first), StockReads(second)));
+        Assert.Equal((1, 40), (MovementInserts(first), MovementInserts(second)));
+        Assert.Equal(40, (await ShipmentMovementsAsync(warehouse, fortyLines)).Count);
+    }
+
     // ---- Architecture 5.3 step 8: logging ------------------------------------------------------------------------------
 
     /// <summary>

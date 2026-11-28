@@ -34,7 +34,8 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
     /// <summary>
     /// T-002, T-011: on an empty database, start-up applies InitialIdentity, the single DomainModel migration, and then
     /// T-011's NotificationMessageUnbounded (decision #63) and PercentagePrecision (decision #82), in that order.
-    /// (v1.1) T-022, decision #154: and last the one v1.1 migration, SalesOrders, which creates the three sales tables.
+    /// (v1.1) T-022, decision #154: then the one v1.1 migration, SalesOrders, which creates the three sales tables.
+    /// (v1.2) T-035, decision #223: and last StockSumsIndex, which only adds the covering index for the stock sums.
     /// </summary>
     [Fact]
     public async Task Startup_on_an_empty_database_applies_the_domain_migration()
@@ -43,12 +44,13 @@ public class DataModelTests(TestApiFactory factory) : IClassFixture<TestApiFacto
         var db = Db(scope);
 
         var applied = db.Database.GetAppliedMigrations().ToList();
-        Assert.Equal(5, applied.Count);
+        Assert.Equal(6, applied.Count);
         Assert.EndsWith("_InitialIdentity", applied[0]);
         Assert.EndsWith("_DomainModel", applied[1]);
         Assert.EndsWith("_NotificationMessageUnbounded", applied[2]);
         Assert.EndsWith("_PercentagePrecision", applied[3]);
         Assert.EndsWith("_SalesOrders", applied[4]);
+        Assert.EndsWith("_StockSumsIndex", applied[5]);
         Assert.Empty(await db.Database.GetPendingMigrationsAsync(Cancel));
 
         var tables = await db.Database

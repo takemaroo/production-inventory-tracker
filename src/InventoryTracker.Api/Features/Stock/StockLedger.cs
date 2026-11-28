@@ -10,9 +10,9 @@ namespace InventoryTracker.Api.Features.Stock;
 
 /// <summary>
 /// The only code that writes stock movements (architecture 5.1). Receipts (T-008), sends (T-010, T-018), completions
-/// (T-011), adjustments (T-015), received returns (T-019) and (v1.1) sales order shipments (T-027) all add their
-/// movements through <see cref="AddAsync"/>, which refuses any movement that would take the Warehouse or Production
-/// storage below zero (D-2, AC-12.3, AC-15.7).
+/// (T-011), adjustments (T-015) and received returns (T-019) add their movements through <see cref="AddAsync"/>, and
+/// (v1.2, T-035) sales order shipments (T-027) add all of theirs at once through <see cref="AddRangeAsync"/>. Both
+/// refuse any movement that would take the Warehouse or Production storage below zero (D-2, AC-12.3, AC-15.7).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -38,9 +38,11 @@ namespace InventoryTracker.Api.Features.Stock;
 /// leaves it at zero or more, and inserts the movement. No other request can add a movement between the read and the
 /// commit, because no other request can hold the write lock. Two requests can therefore never both see the old stock
 /// (the classic "check, then act" race).</item>
-/// <item>It saves each movement as soon as it is added (still inside the transaction, so nothing is permanent until the
-/// commit). The next movement for the same item in the same request is then included in the next sum. Without this, a
-/// request adding two withdrawals of 8 kg from 12 kg would check both against 12 kg.</item>
+/// <item>Every movement is checked against the stock <em>including the movements before it in the same request</em>.
+/// Without this, a request adding two withdrawals of 8 kg from 12 kg would check both against 12 kg. Movements of an
+/// earlier call are already saved (inside the transaction, so nothing is permanent until the commit), so the next
+/// call's read includes them. Within one <see cref="AddRangeAsync"/> call the ledger keeps a running balance per item
+/// and location: the stock it read once, plus each earlier movement of the batch, in order.</item>
 /// <item>A refused movement throws, and the whole transaction rolls back, so the request saves nothing (PRD 4.1,
 /// "rejected").</item>
 /// </list>
@@ -70,6 +72,12 @@ namespace InventoryTracker.Api.Features.Stock;
 /// wording (a received return, design 7.2 "Returns"), checks all its lines first with <see cref="StockQueries"/> and
 /// <see cref="InsufficientStockMessage"/>, throws its own <c>409</c>, and only then adds the movements. The ledger
 /// still checks again, so a mistake in the caller can never produce negative stock.
+/// </para>
+/// <para>
+/// <b>One movement or a batch</b> (T-035, SEC-24). <see cref="AddAsync"/> is simply a batch of one, so both run the same
+/// checks in the same order. A service that writes many movements at once (the shipment of a sales order with up to 500
+/// lines) passes them all to <see cref="AddRangeAsync"/>. The difference is cost, not rules: see that method for why
+/// one read and one save per batch matter while the request holds the database's single write lock.
 /// </para>
 /// <para>
 /// <b>What the ledger does not check</b>: business rules of the action (raw materials only, order status, ranges, the
@@ -153,51 +161,183 @@ public sealed class StockLedger(AppDbContext db, StockQueries stock)
     {
         ArgumentNullException.ThrowIfNull(movement);
 
+        // A batch of one: the same checks, in the same order, as every batch (T-035). Kept as its own method because
+        // most services add one movement at a time and read movement.Id straight afterwards.
+        await AddRangeAsync([movement], cancellationToken);
+    }
+
+    /// <summary>
+    /// (T-035, SEC-24) Adds <paramref name="movements"/> to the ledger as one batch: checks each one, in the order given,
+    /// exactly as <see cref="AddAsync"/> would if it were called for each in turn, then inserts them all with one save
+    /// inside the open write transaction. If any movement is refused, none is added. Afterwards each <c>movement.Id</c>
+    /// holds its database id.
+    /// </summary>
+    /// <param name="movements">New movements, each as described for <see cref="AddAsync"/>.</param>
+    /// <param name="cancellationToken">Cancels the queries and the save.</param>
+    /// <exception cref="ConflictException">
+    /// <c>409</c> <c>insufficient-stock</c> for the first movement, in order, that would take a location below zero,
+    /// with the stock left by the movements before it. Nothing is added.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">As for <see cref="AddAsync"/>.</exception>
+    /// <exception cref="ArgumentException">
+    /// As for <see cref="AddAsync"/>, and when the same movement object appears twice in the batch.
+    /// </exception>
+    /// <exception cref="DbUpdateException">As for <see cref="AddAsync"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>What "batching" means here, and why it matters.</b> Recording a 500-line shipment one movement at a time meant,
+    /// for every line: a scan of everything the DbContext tracks (the stray-movement check below), one <c>SUM</c> query
+    /// for that item's stock, and one <c>SaveChangesAsync</c>. <c>SaveChangesAsync</c> is not just "send the INSERT": EF
+    /// Core first runs <em>DetectChanges</em>, which compares every tracked object (here the sales order, its 500 lines,
+    /// items and units, and every movement saved so far) with the copy it took when it loaded it, to find what changed.
+    /// So each save cost a little more than the one before, and 500 of them cost far more than 500 times one. Measured
+    /// on the section 5 data (T-035): 1.5 s for 500 lines, about 70% of it EF Core's change-tracking scans and 15% the
+    /// per-line sums, all while holding SQLite's single write lock, so every other user's save waited (SEC-24).
+    /// </para>
+    /// <para>
+    /// As a batch, the same work is done once: one scan, one grouped <c>SUM</c> per location the batch takes from, for
+    /// all its items together (<see cref="StockQueries.GetStockAsync(IReadOnlyCollection{int}, Location, CancellationToken)"/>,
+    /// read from the covering index <c>IX_Movements_StockSums</c>, decision #223), and one <c>SaveChangesAsync</c>: one DetectChanges, then the INSERTs one after another with nothing in between.
+    /// </para>
+    /// <para>
+    /// <b>Why the rules are unchanged.</b> Called one at a time, each movement was checked against a sum that included
+    /// the movements saved before it. Here the ledger reads the stock once, then keeps a running balance per item and
+    /// location: after checking a movement it adds that movement's changes, so the next movement of the same item is
+    /// checked against exactly what a fresh sum would have returned. The checks run per movement, in the order given (shape, links,
+    /// complementary parent, Warehouse, Production storage), so the first problem found is the same one a call per
+    /// movement would have met first. No other request can change the stock between the read and the save, because
+    /// this request holds the write lock (rule 2 above).
+    /// </para>
+    /// </remarks>
+    public async Task AddRangeAsync(IReadOnlyList<Movement> movements, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(movements);
+        if (movements.Any(movement => movement is null))
+        {
+            throw new ArgumentNullException(nameof(movements), "A batch of movements cannot contain null.");
+        }
+
         // Rule 2 above: the check is only safe while this request holds the write lock until it commits. Any open
         // transaction passes this test; services open theirs with InWriteTransactionAsync.
         if (db.Database.CurrentTransaction is null)
         {
             throw new InvalidOperationException(
-                "StockLedger.AddAsync must run inside db.InWriteTransactionAsync (architecture 5.2).");
+                "StockLedger.AddAsync and AddRangeAsync must run inside db.InWriteTransactionAsync (architecture 5.2).");
         }
 
         // Rule 1 above, decision #86: the SaveChangesAsync below saves everything the DbContext tracks. A movement put
         // on the DbContext directly (db.Movements.Add) would be saved with it without any stock check, so a direct
         // −100 next to a ledger +1 could take the Warehouse to −99. Earlier ledger movements are already saved
-        // (Unchanged, not Added), so any Added movement here did not come through the ledger.
+        // (Unchanged, not Added), and this batch's are added only after every check below, so any Added movement here
+        // did not come through the ledger.
         if (db.ChangeTracker.Entries<Movement>().Any(entry => entry.State == EntityState.Added))
         {
             throw new InvalidOperationException(
                 "A movement was added to the DbContext without StockLedger; every movement must go through StockLedger.AddAsync.");
         }
 
-        CheckShape(movement);
-        CheckLinks(movement);
-        await CheckComplementaryParentAsync(movement, cancellationToken);
+        if (movements.Count == 0)
+        {
+            return;
+        }
 
-        // Only a decrease can take a location below zero, so an increase needs no sum at all (a receipt is one insert).
-        await RefuseIfBelowZeroAsync(movement, Location.Warehouse, movement.WarehouseChange, cancellationToken);
-        await RefuseIfBelowZeroAsync(movement, Location.ProductionStorage, movement.ProductionStorageChange, cancellationToken);
+        // Rule 3 above, once for the whole batch: the current stock of every item some movement takes from. Only a
+        // decrease can take a location below zero, so a batch of increases (a receipt) reads nothing at all.
+        var balances = await ReadBalancesAsync(movements, cancellationToken);
 
-        db.Movements.Add(movement);
+        // A movement is added once (AC-11.3). Called one at a time, a second call with the same object would find its Id
+        // already set; in one batch neither copy has an Id yet, so a repeat is caught here instead.
+        var seen = new HashSet<Movement>(ReferenceEqualityComparer.Instance);
+        foreach (var movement in movements)
+        {
+            if (!seen.Add(movement))
+            {
+                throw Invalid(movement, "it appears twice in the batch; a movement is added only once");
+            }
 
-        // Rule 4 above: saved now, inside the transaction, so the next sum in this request includes it.
+            CheckShape(movement);
+            CheckLinks(movement);
+            await CheckComplementaryParentAsync(movement, cancellationToken);
+            await RefuseIfBelowZeroAsync(movement, Location.Warehouse, movement.WarehouseChange, balances, cancellationToken);
+            await RefuseIfBelowZeroAsync(movement, Location.ProductionStorage, movement.ProductionStorageChange, balances, cancellationToken);
+            ApplyToBalances(movement, balances);
+        }
+
+        // Rule 4 above: every movement passed, so all are added and saved together with one SaveChangesAsync, still
+        // inside the transaction, so nothing is permanent until the commit. The next call's read in this request
+        // includes them.
+        db.Movements.AddRange(movements);
         await db.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
-    /// D-2: refuses the movement with <c>409</c> when <paramref name="change"/> is a decrease larger than the
-    /// location's current stock. Exactly reaching zero is allowed (AC-12.3: −12 kg from 12 kg leaves 0).
+    /// The running balances for <see cref="AddRangeAsync"/>: the current stock of every item, in every location, that
+    /// some movement of the batch takes stock from. One query per location taken from, whatever the number of
+    /// movements: a shipment takes only from the Warehouse, so it reads once. Pairs the batch only adds to are left out,
+    /// because nothing is ever checked against them.
     /// </summary>
-    private async Task RefuseIfBelowZeroAsync(
-        Movement movement, Location location, decimal? change, CancellationToken cancellationToken)
+    private async Task<Dictionary<(int ItemId, Location Location), decimal>> ReadBalancesAsync(
+        IReadOnlyList<Movement> movements, CancellationToken cancellationToken)
+    {
+        var balances = new Dictionary<(int ItemId, Location Location), decimal>();
+        foreach (var location in new[] { Location.Warehouse, Location.ProductionStorage })
+        {
+            var takenFrom = movements
+                .Where(movement => Change(movement, location) < 0m)
+                .Select(movement => movement.ItemId)
+                .Distinct()
+                .ToList();
+
+            if (takenFrom.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (var (itemId, available) in await stock.GetStockAsync(takenFrom, location, cancellationToken))
+            {
+                balances[(itemId, location)] = available;
+            }
+        }
+
+        return balances;
+    }
+
+    /// <summary>
+    /// Adds an accepted movement's changes to the running balances, so the next movement of the same item in the batch
+    /// is checked against what a fresh sum would return (rule 4 above). Increases count too: a receipt earlier in a batch
+    /// covers a withdrawal later in it, as it would if each had been saved on its own.
+    /// </summary>
+    private static void ApplyToBalances(Movement movement, Dictionary<(int ItemId, Location Location), decimal> balances)
+    {
+        foreach (var location in new[] { Location.Warehouse, Location.ProductionStorage })
+        {
+            var key = (movement.ItemId, location);
+            if (balances.TryGetValue(key, out var balance))
+            {
+                balances[key] = balance + (Change(movement, location) ?? 0m);
+            }
+        }
+    }
+
+    /// <summary>The movement's signed change in <paramref name="location"/>, or <c>null</c> when it does not touch it.</summary>
+    private static decimal? Change(Movement movement, Location location) =>
+        location == Location.Warehouse ? movement.WarehouseChange : movement.ProductionStorageChange;
+
+    /// <summary>
+    /// D-2: refuses the movement with <c>409</c> when <paramref name="change"/> is a decrease larger than the
+    /// location's stock in the running balance (the stock read for the batch plus the batch's earlier movements).
+    /// Exactly reaching zero is allowed (AC-12.3: −12 kg from 12 kg leaves 0).
+    /// </summary>
+    private async Task RefuseIfBelowZeroAsync(Movement movement, Location location, decimal? change,
+        IReadOnlyDictionary<(int ItemId, Location Location), decimal> balances, CancellationToken cancellationToken)
     {
         if (change is not < 0m)
         {
             return;
         }
 
-        var available = await stock.GetStockAsync(movement.ItemId, location, cancellationToken);
+        // Every item and location a movement takes from was read by ReadBalancesAsync, so the key is always there.
+        var available = balances[(movement.ItemId, location)];
         if (available + change.Value >= 0m)
         {
             return;

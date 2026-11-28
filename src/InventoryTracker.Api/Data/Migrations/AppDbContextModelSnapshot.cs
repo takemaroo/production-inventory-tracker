@@ -414,6 +414,8 @@ namespace InventoryTracker.Api.Data.Migrations
                         .IsUnique()
                         .HasFilter("\"SalesOrderNumber\" IS NOT NULL");
 
+                    b.HasIndex(new[] { "ItemId", "WarehouseChange", "ProductionStorageChange" }, "IX_Movements_StockSums");
+
                     b.ToTable("Movements", (string)null);
                 });
 

@@ -23,10 +23,14 @@ namespace InventoryTracker.Api.Features.Stock;
 /// rewritten either.
 /// </para>
 /// <para>
-/// <b>Performance.</b> Summing is cheap only when it is filtered: architecture 5.1 measured under 10 ms for one item and
-/// about 140 ms for a grouped sum over 100,000 movements. So every method here takes the item ids it needs (a page of
-/// <c>GET /stock</c>, the lines of one order) and sums only their movements, using the index on <c>Movements.ItemId</c>.
-/// Never call these methods in a loop over items; pass all the ids at once.
+/// <b>Performance.</b> Summing is cheap only when it is filtered. So every method here takes the item ids it needs (a
+/// page of <c>GET /stock</c>, the lines of one order) and sums only their movements. (v1.2, T-035, decision #223) The
+/// sums read the covering index <c>IX_Movements_StockSums</c> on (<c>ItemId</c>, <c>WarehouseChange</c>,
+/// <c>ProductionStorageChange</c>): everything a sum needs is in the index, so SQLite never fetches a movement's row
+/// from the table (see <c>MovementConfiguration</c>). A sum costs about 0.35 µs per movement it reads: about 60 ms for
+/// 500 items over 100,000 movements, against 330 to 370 ms before the index. It grows with the history of the items
+/// asked for, not with the size of the catalogue. Never call these methods in a loop over items; pass all the ids at
+/// once.
 /// </para>
 /// <para>
 /// <b>Inside a write transaction</b> these queries run on the request's own connection. They see every row the
@@ -47,8 +51,8 @@ public sealed class StockQueries(AppDbContext db)
 {
     /// <summary>
     /// D-2: the stock of one item in one location, the sum of that location's change over the item's movements.
-    /// An item with no movements, or none touching that location, has 0 (AC-10.2). Used by <see cref="StockLedger"/>
-    /// to check a movement before it is added.
+    /// An item with no movements, or none touching that location, has 0 (AC-10.2). Used by the pre-checks in
+    /// ComplementarySendService and ReceiveReturnService; <see cref="StockLedger"/> uses the many-items form below (T-035).
     /// </summary>
     public async Task<decimal> GetStockAsync(int itemId, Location location, CancellationToken cancellationToken)
     {
@@ -62,6 +66,57 @@ public sealed class StockQueries(AppDbContext db)
             : await movements.SumAsync(movement => movement.ProductionStorageChange, cancellationToken);
 
         return sum ?? 0m;
+    }
+
+    /// <summary>
+    /// (T-035) D-2: the stock of each of <paramref name="itemIds"/> in one location, keyed by item id, from one grouped
+    /// query. The many-items form of <see cref="GetStockAsync(int, Location, CancellationToken)"/>: every requested id is
+    /// in the result, with 0 when it has no movements touching that location (AC-10.2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Written for SEC-24, the slow 500-line shipment. <see cref="StockLedger.AddRangeAsync"/> uses it to read, in one
+    /// statement, the stock of every item a batch of movements takes from, instead of one sum per movement; the ship uses
+    /// it for its all-lines Warehouse check.
+    /// </para>
+    /// <para>
+    /// Why it costs what it does: stock is the sum of the item's whole history (decision #20), so for 500 items at the
+    /// PRD section 5 volume this query adds up every movement in the database. Without help, SQLite would find each
+    /// movement through the item index and then fetch its row from the table to read the change, one scattered read per
+    /// movement; that, not the arithmetic, was most of the cost (decision #223). The covering index
+    /// <c>IX_Movements_StockSums</c> holds the changes too, so the sum is read from the index alone: about 60 ms for 500
+    /// items over 100,000 movements, against 330 to 370 ms without it. Each decimal is still added by EF Core's own
+    /// <c>ef_sum</c> function (architecture 3.1), which is exact where SQLite's own <c>SUM</c> would round. Callers sum
+    /// only the location they check (a shipment takes only from the Warehouse), and call this no more often than they
+    /// must.
+    /// </para>
+    /// <para>
+    /// It is a single <c>SELECT</c>, so it reads one consistent state even without a transaction. Inside a write
+    /// transaction it runs on that transaction and sees the request's own saved movements.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<int, decimal>> GetStockAsync(
+        IReadOnlyCollection<int> itemIds, Location location, CancellationToken cancellationToken)
+    {
+        if (itemIds.Count == 0)
+        {
+            return new Dictionary<int, decimal>();
+        }
+
+        var movements = db.Movements.Where(movement => itemIds.Contains(movement.ItemId));
+
+        // One grouped sum over the requested items' movements, read from the covering index IX_Movements_StockSums. As above, SUM skips the
+        // NULLs of movements that do not touch this location, hence "?? 0".
+        var sums = location == Location.Warehouse
+            ? await movements.GroupBy(movement => movement.ItemId)
+                .Select(group => new { ItemId = group.Key, Stock = group.Sum(movement => movement.WarehouseChange) ?? 0m })
+                .ToDictionaryAsync(row => row.ItemId, row => row.Stock, cancellationToken)
+            : await movements.GroupBy(movement => movement.ItemId)
+                .Select(group => new { ItemId = group.Key, Stock = group.Sum(movement => movement.ProductionStorageChange) ?? 0m })
+                .ToDictionaryAsync(row => row.ItemId, row => row.Stock, cancellationToken);
+
+        // An item with no movements has no group, and 0 stock (AC-10.2).
+        return itemIds.Distinct().ToDictionary(itemId => itemId, itemId => sums.GetValueOrDefault(itemId));
     }
 
     /// <summary>

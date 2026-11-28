@@ -40,7 +40,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-v1.2 phase 2: `ux-designer` designs the front end (docs/02-design.md v1.2 part, design/mockups/). Then SEC-24 batching as its own task, then phase 3 (tech-lead; owner approval, including any new tool such as Node.js).
+v1.2 phase 3: `tech-lead` architecture and tasks for the front end (owner approval, including any new tool such as Node.js).
 
 ## Log
 
@@ -122,6 +122,7 @@ v1.2 phase 2: `ux-designer` designs the front end (docs/02-design.md v1.2 part, 
 - 2026-11-27 v1.2 (web front end) phase 1: `product-manager` wrote PRD sections 14-20; owner settled Q98-Q109 in a grilling session (#187-#192) and approved the PRD. Started v1.2 phase 2 with `ux-designer` (with the design-taste-frontend skill).
 - 2026-11-27 `ux-designer` finished the v1.2 design (docs/02-design.md sections 11-22, 34 screens, design system, #193-#214) and 8 static mockups in design/mockups/ (no external resources; not browser-checked by the designer, no shell). Owner question Q110 (idle sign-out warning) open.
 - 2026-11-27 Owner reviewed the mockups ("looks good"); Q110 idle warning added (#221, AC-34.7a). Designer fixed the id truncation, sidebar height, desktop Menu button and narrow-width overflow (#215-#220); delivery manager confirmed with headless Edge screenshots at 360 and 1280 px. v1.2 phase 2 done. Next: SEC-24 batching task, then phase 3.
+- 2026-11-28 T-035 (batch a shipment's movements, SEC-24/US-55) done: StockLedger.AddRangeAsync, covering index IX_Movements_StockSums (migration StockSumsIndex) per tech-lead ruling #223; 500-line ship p95 ~0.45 s quiet, ~0.7 s under load (was ~1.7 s). Approved by `code-reviewer`; 2,733 tests pass. Owner Q111/Q112 to Later (#224). Next: v1.2 phase 3 (tech-lead).
 
 ## Follow-ups to route
 
@@ -155,3 +156,5 @@ v1.2 phase 2: `ux-designer` designs the front end (docs/02-design.md v1.2 part, 
 - tech-lead (v1.2 phase 3), from the design: live stock per line (avoid one GET /stock/{id} per line on 500-line forms); build quantity JSON from the typed digits (no JS number rounding); stacked phone tables need ARIA table roles or a list rendering.
 - product-manager (optional): review the few front-end-owned messages in design section 18 (e.g. "Materials can be sent only while the order is Created.").
 - qa-engineer (v1.2): identity and Sign out move into the menu below 1024 px (#196).
+- qa-engineer (v1.2): docs/05-test-plan.md still says eight movement indexes and 11 UpgradeTests; now nine and 12 (T-035). Watch the first CI run after T-035 for the AC-55 timing test on the 2-core runner (#223 (f)).
+- technical-writer (v1.2 release): the first v1.2 start applies the StockSumsIndex migration; repeat "back up before the first start".

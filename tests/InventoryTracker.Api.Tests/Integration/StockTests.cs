@@ -1143,6 +1143,250 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         Assert.Equal(0m, await StockAsync(factory, item.Id, Location.Warehouse));
     }
 
+    // ---- (v1.2) StockLedger: batches (T-035, SEC-24) -------------------------------------------------------------
+    //
+    // AddRangeAsync adds many movements with one stock read and one save (SEC-24: a 500-line shipment held the write
+    // lock for seconds). AC-55.3: its rules are exactly AddAsync's, applied to each movement in order, so a batch must
+    // end in the same state as the same movements added one call at a time.
+
+    /// <summary>
+    /// SEC-24, AC-55.1, T-035: a batch of three movements (a receipt and a write-off of one item, a shipment of another)
+    /// is saved with one <c>SaveChangesAsync</c>, not one per movement. Every movement gets its database id, and the
+    /// stock is what the three changes add up to.
+    /// </summary>
+    [Fact]
+    public async Task Ledger_batch_saves_every_movement_with_one_save()
+    {
+        var cheese = await CreateItemAsync(ItemType.RawMaterial);
+        var bags = await CreateItemAsync(ItemType.FinishedProduct);
+        var user = await CreateUserAsync();
+        var salesOrder = await CreateSalesOrderForAsync(bags.Id, 30m);
+        await LedgerAsync(factory, Change(MovementType.Adjustment, bags.Id, warehouse: 50m, userId: user));
+        Movement[] batch =
+        [
+            Change(MovementType.Received, cheese.Id, warehouse: 12m, userId: user),
+            Change(MovementType.Adjustment, cheese.Id, warehouse: -5m, userId: user),
+            Shipment(bags.Id, 30m, user, salesOrder),
+        ];
+        var savesByTheLedger = 0;
+
+        await InTransactionAsync(factory, async (db, ledger, _) =>
+        {
+            // SavingChanges is an event the DbContext raises at the start of every SaveChanges call. Counted only around
+            // the ledger call, because InWriteTransactionAsync saves once more before it commits.
+            var saves = 0;
+            db.SavingChanges += (_, _) => saves++;
+            await ledger.AddRangeAsync(batch, Cancel);
+            savesByTheLedger = saves;
+        });
+
+        Assert.Equal(1, savesByTheLedger);
+        Assert.All(batch, movement => Assert.True(movement.Id > 0));
+        Assert.Equal(3, batch.Select(movement => movement.Id).Distinct().Count());
+        Assert.Equal(7m, await StockAsync(factory, cheese.Id, Location.Warehouse));
+        Assert.Equal(20m, await StockAsync(factory, bags.Id, Location.Warehouse));
+    }
+
+    /// <summary>
+    /// AC-55.3, D-2, architecture 5.1 (as <see cref="Ledger_counts_earlier_movements_of_the_same_request"/> for single
+    /// calls): inside one batch, each movement is checked against the stock left by the movements before it. Two −8 kg
+    /// on 12 kg: the second is refused against the 4 kg left, and nothing is saved. A receipt of 5 kg earlier in a batch
+    /// covers a −15 kg later in it (12 + 5 − 15 = 2), as it would have if each had been added on its own.
+    /// </summary>
+    [Fact]
+    public async Task Ledger_batch_checks_each_movement_against_the_movements_before_it()
+    {
+        var item = await CreateItemAsync(ItemType.RawMaterial);
+        var user = await CreateUserAsync();
+        await LedgerAsync(factory, Change(MovementType.Received, item.Id, warehouse: 12m, userId: user));
+
+        var refused = await Assert.ThrowsAsync<ConflictException>(() => LedgerBatchAsync(factory,
+            Change(MovementType.Adjustment, item.Id, warehouse: -8m, userId: user),
+            Change(MovementType.Adjustment, item.Id, warehouse: -8m, userId: user)));
+
+        Assert.Equal("insufficient-stock", refused.Code);
+        Assert.Equal($"Not enough stock: {item.Name} in Warehouse has 4 {item.UnitName}.", refused.Detail);
+        Assert.Equal(12m, await StockAsync(factory, item.Id, Location.Warehouse));
+        Assert.Equal(1, await CountMovementsAsync(factory, item.Id));
+
+        await LedgerBatchAsync(factory,
+            Change(MovementType.Received, item.Id, warehouse: 5m, userId: user),
+            Change(MovementType.Adjustment, item.Id, warehouse: -15m, userId: user));
+
+        Assert.Equal(2m, await StockAsync(factory, item.Id, Location.Warehouse));
+        Assert.Equal(3, await CountMovementsAsync(factory, item.Id));
+    }
+
+    /// <summary>
+    /// AC-55.3, AC-26.3 (all or nothing), D-2: three items with 10, 3 and 1 in the Warehouse and a batch taking 5, 4 and
+    /// 2. The ledger names the first short movement in batch order (the second item, "has 3"), the same one a call per
+    /// movement would have stopped at, and saves none of the three: the first item, which was covered, still has 10.
+    /// </summary>
+    [Fact]
+    public async Task Ledger_batch_refuses_the_first_short_movement_and_saves_none()
+    {
+        var first = await CreateItemAsync(ItemType.RawMaterial);
+        var second = await CreateItemAsync(ItemType.RawMaterial);
+        var third = await CreateItemAsync(ItemType.RawMaterial);
+        var user = await CreateUserAsync();
+        await LedgerAsync(factory,
+            Change(MovementType.Received, first.Id, warehouse: 10m, userId: user),
+            Change(MovementType.Received, second.Id, warehouse: 3m, userId: user),
+            Change(MovementType.Received, third.Id, warehouse: 1m, userId: user));
+
+        var refused = await Assert.ThrowsAsync<ConflictException>(() => LedgerBatchAsync(factory,
+            Change(MovementType.Adjustment, first.Id, warehouse: -5m, userId: user),
+            Change(MovementType.Adjustment, second.Id, warehouse: -4m, userId: user),
+            Change(MovementType.Adjustment, third.Id, warehouse: -2m, userId: user)));
+
+        Assert.Equal($"Not enough stock: {second.Name} in Warehouse has 3 {second.UnitName}.", refused.Detail);
+        Assert.Equal(10m, await StockAsync(factory, first.Id, Location.Warehouse));
+        Assert.Equal(3m, await StockAsync(factory, second.Id, Location.Warehouse));
+        Assert.Equal(1m, await StockAsync(factory, third.Id, Location.Warehouse));
+        Assert.Equal(3, await CountMovementsAsync(factory, first.Id) + await CountMovementsAsync(factory, second.Id)
+            + await CountMovementsAsync(factory, third.Id));
+    }
+
+    /// <summary>
+    /// AC-55.3, D-2: the running balance covers Production storage too. With 10 kg in the Warehouse and none in
+    /// Production storage, a batch that sends the 10 kg and then consumes 10.5 kg is refused for Production storage
+    /// against the 10 kg the send put there, and saves nothing. Sending 10 and consuming exactly 10 is accepted, and both
+    /// locations end at 0.
+    /// </summary>
+    [Fact]
+    public async Task Ledger_batch_counts_production_storage_movements_before_it()
+    {
+        var item = await CreateItemAsync(ItemType.RawMaterial);
+        var user = await CreateUserAsync();
+        var links = await CreateLinksAsync(factory, item.Id, user);
+        await LedgerAsync(factory, Change(MovementType.Received, item.Id, warehouse: 10m, userId: user));
+
+        var refused = await Assert.ThrowsAsync<ConflictException>(() => LedgerBatchAsync(factory,
+            Change(MovementType.SentToProduction, item.Id, warehouse: -10m, production: 10m, userId: user, links: links),
+            Change(MovementType.ConsumedInProduction, item.Id, production: -10.5m, userId: user, links: links)));
+
+        Assert.Equal($"Not enough stock: {item.Name} in Production storage has 10 {item.UnitName}.", refused.Detail);
+        Assert.Equal(1, await CountMovementsAsync(factory, item.Id));
+
+        await LedgerBatchAsync(factory,
+            Change(MovementType.SentToProduction, item.Id, warehouse: -10m, production: 10m, userId: user, links: links),
+            Change(MovementType.ConsumedInProduction, item.Id, production: -10m, userId: user, links: links));
+
+        Assert.Equal(0m, await StockAsync(factory, item.Id, Location.Warehouse));
+        Assert.Equal(0m, await StockAsync(factory, item.Id, Location.ProductionStorage));
+    }
+
+    /// <summary>
+    /// Decision #86 for batches: a movement put on the DbContext directly, next to a ledger batch in the same request,
+    /// would ride along on the batch's one save without any check. The ledger refuses
+    /// (<see cref="InvalidOperationException"/>), and nothing is saved.
+    /// </summary>
+    [Fact]
+    public async Task Ledger_batch_refuses_to_save_a_movement_added_without_it()
+    {
+        var item = await CreateItemAsync(ItemType.RawMaterial);
+        var user = await CreateUserAsync();
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => InTransactionAsync(factory, async (db, ledger, _) =>
+        {
+            db.Movements.Add(Change(MovementType.Adjustment, item.Id, warehouse: -100m, userId: user));
+            await ledger.AddRangeAsync([Change(MovementType.Received, item.Id, warehouse: 1m, userId: user)], Cancel);
+        }));
+
+        Assert.Contains("without StockLedger", refused.Message);
+        Assert.Equal(0, await CountMovementsAsync(factory, item.Id));
+    }
+
+    /// <summary>
+    /// Architecture 5.1, 5.2 for batches: outside a write transaction the batch is a programming error
+    /// (<see cref="InvalidOperationException"/>) and nothing is added.
+    /// </summary>
+    [Fact]
+    public async Task Ledger_batch_refuses_to_run_outside_a_write_transaction()
+    {
+        var item = await CreateItemAsync(ItemType.RawMaterial);
+        var user = await CreateUserAsync();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var ledger = scope.ServiceProvider.GetRequiredService<StockLedger>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            ledger.AddRangeAsync([Change(MovementType.Received, item.Id, warehouse: 5m, userId: user)], Cancel));
+
+        Assert.Equal(0, await CountMovementsAsync(factory, item.Id));
+    }
+
+    /// <summary>
+    /// D-2, AC-11.3 for batches: a malformed movement anywhere in the batch (here a receipt with a negative change, after
+    /// a valid one) is a programming error (<see cref="ArgumentException"/>) and none of the batch is saved; so is the
+    /// same movement object given twice, since a movement is added only once.
+    /// </summary>
+    [Fact]
+    public async Task Ledger_batch_with_a_malformed_or_repeated_movement_saves_none()
+    {
+        var item = await CreateItemAsync(ItemType.RawMaterial);
+        var user = await CreateUserAsync();
+        var twice = Change(MovementType.Received, item.Id, warehouse: 5m, userId: user);
+
+        var malformed = await Assert.ThrowsAsync<ArgumentException>(() => LedgerBatchAsync(factory,
+            Change(MovementType.Received, item.Id, warehouse: 5m, userId: user),
+            Change(MovementType.Received, item.Id, warehouse: -5m, userId: user)));
+        var repeated = await Assert.ThrowsAsync<ArgumentException>(() => LedgerBatchAsync(factory, twice, twice));
+
+        Assert.Contains("its change columns do not match its type", malformed.Message);
+        Assert.Contains("appears twice in the batch", repeated.Message);
+        Assert.Equal(0, await CountMovementsAsync(factory, item.Id));
+    }
+
+    /// <summary>
+    /// AC-26.10 backstop, decision #157, AC-55.3: with every shipment movement in one save, the unique index
+    /// <c>IX_Movements_OneShipmentPerLine</c> still refuses two movements for the same sales order and item
+    /// (<see cref="DbUpdateException"/>, UNIQUE), even though the stock would cover both, and the save stores neither.
+    /// </summary>
+    [Fact]
+    public async Task Database_refuses_a_batch_with_two_shipments_for_the_same_sales_order_and_item()
+    {
+        var item = await CreateItemAsync(ItemType.FinishedProduct);
+        var user = await CreateUserAsync();
+        var salesOrder = await CreateSalesOrderForAsync(item.Id, 10m);
+        await LedgerAsync(factory, Change(MovementType.Adjustment, item.Id, warehouse: 100m, userId: user));
+
+        var refused = await Assert.ThrowsAsync<DbUpdateException>(() => LedgerBatchAsync(factory,
+            Shipment(item.Id, 10m, user, salesOrder), Shipment(item.Id, 10m, user, salesOrder)));
+
+        Assert.Contains("UNIQUE constraint failed: Movements.SalesOrderNumber, Movements.ItemId", refused.InnerException?.Message);
+        Assert.Equal(1, await CountMovementsAsync(factory, item.Id));
+        Assert.Equal(100m, await StockAsync(factory, item.Id, Location.Warehouse));
+    }
+
+    /// <summary>
+    /// (T-035) Many-items stock read, AC-10.2: <see cref="StockQueries.GetStockAsync(IReadOnlyCollection{int}, Location, CancellationToken)"/>
+    /// gives each requested item's stock in the location asked for, the same figure as the one-item read, and 0 for an
+    /// item with no movements; a repeated id appears once.
+    /// </summary>
+    [Fact]
+    public async Task Stock_of_many_items_matches_the_one_item_read()
+    {
+        var stocked = await CreateItemAsync(ItemType.RawMaterial);
+        var empty = await CreateItemAsync(ItemType.RawMaterial);
+        var user = await CreateUserAsync();
+        var links = await CreateLinksAsync(factory, stocked.Id, user);
+        await LedgerAsync(factory,
+            Change(MovementType.Received, stocked.Id, warehouse: 12.5m, userId: user),
+            Change(MovementType.SentToProduction, stocked.Id, warehouse: -2.25m, production: 2.25m, userId: user, links: links));
+        await using var scope = factory.Services.CreateAsyncScope();
+        var stock = scope.ServiceProvider.GetRequiredService<StockQueries>();
+
+        var warehouse = await stock.GetStockAsync([stocked.Id, empty.Id, stocked.Id], Location.Warehouse, Cancel);
+        var production = await stock.GetStockAsync([stocked.Id, empty.Id], Location.ProductionStorage, Cancel);
+
+        Assert.Equal(2, warehouse.Count);
+        Assert.Equal(10.25m, warehouse[stocked.Id]);
+        Assert.Equal(await stock.GetStockAsync(stocked.Id, Location.Warehouse, Cancel), warehouse[stocked.Id]);
+        Assert.Equal(0m, warehouse[empty.Id]);
+        Assert.Equal(2.25m, production[stocked.Id]);
+        Assert.Equal(0m, production[empty.Id]);
+    }
+
     /// <summary>
     /// Decision #85: inside a write transaction, <see cref="StockQueries.GetFiguresAsync"/> uses that transaction rather
     /// than opening its own (which would fail: one connection cannot hold two). So it sees the request's own movement,
@@ -1549,6 +1793,13 @@ public class StockTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
         var salesOrderNumber = await CreateSalesOrderAsync(manager, (await CreateCustomerAsync(manager)).Id, (itemId, 5m));
         return new Links(orderNumber, complementaryNumber, returnNumber, salesOrderNumber);
     }
+
+    /// <summary>
+    /// (T-035) Adds the movements through <see cref="StockLedger.AddRangeAsync"/>, as one batch, in one write transaction
+    /// of their own, as the ship does. If the ledger refuses one, none of them is saved.
+    /// </summary>
+    private static Task LedgerBatchAsync(TestApiFactory app, params Movement[] movements) =>
+        InTransactionAsync(app, (_, ledger, _) => ledger.AddRangeAsync(movements, Cancel));
 
     /// <summary>Adds movements straight to the database, bypassing the ledger, to set up a stock history.</summary>
     private static async Task InsertMovementsAsync(TestApiFactory app, params Movement[] movements)

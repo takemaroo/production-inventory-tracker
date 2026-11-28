@@ -37,13 +37,20 @@ public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : ICl
     /// <summary>The last version 1 migration: the owner's database is at this point before the first v1.1 start.</summary>
     public const string LastV1Migration = "20261114053033_PercentagePrecision";
 
+    /// <summary>The version 1.1 migration (T-022): the owner's database is at this point before the first v1.2 start.</summary>
+    public const string V1_1Migration = "20261123155451_SalesOrders";
+
     private static CancellationToken Cancel => TestContext.Current.CancellationToken;
 
     /// <summary>Architecture 3.4 step 3: the one statement that adds the new column, its foreign key included, in place.</summary>
     private const string AddColumnInPlace =
         "ALTER TABLE \"Movements\" ADD \"SalesOrderNumber\" INTEGER NULL CONSTRAINT \"FK_Movements_SalesOrders_SalesOrderNumber\" REFERENCES \"SalesOrders\" (\"Number\") ON DELETE RESTRICT;";
 
-    /// <summary>AC-30.3, decision #154: after the first start, SalesOrders is the last applied migration and nothing is pending.</summary>
+    /// <summary>
+    /// AC-30.3, decision #154: the first start applies SalesOrders after the four version 1 migrations, and nothing is
+    /// pending. (v1.2, T-035, decision #223) A database still at version 1 also gets <c>StockSumsIndex</c> right after
+    /// it, in the same start, so six migrations are applied and that one is last.
+    /// </summary>
     [Fact]
     public async Task Start_applies_the_SalesOrders_migration_and_leaves_nothing_pending()
     {
@@ -54,8 +61,9 @@ public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : ICl
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var applied = db.Database.GetAppliedMigrations().ToList();
 
-        Assert.Equal(5, applied.Count);
-        Assert.EndsWith("_SalesOrders", applied[^1]);
+        Assert.Equal(6, applied.Count);
+        Assert.Equal(V1_1Migration, applied[4]);
+        Assert.EndsWith("_StockSumsIndex", applied[^1]);
         Assert.Empty(await db.Database.GetPendingMigrationsAsync(Cancel));
         Assert.Equal(upgraded.Before.AppliedMigrations, applied.Take(4)); // the v1 history rows are untouched
 
@@ -225,11 +233,12 @@ public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : ICl
     }
 
     /// <summary>
-    /// Architecture 3.4, risk 15: all eight <c>Movements</c> indexes exist: the seven of version 1 (a table rebuild that
-    /// stopped part-way could lose them) and <c>IX_Movements_OneShipmentPerLine</c>, unique and filtered.
+    /// Architecture 3.4, risk 15: all nine <c>Movements</c> indexes exist: the seven of version 1 (a table rebuild that
+    /// stopped part-way could lose them), <c>IX_Movements_OneShipmentPerLine</c>, unique and filtered, and (v1.2, T-035,
+    /// decision #223) the covering index <c>IX_Movements_StockSums</c> the stock sums read.
     /// </summary>
     [Fact]
-    public async Task All_eight_movement_indexes_exist()
+    public async Task All_nine_movement_indexes_exist()
     {
         string[] v1Indexes =
         [
@@ -241,13 +250,21 @@ public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : ICl
         await using var connection = await upgraded.OpenAsync();
         var indexes = await ReadStringsAsync(connection,
             "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'Movements' AND sql IS NOT NULL ORDER BY name");
-        Assert.Equal(v1Indexes.Append("IX_Movements_OneShipmentPerLine").Order(StringComparer.Ordinal), indexes);
+        Assert.Equal(
+            v1Indexes.Append("IX_Movements_OneShipmentPerLine").Append("IX_Movements_StockSums").Order(StringComparer.Ordinal),
+            indexes);
 
         var oneShipment = Assert.Single(await ReadStringsAsync(connection,
             "SELECT sql FROM sqlite_master WHERE name = 'IX_Movements_OneShipmentPerLine'"));
         Assert.Equal(
             "CREATE UNIQUE INDEX \"IX_Movements_OneShipmentPerLine\" ON \"Movements\" (\"SalesOrderNumber\", \"ItemId\") WHERE \"SalesOrderNumber\" IS NOT NULL",
             oneShipment);
+
+        var stockSums = Assert.Single(await ReadStringsAsync(connection,
+            "SELECT sql FROM sqlite_master WHERE name = 'IX_Movements_StockSums'"));
+        Assert.Equal(
+            "CREATE INDEX \"IX_Movements_StockSums\" ON \"Movements\" (\"ItemId\", \"WarehouseChange\", \"ProductionStorageChange\")",
+            stockSums);
     }
 
     /// <summary>
@@ -301,8 +318,10 @@ public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : ICl
         await using var scope = upgraded.App.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        // IMigrator.GenerateScript writes the SQL that "dotnet ef migrations script PercentagePrecision" prints.
-        var script = db.GetService<IMigrator>().GenerateScript(fromMigration: LastV1Migration);
+        // IMigrator.GenerateScript writes the SQL that "dotnet ef migrations script PercentagePrecision SalesOrders"
+        // prints. It stops at SalesOrders: EF Core gives every migration its own transaction, so a script that also
+        // ran the v1.2 migration would hold two (that one is checked by the next test).
+        var script = db.GetService<IMigrator>().GenerateScript(fromMigration: LastV1Migration, toMigration: V1_1Migration);
 
         Assert.DoesNotContain("ef_temp_", script);
         Assert.DoesNotContain("PRAGMA", script);
@@ -313,6 +332,34 @@ public sealed class UpgradeTests(UpgradeTests.UpgradedV1Database upgraded) : ICl
         // The history row is written inside the transaction, so the migration is recorded only if all of it worked.
         var history = script.IndexOf("INSERT INTO \"__EFMigrationsHistory\"", StringComparison.Ordinal);
         Assert.InRange(history, script.IndexOf(AddColumnInPlace, StringComparison.Ordinal), script.IndexOf("COMMIT;", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// (v1.2) T-035, decision #223, risk 15: the upgrade from version 1.1 (<c>StockSumsIndex</c>, the SQL that
+    /// "dotnet ef migrations script SalesOrders" prints) only adds the covering index: one transaction holding exactly
+    /// the <c>CREATE INDEX</c> and the history row. No table is rebuilt and no row is changed, so the owner's movements
+    /// are untouched.
+    /// </summary>
+    [Fact]
+    public async Task V1_2_upgrade_script_only_adds_the_stock_sums_index()
+    {
+        await using var scope = upgraded.App.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var script = db.GetService<IMigrator>().GenerateScript(fromMigration: V1_1Migration);
+
+        // Each statement ends with ";" at the end of a line; the history insert spans two lines (INSERT ... VALUES ...;).
+        var statements = script.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(statement => statement.ReplaceLineEndings(" "))
+            .ToList();
+        Assert.Equal(4, statements.Count);
+        Assert.Equal("BEGIN TRANSACTION", statements[0]);
+        Assert.Equal(
+            "CREATE INDEX \"IX_Movements_StockSums\" ON \"Movements\" (\"ItemId\", \"WarehouseChange\", \"ProductionStorageChange\")",
+            statements[1]);
+        Assert.StartsWith("INSERT INTO \"__EFMigrationsHistory\"", statements[2]);
+        Assert.Contains("_StockSumsIndex", statements[2]);
+        Assert.Equal("COMMIT", statements[3]);
     }
 
     /// <summary>

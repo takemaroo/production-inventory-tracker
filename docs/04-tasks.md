@@ -43,6 +43,7 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-032 | (v1.1) OpenAPI and sample requests | backend-developer | T-029, T-030 | done |
 | T-033 | (v1.1) Log who changed a customer (SEC-26, decision #177) | backend-developer | T-024 | done |
 | T-034 | Tighter name rules (SEC-25, decision #176) | backend-developer | BUG-002 fix | done |
+| T-035 | (v1.2) Batch a shipment's movements (SEC-24, US-55, A-4) | backend-developer | T-027 | done |
 
 **Build phase complete (2026-11-21):** 22 of 22 tasks done, each reviewed by `code-reviewer` and committed as `T-0NN: ...` (last: `d09c6db T-021`). No task is open. Nothing was added after the decision on a full "only writer" guard for movements (decision #112: not adopted, so no post-QA task).
 
@@ -770,3 +771,18 @@ From the v1.1 security review (SEC-26) and owner decision #177. Every customer c
 ### T-034: Tighter name rules
 
 From the v1.1 security review (SEC-25, its "Fix" list) and owner decision #176, building on the BUG-002 rules (#170 to #174) in `Common/Validation/NameRules.cs`. For customer, unit and item names, on create and rename: refuse a name that starts or ends with a Default_Ignorable_Code_Point or a Hangul filler (ZWJ and ZWNJ stay allowed between letters); count the Hangul fillers and U+2800 as invisible in the "Name is required." check; refuse noncharacters and control (Cc) characters anywhere, including NUL and tab, with "Name contains a character that is not allowed.". Stored names are not rewritten (#172). Done when unit and integration tests prove each rule for all three lists, the BUG-002 tests still pass, and the full suite passes.
+
+### T-035: (v1.2) Batch a shipment's movements
+
+From SEC-24 (docs/06-security-review.md Part 2), owner decision #175 and PRD v1.2 US-55 / A-4 (scheduled before the front-end build, #192). Shipping a sales order with many lines must not hold the write lock for seconds: today 500 lines take 4-8 s, growing faster than the line count. Write the shipment's movements and the stock checks in a batched way inside the same single write transaction, keeping every ShippedToCustomer rule (#157, the one-shipment-per-line index, the all-lines stock check, the races already forced in tests) and every response and message unchanged. Done when the PRD's AC-55.x target is met and measured (row 82: a 500-line shipment answers within 1 second at the section 5 data volume, or a measured alternative the tech lead accepts), the existing ship tests and races pass unchanged, and the full suite passes.
+
+**Tech-lead ruling, 2026-11-27 (decision #223).** The code of #222 stays as built. T-035 is not done until these are added (architecture 3.2, 3.4, 5.1, 7):
+
+- `Data/Configurations/MovementConfiguration.cs`: the covering index `IX_Movements_StockSums` on (`ItemId`, `WarehouseChange`, `ProductionStorageChange`), name in the constant `StockSumsIndexName`. Keep `IX_Movements_ItemId`.
+- `Data/Migrations/`: the generated migration `StockSumsIndex`, not hand-edited: one `CreateIndex` in `Up`, one `DropIndex` in `Down`. Its script from `SalesOrders` shows only that `CREATE INDEX` and the history insert. While this is open, no other task may touch `Data/`.
+- `tests/.../Integration/UpgradeTests.cs`: nine `Movements` indexes, including `IX_Movements_StockSums` and its `CREATE INDEX` text.
+- A query-plan test (`Infrastructure/QueryPlanRecorder`), in `ShipSalesOrderTests` or `StockTests`: the ship's two stock sums and `GET /stock/{itemId}`'s stock read use `USING COVERING INDEX IX_Movements_StockSums`.
+- `tests/.../Integration/Scenarios/SalesPerformanceTests.cs`, the AC-55 test: 5 uncounted warm-up rounds (`const int WarmUpRounds = 5`, with the reason in a comment), then the same 20 timed rounds and `p95 < 1000` for both requests. `WithoutWarmUp` takes the warm-up count. Every round, warm-ups included, goes to the test output.
+- Comments that quote the old figures or explanation: `Features/Stock/StockQueries.cs` (class remarks, `GetStockAsync(itemIds, ...)`), `StockLedger.AddRangeAsync` where it repeats them, and the AC-55 test's remarks.
+
+Done when the AC-55 test passes 3 times out of 3 on a quiet machine (report the median and p95 of both requests, and the warm-up rounds), the migration script is as above, the query-plan test passes, and the full suite passes.
