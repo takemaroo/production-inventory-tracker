@@ -41,7 +41,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.2 part, sections 14-20) |
 | 2 | Design | done | `docs/02-design.md` (sections 11-22), `design/mockups/` |
 | 3 | Architecture | done | `docs/03-architecture.md` (Version 1.2 part), `docs/04-tasks.md` (T-036 to T-066), front-end skeleton in `src/InventoryTracker.Web/`; approved by owner 2026-11-28 |
-| 4 | Build | in progress | code (T-035 to T-040 done; T-041 to T-066 to do) |
+| 4 | Build | in progress | code (T-035 to T-041 done; T-042 to T-066 to do) |
 | 5 | QA | not started | |
 | 6 | Security | not started | |
 | 7 | Release | not started | |
@@ -52,7 +52,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-v1.2 phase 4: T-041 (session: sign in, sign out, end of a session), then `code-reviewer`.
+v1.2 phase 4: T-042 (design system, page frame, menu, route table), then `code-reviewer`.
 
 ## Log
 
@@ -141,6 +141,7 @@ v1.2 phase 4: T-041 (session: sign in, sign out, end of a session), then `code-r
 - 2026-11-28 T-038 (escape HTML characters in JSON output, A-5) done: one shared JavaScriptEncoder.Create(UnicodeRanges.All) on the controllers' and minimal-API JSON options; published run shows the AC-37.1 name with no raw < > & '. UsersTests hash check hardened (base64 + is now escaped). T-037 review nits fixed. Approved by `code-reviewer` after one comment round (#257); 2,828 tests pass, Vitest 32/32. Back-end v1.2 tasks complete. Started T-039.
 - 2026-11-28 T-039 (front-end API client: requests, four failure kinds, paging, stock lookup) done; ExactDecimal can now only hold checked digits (phase 3 should-fix). Smoke-tested against a real API on a spare port. Approved by `code-reviewer` (#258, #259); Vitest 107/107, .NET 2,828/2,828. Review nits folded into T-040. Started T-040.
 - 2026-11-28 T-040 (formatting and safe text) done: exact-digit number formatting, times in injected zones, SafeText/NameWithId/Quantity with <bdi> and direction-character markers (12 Bidi_Control code points), source guard widened with self-tests; T-039 review nits folded in. Approved by `code-reviewer` after one fix round (#260, #261); Vitest 261/261, .NET 2,828/2,828. Started T-041.
+- 2026-11-28 T-041 (session: sign in, sign out, end of a session) done: token in memory only and RFC 6750 characters only; every end drops the token, blanks the page, then replaces the location; safe return-path rule (no other origin, no sign-in, no dot segments); pageshow guard; 401 hook connected at start-up. Smoke-tested in headless Edge against a scratch published API (sign-in, refusal, sign-out, empty storage, no CSP violations). Delivery manager ruled a signed-in arrival at /sign-in goes to /stock (design 12.3). Approved by `code-reviewer` after one fix round (#262, #263); Vitest 360/360, .NET 2,828/2,828. Started T-042.
 
 ## Follow-ups to route
 
@@ -194,3 +195,5 @@ v1.2 phase 4: T-041 (session: sign in, sign out, end of a session), then `code-r
 - frontend-developer (T-041): register the session hook at start-up (until then a 401 not-authenticated becomes session-ended with nothing ending the session); the onNotAuthenticated handler must be safe to repeat and must never throw (an exception would escape apiRequest).
 - tech-lead (wording): T-040 in docs/04-tasks.md says "13 code points"; AC-37.3, design 12.8 and architecture 18 list 12 (Unicode Bidi_Control), confirmed by `code-reviewer` (#260(a)). Correct it before T-066.
 - frontend-developer (T-042, adds src/styles/app.css; delivery manager widens T-042's Touches to include vite.config.ts for this line): in the same change add `test: { css: { include: [/\.css/] } }` to the `test` block of `vite.config.ts` (not `/\.css$/`, which misses the ?raw query); otherwise the guard's every-file-has-text check fails by design and CSS is not scanned for direction characters (#261(b)).
+- next owner of session/signInAddress.ts (comment wording): line 89 and #263(b) say "/..//evil.example" becomes another site; a browser keeps the host (http://localhost:<port>//evil.example), it would only become another site if reused as an address.
+- frontend-developer (T-042): keep the startSession() call before the first draw in main.tsx (main.test.tsx pins it); T-042 owns document titles from now (app/documentTitle.ts).

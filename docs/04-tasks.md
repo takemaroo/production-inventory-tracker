@@ -49,8 +49,8 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-038 | (v1.2) Escape HTML characters in JSON output (A-5) | backend-developer | T-037 | done |
 | T-039 | (v1.2) API client: requests, failures, paging, stock lookup | frontend-developer | none (skeleton) | done |
 | T-040 | (v1.2) Formatting and safe text | frontend-developer | none (skeleton) | done |
-| T-041 | (v1.2) Session: sign in, sign out, end of a session | frontend-developer | T-039 | in progress |
-| T-042 | (v1.2) Design system, page frame, menu, route table | frontend-developer | T-040, T-041 | todo |
+| T-041 | (v1.2) Session: sign in, sign out, end of a session | frontend-developer | T-039 | done |
+| T-042 | (v1.2) Design system, page frame, menu, route table | frontend-developer | T-040, T-041 | in progress |
 | T-043 | (v1.2) List toolkit and the Stock screen (thin slice complete) | frontend-developer | T-042 | todo |
 | T-044 | (v1.2) End-to-end and accessibility harness | frontend-developer | T-036, T-037, T-043 | todo |
 | T-045 | (v1.2) Form toolkit and Change password | frontend-developer | T-042 | todo |

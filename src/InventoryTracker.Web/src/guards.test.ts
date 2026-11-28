@@ -119,7 +119,7 @@ describe('source guard (AC-37.2, AC-34.5)', () => {
   it('finds the source files', () => {
     expect(Object.keys(sources).length).toBeGreaterThan(0);
     // The scan must include the shared files that matter most; a wrong glob that matched nothing useful would pass.
-    expect(Object.keys(sources)).toEqual(expect.arrayContaining(['./api/http.ts', './components/SafeText.tsx']));
+    expect(Object.keys(sources)).toEqual(expect.arrayContaining(['./api/http.ts', './components/SafeText.tsx', './session/session.ts']));
   });
 
   it.each(forbidden)('no source file uses $rule', ({ pattern }) => {
