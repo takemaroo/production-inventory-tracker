@@ -92,8 +92,9 @@ public class TestApiFactory : WebApplicationFactory<Program>
     public CapturingLoggerProvider Logs { get; } = new();
 
     /// <summary>
-    /// (v1.2) The app's web root, the folder it serves the front end's files from (A-1, <c>FrontEndSetup</c>). By default a
-    /// folder of this factory's own that does not exist, so a test never depends on whether someone has built the real
+    /// (v1.2) The app's web root, the folder it serves the front end's files from (A-1, <c>FrontEndSetup</c>). By default an
+    /// empty folder of this factory's own (the host creates it when the app starts, because it is set explicitly), so a
+    /// test never depends on whether someone has built the real
     /// front end into <c>src/InventoryTracker.Api/wwwroot</c>: the app then serves no front end, exactly as before v1.2.
     /// A test that needs one writes its own small files with <see cref="WriteFrontEndFile"/> before the app starts.
     /// </summary>

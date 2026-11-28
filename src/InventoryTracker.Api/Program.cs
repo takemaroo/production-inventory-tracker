@@ -154,6 +154,10 @@ catch (StartupException exception)
     return 1;
 }
 
+// (v1.2) Architecture 13: one Warning when the web front end has not been built, so the owner knows why the browser
+// shows no page. Not a failed check: the API itself still works, so the app starts anyway.
+app.WarnIfFrontEndNotBuilt();
+
 await app.RunAsync();
 return 0;
 

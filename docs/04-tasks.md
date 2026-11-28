@@ -44,8 +44,8 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-033 | (v1.1) Log who changed a customer (SEC-26, decision #177) | backend-developer | T-024 | done |
 | T-034 | Tighter name rules (SEC-25, decision #176) | backend-developer | BUG-002 fix | done |
 | T-035 | (v1.2) Batch a shipment's movements (SEC-24, US-55, A-4) | backend-developer | T-027 | done |
-| T-036 | (v1.2) Serve the front end: finish A-1 | backend-developer | none (skeleton) | todo |
-| T-037 | (v1.2) Security headers, CSP, no CORS (A-2, A-3) | backend-developer | T-036 | todo |
+| T-036 | (v1.2) Serve the front end: finish A-1 | backend-developer | none (skeleton) | done |
+| T-037 | (v1.2) Security headers, CSP, no CORS (A-2, A-3) | backend-developer | T-036 | in progress |
 | T-038 | (v1.2) Escape HTML characters in JSON output (A-5) | backend-developer | T-037 | todo |
 | T-039 | (v1.2) API client: requests, failures, paging, stock lookup | frontend-developer | none (skeleton) | todo |
 | T-040 | (v1.2) Formatting and safe text | frontend-developer | none (skeleton) | todo |

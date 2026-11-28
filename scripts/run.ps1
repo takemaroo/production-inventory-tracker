@@ -21,8 +21,13 @@
       first Manager from them;
     - after the first start, a warning if ADMIN_PASSWORD is still set: it is never read again (AC-02.2) and
       should be removed;
-    - no Kestrel endpoint is configured through environment variables, which could add a non-local address.
+    - no Kestrel endpoint is configured through environment variables, which could add a non-local address;
+    - (v1.2) with -Published, a warning if the published folder has no wwwroot\index.html: the API then starts
+      without the web front end (architecture 13).
   The API itself then checks the password policy and the tolerance, and stops with a message if either is wrong.
+
+  (v1.2) The same address also serves the web front end (PRD A-1): the script prints it as "Front end:". Open it in
+  Microsoft Edge or Google Chrome.
 
   Stop the API with Ctrl+C.
 
@@ -76,6 +81,12 @@ if ($Published) {
     # The start step below moves into the folder, and a relative path would then point somewhere else.
     $PublishFolder = (Resolve-Path -LiteralPath $PublishFolder).ProviderPath
     $exe = Join-Path $PublishFolder 'InventoryTracker.Api.exe'
+
+    # (v1.2) Architecture 13: the published API serves the web front end from its own wwwroot folder. Without the page
+    # it still starts, serving the API only, so this is a warning rather than a reason to stop.
+    if (-not (Test-Path -LiteralPath (Join-Path $PublishFolder 'wwwroot\index.html'))) {
+        Write-Host "Warning: $PublishFolder has no wwwroot\index.html, so the API starts without the web front end. Run scripts\publish.ps1 again to include it." -ForegroundColor Yellow
+    }
 }
 
 # --- Local addresses only (SEC-03, #119). ------------------------------------------------------------------------
@@ -132,6 +143,8 @@ elseif (-not [string]::IsNullOrWhiteSpace($env:ADMIN_PASSWORD)) {
 Write-Host "Environment: Production"
 Write-Host "Database:    $databasePath"
 Write-Host "Listening:   http://127.0.0.1:$Port and http://[::1]:$Port (this machine only)"
+# (v1.2) PRD A-1: the front end is served at the root of the same address. "localhost" names both loopback addresses.
+Write-Host "Front end:   http://localhost:$Port/ (open it in Edge or Chrome)"
 Write-Host 'Press Ctrl+C to stop.'
 
 # --- Start. ---------------------------------------------------------------------------------------------------------

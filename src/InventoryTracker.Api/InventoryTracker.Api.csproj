@@ -11,6 +11,10 @@
          without a /// comment, which backs up the owner's comment standard. The OpenAPI document also
          uses these comments as endpoint descriptions. -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- (v1.2, T-036, decision #252) The SDK would otherwise write a .gz and a .br copy of every front-end file in wwwroot
+         at build and publish time. They are only used by MapStaticAssets; this app serves wwwroot with UseStaticFiles
+         (Common/FrontEnd/FrontEndSetup.cs), which never sends them, so they would only take space. -->
+    <CompressionEnabled>false</CompressionEnabled>
   </PropertyGroup>
 
   <ItemGroup>

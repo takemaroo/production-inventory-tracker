@@ -41,7 +41,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.2 part, sections 14-20) |
 | 2 | Design | done | `docs/02-design.md` (sections 11-22), `design/mockups/` |
 | 3 | Architecture | done | `docs/03-architecture.md` (Version 1.2 part), `docs/04-tasks.md` (T-036 to T-066), front-end skeleton in `src/InventoryTracker.Web/`; approved by owner 2026-11-28 |
-| 4 | Build | in progress | code (T-035 done; T-036 to T-066 to do) |
+| 4 | Build | in progress | code (T-035, T-036 done; T-037 to T-066 to do) |
 | 5 | QA | not started | |
 | 6 | Security | not started | |
 | 7 | Release | not started | |
@@ -52,7 +52,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-v1.2 phase 4: T-036 (see `docs/04-tasks.md`), then `code-reviewer`.
+v1.2 phase 4: T-037 (security headers, CSP, no CORS), then `code-reviewer`.
 
 ## Log
 
@@ -136,6 +136,7 @@ v1.2 phase 4: T-036 (see `docs/04-tasks.md`), then `code-reviewer`.
 - 2026-11-27 Owner reviewed the mockups ("looks good"); Q110 idle warning added (#221, AC-34.7a). Designer fixed the id truncation, sidebar height, desktop Menu button and narrow-width overflow (#215-#220); delivery manager confirmed with headless Edge screenshots at 360 and 1280 px. v1.2 phase 2 done. Next: SEC-24 batching task, then phase 3.
 - 2026-11-28 T-035 (batch a shipment's movements, SEC-24/US-55) done: StockLedger.AddRangeAsync, covering index IX_Movements_StockSums (migration StockSumsIndex) per tech-lead ruling #223; 500-line ship p95 ~0.45 s quiet, ~0.7 s under load (was ~1.7 s). Approved by `code-reviewer`; 2,733 tests pass. Owner Q111/Q112 to Later (#224). Next: v1.2 phase 3 (tech-lead).
 - 2026-11-28 `tech-lead` finished v1.2 phase 3: architecture sections 11-23, tasks T-036 to T-066, React/TypeScript/Vite skeleton served by the API (#225-#245; every npm package at least 14 days old, #245). Re-verified: npm audit 0, typecheck 0, Vitest 32/32, .NET 2,739/2,739. `code-reviewer` approved the skeleton (no must-fix; 2,739/2,739, Vitest 32/32, npm audit 0). Owner approved phase 3, Q113 SaaS to Later (#246), Q114 browser tests in CI on every push (#247), Q115 monthly grouped npm updates (#248); repository now public (#249).
+- 2026-11-28 T-036 (serve the front end, A-1) done: one front-end branch (rewrite to /index.html, static files with cache headers, 404 ProblemDetails for missing files), one start-up warning when not built, run.ps1 prints the front-end address, publish without .br/.gz copies (#250-#252). Approved by `code-reviewer` after one fix round; 2,800 tests pass, Vitest 32/32. Handbook now says the repository is public (owner). Started T-037.
 
 ## Follow-ups to route
 
@@ -177,3 +178,5 @@ v1.2 phase 4: T-036 (see `docs/04-tasks.md`), then `code-reviewer`.
 - T-036 owner: in FrontEndSetup check `IsScreenAddress` before the disk lookup; consider serving the page through the static-file step (rewrite to /index.html) for Content-Length and ETag; decide how to handle ASP.NET Core's own "WebRootPath was not found" warning next to the planned one.
 - technical-writer (v1.2 release): `ci.yml` comment and architecture risk 10 still say the repository is private (#249); `publish.ps1` never clears old `assets/` files from the output folder, worth one sentence in 07-release.
 - Dependabot (owner, optional later): the npm group also takes major updates, so a breaking major could hold back a month's patches; `update-types: [minor, patch]` would split majors out at the cost of more pull requests (#248).
+- qa-engineer (v1.2, architecture risk 23.5): UnknownPathAcceptanceTests changed on purpose in T-036: GET / and GET /nope answer the page when the front end is built; the with-token contrast row is now /api/v1/nope; with a front end built, a missing file outside the API paths (/favicon.ico, /assets/missing.js) is 404 without a token. If wwwroot is absent at start-up, a later build is served only after a restart.
+- tech-lead (wording): T-036's Touches list left out InventoryTracker.Api.csproj (CompressionEnabled, #252).
