@@ -45,8 +45,8 @@ There is no front end in v1, so every task is owned by `backend-developer` and r
 | T-034 | Tighter name rules (SEC-25, decision #176) | backend-developer | BUG-002 fix | done |
 | T-035 | (v1.2) Batch a shipment's movements (SEC-24, US-55, A-4) | backend-developer | T-027 | done |
 | T-036 | (v1.2) Serve the front end: finish A-1 | backend-developer | none (skeleton) | done |
-| T-037 | (v1.2) Security headers, CSP, no CORS (A-2, A-3) | backend-developer | T-036 | in progress |
-| T-038 | (v1.2) Escape HTML characters in JSON output (A-5) | backend-developer | T-037 | todo |
+| T-037 | (v1.2) Security headers, CSP, no CORS (A-2, A-3) | backend-developer | T-036 | done |
+| T-038 | (v1.2) Escape HTML characters in JSON output (A-5) | backend-developer | T-037 | in progress |
 | T-039 | (v1.2) API client: requests, failures, paging, stock lookup | frontend-developer | none (skeleton) | todo |
 | T-040 | (v1.2) Formatting and safe text | frontend-developer | none (skeleton) | todo |
 | T-041 | (v1.2) Session: sign in, sign out, end of a session | frontend-developer | T-039 | todo |
@@ -855,7 +855,15 @@ Every task below also meets the "Done criteria for every task" above, the (v1.2)
 - **Acceptance criteria:**
   - Tests on the page, an asset, an API `200`, a `401`, a `404` under `/api/`, a `400` with ProblemDetails, a `500` from the existing error probe, and `/health`: CSP exactly the architecture's string, `nosniff`, `no-referrer`, no `Server` header (on real Kestrel too, in the way `RequestBodyLimitTests` does), and `Cache-Control: no-store` under `/api/` only.
   - A test that parses the CSP and checks each AC-37.5 rule: the required directives are present; no `*`, `http:`, `https:` or `data:` in `script-src`; no `'unsafe-inline'` or `'unsafe-eval'` anywhere.
-  - AC-37.7: `GET /api/v1/units` with `Origin: http://localhost:5999` (with a token) and a preflight `OPTIONS /api/v1/units` with `Origin` and `Access-Control-Request-Method: POST` get no `Access-Control-*` header. `ICorsService` is not registered.
+  - AC-37.7: `GET /api/v1/units` with `Origin: http://localhost:5999` (with a token) and a preflight `OPTIONS /api/v1/units` with `Origin` and `Access-Control-Request-Method: POST` get no `Access-Control-*` header.
+  - No CORS policy (architecture 14, decisions #253, #256). `ICorsService` stays registered, because `AddControllers()` adds it itself. `No_CORS_policy_is_configured`: no `IConfigureOptions<CorsOptions>` or `IPostConfigureOptions<CorsOptions>`, no default policy in `CorsOptions` or from `ICorsPolicyProvider`, and no endpoint with `ICorsMetadata`. `Only_AddControllers_registers_the_empty_CORS_service`: a bare `ServiceCollection` with `AddControllers()` holds `ICorsService` and no CORS options callback.
+  - Source guard `Api_source_has_no_CORS_code` (decision #256), in `SecurityHeadersTests.cs`:
+    - It reads every `*.cs` file under `src/InventoryTracker.Api`, recursively, skipping any `bin` or `obj` folder. The repository root is found as in `CalculationsPurityTests`, by walking up to `InventoryTracker.slnx`.
+    - It fails if the scan misses `Program.cs` or `Common/Security/SecurityHeaders.cs`, so a wrong path cannot pass with nothing scanned.
+    - It skips lines whose trimmed text starts with `//` (comments and `///` doc comments), so explanations such as the one in `SecurityHeaders.cs` may name the header. Every other line is checked whole, including any comment after code on it.
+    - It fails on any of these texts, ordinal and case-sensitive: `AddCors`, `UseCors`, `RequireCors`, `EnableCors`, `DisableCors`, `CorsPolicy`, `CorsOptions`, `CorsService`, `Microsoft.AspNetCore.Cors`, `AccessControl` (the `HeaderNames` and `IHeaderDictionary` names). It also fails on `Access-Control-` in any letter case.
+    - The failure message lists each file, line number and text found, and says that A-3 forbids CORS, so allowing an origin is a PRD change.
+    - The report shows the guard failing once on a temporary `app.UseCors(policy => policy.WithOrigins("http://example.test"));` line in `Program.cs`, removed afterwards, and the full suite passing without it.
 - **Done when:** the full suite passes and the published run of T-036 shows the headers (curl output in the report).
 
 ### T-038: (v1.2) Escape HTML characters in JSON output (A-5)

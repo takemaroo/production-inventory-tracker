@@ -7,6 +7,7 @@ using InventoryTracker.Api.Common.Configuration;
 using InventoryTracker.Api.Common.Errors;
 using InventoryTracker.Api.Common.FrontEnd;
 using InventoryTracker.Api.Common.OpenApi;
+using InventoryTracker.Api.Common.Security;
 using InventoryTracker.Api.Common.Time;
 using InventoryTracker.Api.Common.Validation;
 using InventoryTracker.Api.Data;
@@ -33,7 +34,14 @@ builder.Services.AddInventoryDatabase(builder.Configuration, builder.Environment
 // it, with 413 request-too-large (ApiExceptionHandler, SEC-02), so a huge body never reaches the services. The IIS line
 // applies the same limit if the release phase hosts the API inside IIS, where Kestrel's setting does not apply; when the
 // API does not run in IIS it does nothing.
-builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = RequestLimits.MaxBodyBytes);
+builder.WebHost.ConfigureKestrel(kestrel =>
+{
+    kestrel.Limits.MaxRequestBodySize = RequestLimits.MaxBodyBytes;
+
+    // (v1.2) AC-37.6, architecture 14: Kestrel normally adds "Server: Kestrel" to every response. It helps no client and
+    // tells an attacker which server to look up weaknesses for, so it is switched off.
+    kestrel.AddServerHeader = false;
+});
 builder.Services.Configure<IISServerOptions>(iis => iis.MaxRequestBodySize = RequestLimits.MaxBodyBytes);
 
 // Controllers are classes whose public methods handle HTTP requests (one controller per resource).
@@ -81,9 +89,15 @@ var app = builder.Build();
 // ---------------------------------------------------------------------------------------------
 // 2. Middleware pipeline.
 // Middleware are steps every HTTP request passes through, in the order they are added here, and the
-// response passes back through them in reverse. Order matters: the exception handler comes first so it
-// can catch errors thrown by every later step.
+// response passes back through them in reverse. Order matters: the security headers come first so no response
+// escapes them, then the exception handler, so it can catch errors thrown by every later step.
 // ---------------------------------------------------------------------------------------------
+
+// (v1.2) A-2, architecture 14: the Content-Security-Policy, nosniff, no-referrer and, under /api, no-store headers. The
+// very first step (decision #227), so every response gets them: the front end's page, files and 404 (whose branch never
+// reaches the later steps), ProblemDetails errors, 500s and /health. See SecurityHeaders, which also explains why there
+// is no CORS (A-3).
+app.UseSecurityHeaders();
 
 // Catches any exception thrown by a later step and hands it to ApiExceptionHandler, which writes the
 // ProblemDetails body: the ApiException's own status and code, or 500 without stack traces (design section 6).

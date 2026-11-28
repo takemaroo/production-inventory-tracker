@@ -41,7 +41,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.2 part, sections 14-20) |
 | 2 | Design | done | `docs/02-design.md` (sections 11-22), `design/mockups/` |
 | 3 | Architecture | done | `docs/03-architecture.md` (Version 1.2 part), `docs/04-tasks.md` (T-036 to T-066), front-end skeleton in `src/InventoryTracker.Web/`; approved by owner 2026-11-28 |
-| 4 | Build | in progress | code (T-035, T-036 done; T-037 to T-066 to do) |
+| 4 | Build | in progress | code (T-035 to T-037 done; T-038 to T-066 to do) |
 | 5 | QA | not started | |
 | 6 | Security | not started | |
 | 7 | Release | not started | |
@@ -52,7 +52,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-v1.2 phase 4: T-037 (security headers, CSP, no CORS), then `code-reviewer`.
+v1.2 phase 4: T-038 (escape HTML characters in JSON output, A-5), then `code-reviewer`.
 
 ## Log
 
@@ -137,6 +137,7 @@ v1.2 phase 4: T-037 (security headers, CSP, no CORS), then `code-reviewer`.
 - 2026-11-28 T-035 (batch a shipment's movements, SEC-24/US-55) done: StockLedger.AddRangeAsync, covering index IX_Movements_StockSums (migration StockSumsIndex) per tech-lead ruling #223; 500-line ship p95 ~0.45 s quiet, ~0.7 s under load (was ~1.7 s). Approved by `code-reviewer`; 2,733 tests pass. Owner Q111/Q112 to Later (#224). Next: v1.2 phase 3 (tech-lead).
 - 2026-11-28 `tech-lead` finished v1.2 phase 3: architecture sections 11-23, tasks T-036 to T-066, React/TypeScript/Vite skeleton served by the API (#225-#245; every npm package at least 14 days old, #245). Re-verified: npm audit 0, typecheck 0, Vitest 32/32, .NET 2,739/2,739. `code-reviewer` approved the skeleton (no must-fix; 2,739/2,739, Vitest 32/32, npm audit 0). Owner approved phase 3, Q113 SaaS to Later (#246), Q114 browser tests in CI on every push (#247), Q115 monthly grouped npm updates (#248); repository now public (#249).
 - 2026-11-28 T-036 (serve the front end, A-1) done: one front-end branch (rewrite to /index.html, static files with cache headers, 404 ProblemDetails for missing files), one start-up warning when not built, run.ps1 prints the front-end address, publish without .br/.gz copies (#250-#252). Approved by `code-reviewer` after one fix round; 2,800 tests pass, Vitest 32/32. Handbook now says the repository is public (owner). Started T-037.
+- 2026-11-28 T-037 (security headers, CSP with Trusted Types, no CORS; A-2, A-3) done: UseSecurityHeaders first in the pipeline via Response.OnStarting, no Server header, no-store under /api only; Edge renders the app under the CSP and blocks a planted inline script. Tech lead ruled the "ICorsService not registered" check impossible (AddControllers registers it) and replaced it with configuration checks plus a CORS source guard (#253-#256). Approved by `code-reviewer`; 2,822 tests pass, Vitest 32/32. Started T-038.
 
 ## Follow-ups to route
 
@@ -180,3 +181,6 @@ v1.2 phase 4: T-037 (security headers, CSP, no CORS), then `code-reviewer`.
 - Dependabot (owner, optional later): the npm group also takes major updates, so a breaking major could hold back a month's patches; `update-types: [minor, patch]` would split majors out at the cost of more pull requests (#248).
 - qa-engineer (v1.2, architecture risk 23.5): UnknownPathAcceptanceTests changed on purpose in T-036: GET / and GET /nope answer the page when the front end is built; the with-token contrast row is now /api/v1/nope; with a front end built, a missing file outside the API paths (/favicon.ico, /assets/missing.js) is 404 without a token. If wwwroot is absent at start-up, a later build is served only after a restart.
 - tech-lead (wording): T-036's Touches list left out InventoryTracker.Api.csproj (CompressionEnabled, #252).
+- product-manager (v1.2, not urgent): AC-37.6 says the security headers are on "every response"; answers Kestrel sends before the app runs (a malformed request's bare 400) cannot carry them (#255, architecture 14 "Known limit of A-2"). A short PRD note would stop QA reading it as a failure. Not a scope change.
+- backend-developer (T-038, which touches the pipeline): T-037 review nits: Program.cs comment cites #227 for "the very first step" (should be architecture 14 / #228); SecurityHeadersTests `/health` assertion `NotEqual("no-store")` would pass with no cache header at all, assert the actual `no-store, no-cache`.
+- tech-lead (wording): decision #256 says an inline UseCors for another origin passes every other test; the preflight test catches it when UseCors sits before authentication (its usual place). A hand-written Access-Control-* header passes all but the guard, so the guard stays.
