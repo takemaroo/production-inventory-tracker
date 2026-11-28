@@ -41,7 +41,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.2 part, sections 14-20) |
 | 2 | Design | done | `docs/02-design.md` (sections 11-22), `design/mockups/` |
 | 3 | Architecture | done | `docs/03-architecture.md` (Version 1.2 part), `docs/04-tasks.md` (T-036 to T-066), front-end skeleton in `src/InventoryTracker.Web/`; approved by owner 2026-11-28 |
-| 4 | Build | in progress | code (T-035 to T-038 done; T-039 to T-066 to do) |
+| 4 | Build | in progress | code (T-035 to T-039 done; T-040 to T-066 to do) |
 | 5 | QA | not started | |
 | 6 | Security | not started | |
 | 7 | Release | not started | |
@@ -52,7 +52,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-v1.2 phase 4: T-039 (front-end API client), then `code-reviewer`.
+v1.2 phase 4: T-040 (formatting and safe text), then `code-reviewer`.
 
 ## Log
 
@@ -139,6 +139,7 @@ v1.2 phase 4: T-039 (front-end API client), then `code-reviewer`.
 - 2026-11-28 T-036 (serve the front end, A-1) done: one front-end branch (rewrite to /index.html, static files with cache headers, 404 ProblemDetails for missing files), one start-up warning when not built, run.ps1 prints the front-end address, publish without .br/.gz copies (#250-#252). Approved by `code-reviewer` after one fix round; 2,800 tests pass, Vitest 32/32. Handbook now says the repository is public (owner). Started T-037.
 - 2026-11-28 T-037 (security headers, CSP with Trusted Types, no CORS; A-2, A-3) done: UseSecurityHeaders first in the pipeline via Response.OnStarting, no Server header, no-store under /api only; Edge renders the app under the CSP and blocks a planted inline script. Tech lead ruled the "ICorsService not registered" check impossible (AddControllers registers it) and replaced it with configuration checks plus a CORS source guard (#253-#256). Approved by `code-reviewer`; 2,822 tests pass, Vitest 32/32. Started T-038.
 - 2026-11-28 T-038 (escape HTML characters in JSON output, A-5) done: one shared JavaScriptEncoder.Create(UnicodeRanges.All) on the controllers' and minimal-API JSON options; published run shows the AC-37.1 name with no raw < > & '. UsersTests hash check hardened (base64 + is now escaped). T-037 review nits fixed. Approved by `code-reviewer` after one comment round (#257); 2,828 tests pass, Vitest 32/32. Back-end v1.2 tasks complete. Started T-039.
+- 2026-11-28 T-039 (front-end API client: requests, four failure kinds, paging, stock lookup) done; ExactDecimal can now only hold checked digits (phase 3 should-fix). Smoke-tested against a real API on a spare port. Approved by `code-reviewer` (#258, #259); Vitest 107/107, .NET 2,828/2,828. Review nits folded into T-040. Started T-040.
 
 ## Follow-ups to route
 
@@ -188,3 +189,5 @@ v1.2 phase 4: T-039 (front-end API client), then `code-reviewer`.
 - security-reviewer (v1.2 phase 6): on .NET 10 the JSON encoder writes format and direction characters (U+202E, U+200E, U+061C, U+2066, U+200B) raw; only space separators, line separators, BOM, private-use, unassigned and controls are escaped (#257). AC-37.9 does not ask for them; names refuse them only at the start or end (T-034). Judge whether mid-text direction controls in names or notes matter for the web front end.
 - tech-lead (wording): architecture 14 / #230 say no existing test compares raw text with the escaped characters; UsersTests' hash-absence check was silently weakened by the + escape (fixed in T-038).
 - next owner of Common/Json/JsonEscaping.cs (cosmetic): rejoin the early line break at lines 29-30.
+- tech-lead (wording): architecture 16 says AbortSignal.timeout(30000); the code uses AbortController plus setTimeout so fake timers can test it (#258a). Update the text.
+- frontend-developer (T-041): register the session hook at start-up (until then a 401 not-authenticated becomes session-ended with nothing ending the session); the onNotAuthenticated handler must be safe to repeat and must never throw (an exception would escape apiRequest).
