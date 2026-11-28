@@ -41,7 +41,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 | 1 | Discovery | done | `docs/01-prd.md` (Version 1.2 part, sections 14-20) |
 | 2 | Design | done | `docs/02-design.md` (sections 11-22), `design/mockups/` |
 | 3 | Architecture | done | `docs/03-architecture.md` (Version 1.2 part), `docs/04-tasks.md` (T-036 to T-066), front-end skeleton in `src/InventoryTracker.Web/`; approved by owner 2026-11-28 |
-| 4 | Build | in progress | code (T-035 to T-039 done; T-040 to T-066 to do) |
+| 4 | Build | in progress | code (T-035 to T-040 done; T-041 to T-066 to do) |
 | 5 | QA | not started | |
 | 6 | Security | not started | |
 | 7 | Release | not started | |
@@ -52,7 +52,7 @@ Status values: `not started`, `in progress`, `waiting on owner`, `done`.
 
 ## Next step
 
-v1.2 phase 4: T-040 (formatting and safe text), then `code-reviewer`.
+v1.2 phase 4: T-041 (session: sign in, sign out, end of a session), then `code-reviewer`.
 
 ## Log
 
@@ -140,6 +140,7 @@ v1.2 phase 4: T-040 (formatting and safe text), then `code-reviewer`.
 - 2026-11-28 T-037 (security headers, CSP with Trusted Types, no CORS; A-2, A-3) done: UseSecurityHeaders first in the pipeline via Response.OnStarting, no Server header, no-store under /api only; Edge renders the app under the CSP and blocks a planted inline script. Tech lead ruled the "ICorsService not registered" check impossible (AddControllers registers it) and replaced it with configuration checks plus a CORS source guard (#253-#256). Approved by `code-reviewer`; 2,822 tests pass, Vitest 32/32. Started T-038.
 - 2026-11-28 T-038 (escape HTML characters in JSON output, A-5) done: one shared JavaScriptEncoder.Create(UnicodeRanges.All) on the controllers' and minimal-API JSON options; published run shows the AC-37.1 name with no raw < > & '. UsersTests hash check hardened (base64 + is now escaped). T-037 review nits fixed. Approved by `code-reviewer` after one comment round (#257); 2,828 tests pass, Vitest 32/32. Back-end v1.2 tasks complete. Started T-039.
 - 2026-11-28 T-039 (front-end API client: requests, four failure kinds, paging, stock lookup) done; ExactDecimal can now only hold checked digits (phase 3 should-fix). Smoke-tested against a real API on a spare port. Approved by `code-reviewer` (#258, #259); Vitest 107/107, .NET 2,828/2,828. Review nits folded into T-040. Started T-040.
+- 2026-11-28 T-040 (formatting and safe text) done: exact-digit number formatting, times in injected zones, SafeText/NameWithId/Quantity with <bdi> and direction-character markers (12 Bidi_Control code points), source guard widened with self-tests; T-039 review nits folded in. Approved by `code-reviewer` after one fix round (#260, #261); Vitest 261/261, .NET 2,828/2,828. Started T-041.
 
 ## Follow-ups to route
 
@@ -191,3 +192,5 @@ v1.2 phase 4: T-040 (formatting and safe text), then `code-reviewer`.
 - next owner of Common/Json/JsonEscaping.cs (cosmetic): rejoin the early line break at lines 29-30.
 - tech-lead (wording): architecture 16 says AbortSignal.timeout(30000); the code uses AbortController plus setTimeout so fake timers can test it (#258a). Update the text.
 - frontend-developer (T-041): register the session hook at start-up (until then a 401 not-authenticated becomes session-ended with nothing ending the session); the onNotAuthenticated handler must be safe to repeat and must never throw (an exception would escape apiRequest).
+- tech-lead (wording): T-040 in docs/04-tasks.md says "13 code points"; AC-37.3, design 12.8 and architecture 18 list 12 (Unicode Bidi_Control), confirmed by `code-reviewer` (#260(a)). Correct it before T-066.
+- frontend-developer (T-042, adds src/styles/app.css; delivery manager widens T-042's Touches to include vite.config.ts for this line): in the same change add `test: { css: { include: [/\.css/] } }` to the `test` block of `vite.config.ts` (not `/\.css$/`, which misses the ?raw query); otherwise the guard's every-file-has-text check fails by design and CSS is not scanned for direction characters (#261(b)).

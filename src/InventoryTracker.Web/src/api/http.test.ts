@@ -374,4 +374,24 @@ describe('fieldErrors (F-1, design 12.4)', () => {
 
     expect(fieldErrors(failure)).toEqual({ name: ['Name is required.'] });
   });
+
+  // T-039 review (F-1: field messages kept as sent): a key named "__proto__" from the server is stored as an ordinary
+  // key. In a plain {} it would replace the object's prototype instead, and its message would be lost.
+  it('keeps a key named __proto__ as an ordinary key', async () => {
+    fetchStub.mockResolvedValue(
+      answer(400, '{"detail":"d","code":"validation","errors":{"__proto__":["Odd key."],"name":["Name is required."]}}'),
+    );
+
+    const failure = failureOf(await apiRequest('POST', '/units', { body: {} }));
+    if (failure.kind !== 'refused' || failure.errors === undefined) {
+      throw new Error('Expected a refusal with field messages.');
+    }
+
+    // The refusal as read, the messages by field, and the messages moved with a position map (design 12.4).
+    for (const errors of [failure.errors, fieldErrors(failure), fieldErrors(failure, [0])]) {
+      expect(Object.keys(errors)).toEqual(['__proto__', 'name']);
+      expect(Object.getOwnPropertyDescriptor(errors, '__proto__')?.value).toEqual(['Odd key.']);
+      expect(Object.getPrototypeOf(errors)).toBeNull();
+    }
+  });
 });

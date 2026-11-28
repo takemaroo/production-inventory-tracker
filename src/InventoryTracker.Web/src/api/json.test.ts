@@ -70,14 +70,16 @@ describe('parseApiJson (exact decimals from the API)', () => {
     expect(parseApiJson('{"name":"1.5","active":true,"note":null}')).toEqual({ name: '1.5', active: true, note: null });
   });
 
-  // AC-37.9 (T-038): the API writes <, >, &, ' and " inside strings as six-character escapes. The reviver uses the
-  // source text for numbers only, so a string is read back as the characters it stands for, never as its escapes.
-  // The escapes are built from character codes so that no tool can turn them into the characters in this file.
+  // AC-37.9 (T-038, decision #230): the API writes <, >, &, ', " and + inside strings as six-character escapes. The
+  // reviver uses the source text for numbers only, so a string is read back as the characters it stands for, never
+  // as its escapes. The escapes are built from character codes so that no tool can turn them into the characters in
+  // this file.
   it('reads escaped strings from the API as their characters', () => {
     const escape = (hex: string) => String.fromCharCode(92) + 'u' + hex;
-    const raw = `{"name":"${escape('003C')}b${escape('003E')} ${escape('0026')} ${escape('0027')}q${escape('0022')}","quantity":1.50}`;
+    const raw = `{"name":"${escape('003C')}b${escape('003E')} ${escape('0026')} ${escape('0027')}q${escape('0022')} 1${escape('002B')}1","quantity":1.50}`;
 
     expect(raw).not.toContain('<');
-    expect(parseApiJson(raw)).toEqual({ name: `<b> & 'q"`, quantity: '1.50' });
+    expect(raw).not.toContain('+');
+    expect(parseApiJson(raw)).toEqual({ name: `<b> & 'q" 1+1`, quantity: '1.50' });
   });
 });

@@ -46,24 +46,35 @@ export async function readStockFor(
   return wanted.length <= perItemReadLimit ? readEachItem(wanted) : readStockPages(new Set(wanted), itemType);
 }
 
-/** Up to 10 items: one read per item, at most 4 running at once. A failed read only leaves its own item out. */
+/**
+ * Up to 10 items: one read per item, at most 4 running at once. A failed read only leaves its own item out, except
+ * when the session has ended: then no further read is started (T-039 review).
+ */
 async function readEachItem(itemIds: readonly number[]): Promise<Map<number, StockRow>> {
   const found = new Map<number, StockRow>();
   let next = 0;
+  // AC-34.6, architecture 15: once any read is answered `401` `not-authenticated`, the session module is ending the
+  // session and the sign-in screen is about to open. Every further read would get the same `401`, so none is started.
+  // Reads already running are left to finish; their answers no longer matter.
+  let sessionEnded = false;
 
   // A small "worker pool": each worker takes the next item that nobody has taken yet, waits for its answer, and goes
   // on until none is left. JavaScript runs one piece of code at a time, so `next += 1` can never be taken twice;
   // the waiting for answers is what overlaps.
   async function worker(): Promise<void> {
-    while (next < itemIds.length) {
+    while (!sessionEnded && next < itemIds.length) {
       const itemId = itemIds[next];
       next += 1;
+      // Never true: the loop condition already keeps `next` inside the list. The check is there only because the
+      // strict setting `noUncheckedIndexedAccess` (tsconfig.json) types every `list[i]` as possibly undefined.
       if (itemId === undefined) {
         return;
       }
       const result = await readStockItem(itemId);
       if (result.ok) {
         found.set(itemId, result.data);
+      } else if (result.failure.kind === 'session-ended') {
+        sessionEnded = true;
       }
     }
   }

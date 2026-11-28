@@ -226,7 +226,7 @@ export function fieldErrors(
     return {};
   }
 
-  const result: Record<string, readonly string[]> = {};
+  const result = emptyRecord();
   for (const [key, messages] of Object.entries(failure.errors)) {
     const line = linePositionPattern.exec(key);
     if (line === null || rowForPosition === undefined) {
@@ -298,13 +298,24 @@ function fieldMessages(errors: unknown): Readonly<Record<string, readonly string
   if (!isObject(errors)) {
     return undefined;
   }
-  const result: Record<string, readonly string[]> = {};
+  const result = emptyRecord();
   for (const [key, messages] of Object.entries(errors)) {
     if (Array.isArray(messages) && messages.every((message) => typeof message === 'string')) {
       result[key] = messages;
     }
   }
   return result;
+}
+
+/**
+ * An object with no prototype, to hold keys that came from the API (T-039 review). A plain `{}` inherits from
+ * `Object.prototype`, where `__proto__` is a special setter: `result['__proto__'] = list` would not add a key named
+ * "__proto__" but replace the object's prototype, so the message would be lost and the object would gain the list's
+ * methods. With no prototype there is no such setter, every key the server sends is stored as an ordinary key, and
+ * looking up a field name such as "constructor" finds nothing inherited.
+ */
+function emptyRecord(): Record<string, readonly string[]> {
+  return Object.create(null) as Record<string, readonly string[]>;
 }
 
 /** True for a plain JSON object (not null, not an array). */

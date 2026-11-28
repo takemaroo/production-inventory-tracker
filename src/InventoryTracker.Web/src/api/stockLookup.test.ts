@@ -8,6 +8,7 @@ const fetchStub = vi.fn<typeof fetch>();
 let recordCount = 500;
 let failingItems = new Set<number>();
 let failingPage: number | undefined;
+let sessionEndedItems = new Set<number>();
 let inFlight = 0;
 let mostInFlight = 0;
 
@@ -15,6 +16,7 @@ beforeEach(() => {
   recordCount = 500;
   failingItems = new Set();
   failingPage = undefined;
+  sessionEndedItems = new Set();
   inFlight = 0;
   mostInFlight = 0;
   fetchStub.mockReset();
@@ -55,6 +57,11 @@ async function serveStock(input: RequestInfo | URL): Promise<Response> {
     const itemId = Number(single[1]);
     if (failingItems.has(itemId)) {
       return new Response(null, { status: 500 });
+    }
+    if (sessionEndedItems.has(itemId)) {
+      // AC-34.6: the API's answer when the token has expired (design 7.1).
+      const detail = 'Your sign-in is missing or has expired. Sign in again.';
+      return new Response(JSON.stringify({ status: 401, code: 'not-authenticated', detail }), { status: 401 });
     }
     if (itemId > recordCount) {
       return new Response(JSON.stringify({ status: 404, code: 'not-found', detail: `Item ${itemId} not found.` }), { status: 404 });
@@ -101,7 +108,7 @@ describe('readStockFor: 10 items or fewer, one read per item (decision #232)', (
     expect(stock.size).toBe(10);
   });
 
-  // An item on two lines is read once.
+  // Architecture 16, decision #232: one read per *distinct* item, so an item on two lines is read once.
   it('reads each distinct item once', async () => {
     await readStockFor([3, 3, 4, 3]);
 
@@ -121,7 +128,19 @@ describe('readStockFor: 10 items or fewer, one read per item (decision #232)', (
     expect(stock.has(7)).toBe(false);
   });
 
-  // F-14: the lookup runs once per form; with no lines there is nothing to read and no request.
+  // AC-34.6, architecture 15 (T-039 review): once a read is answered 401 not-authenticated the session is ending, so
+  // no further read is started. The first 4 start together; item 1's 401 stops the other 6 from being sent.
+  it('starts no further read once the session has ended', async () => {
+    sessionEndedItems = new Set([1]);
+
+    await readStockFor(ids(perItemReadLimit));
+
+    expect(fetchStub).toHaveBeenCalledTimes(perItemReadsAtOnce);
+    expect(requestedAddresses().sort()).toEqual(['/api/v1/stock/1', '/api/v1/stock/2', '/api/v1/stock/3', '/api/v1/stock/4']);
+  });
+
+  // Architecture 16, decision #232: the stock is read once when the form opens, for the form's own items (F-14);
+  // a form with no lines has no items, so nothing is requested.
   it('sends nothing for a form with no lines', async () => {
     expect((await readStockFor([])).size).toBe(0);
     expect(fetchStub).not.toHaveBeenCalled();
