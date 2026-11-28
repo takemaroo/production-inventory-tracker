@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Data;
@@ -450,6 +451,11 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
             Assert.DoesNotContain(hash, text);
             Assert.DoesNotContain("password", text, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("stamp", text, StringComparison.OrdinalIgnoreCase);
+
+            // (v1.2) T-038, AC-37.9: the API now writes '+' as a Unicode escape, and a password hash is base64, which
+            // often holds '+'. A leaked hash would then not appear in the raw text as stored, and the check above could
+            // pass anyway. So the hash is also looked for in the body with its escapes decoded.
+            Assert.DoesNotContain(hash, WithoutEscapes(text));
         }
     }
 
@@ -1325,6 +1331,25 @@ public class UsersTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
     }
 
     private static async Task<string> StampAsync(TestApiFactory app, string id) => (await LoadUserAsync(app, id)).SecurityStamp!;
+
+    /// <summary>(v1.2) T-038: the relaxed encoder, for <see cref="WithoutEscapes"/>.</summary>
+    private static readonly JsonSerializerOptions RelaxedJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    /// <summary>
+    /// (v1.2) T-038: a JSON body written out again with the relaxed encoder, which leaves <c>+</c>, <c>&lt;</c>,
+    /// <c>&amp;</c> and the like as plain characters, so a search finds a value however the API escaped it. An empty
+    /// body (a <c>204</c>) stays empty.
+    /// </summary>
+    private static string WithoutEscapes(string json)
+    {
+        if (json.Length == 0)
+        {
+            return json;
+        }
+
+        using var document = JsonDocument.Parse(json);
+        return JsonSerializer.Serialize(document.RootElement, RelaxedJson);
+    }
 
     private static async Task<string> UserIdAsync(TestApiFactory app, string email)
     {

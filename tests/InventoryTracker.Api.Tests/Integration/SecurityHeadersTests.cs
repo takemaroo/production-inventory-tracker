@@ -39,6 +39,10 @@ public class SecurityHeadersTests(SecurityHeadersTests.SecurityHeadersApiFactory
     private const string PageCacheControl = "no-cache";
     private const string AssetCacheControl = "public, max-age=31536000, immutable";
 
+    // The health check's own cache header, as observed on GET /health (T-038 fold-in from the T-037 review), which the
+    // security headers must leave as it is.
+    private const string HealthCacheControl = "no-store, no-cache";
+
     /// <summary>
     /// A test app with a stand-in front end (a page and one hashed script) and the probe controllers, among them the
     /// error probe that throws an unexpected exception (<see cref="ErrorProbeController"/>).
@@ -191,7 +195,8 @@ public class SecurityHeadersTests(SecurityHeadersTests.SecurityHeadersApiFactory
 
     /// <summary>
     /// AC-37.6: <c>/health</c> carries the headers. It is outside <c>/api</c>, so its <c>Cache-Control</c> is the health
-    /// check's own and not replaced.
+    /// check's own (<c>no-store, no-cache</c>, written by ASP.NET Core's health check step) and not replaced by the
+    /// <c>/api</c> rule's plain <c>no-store</c>. The exact value is checked, so a missing header fails too.
     /// </summary>
     [Fact]
     public async Task Health_carries_the_headers()
@@ -202,7 +207,7 @@ public class SecurityHeadersTests(SecurityHeadersTests.SecurityHeadersApiFactory
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         AssertSecurityHeaders(response);
-        Assert.NotEqual("no-store", RawHeader(response, "Cache-Control"));
+        Assert.Equal(HealthCacheControl, RawHeader(response, "Cache-Control"));
     }
 
     /// <summary>

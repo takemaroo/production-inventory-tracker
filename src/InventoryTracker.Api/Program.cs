@@ -6,6 +6,7 @@ using InventoryTracker.Api.Auth;
 using InventoryTracker.Api.Common.Configuration;
 using InventoryTracker.Api.Common.Errors;
 using InventoryTracker.Api.Common.FrontEnd;
+using InventoryTracker.Api.Common.Json;
 using InventoryTracker.Api.Common.OpenApi;
 using InventoryTracker.Api.Common.Security;
 using InventoryTracker.Api.Common.Time;
@@ -54,6 +55,12 @@ builder.Services.AddControllers().AddJsonOptions(options =>
     // Design 2.3: every response field is always present; unknown values are null rather than omitted.
     options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.Never;
     options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    // (v1.2) AC-37.9, architecture 14 (A-5): inside strings, <, >, & and ' are written as Unicode escapes (a backslash, the
+    // letter u and four hex digits), so no raw byte of a response can open or close an HTML tag; accented letters stay
+    // readable. Every client parses the same values as before. See JsonEscaping for why this matters even though the
+    // answer is JSON. ProblemDetails error bodies use the minimal-API settings instead, which ErrorHandlingSetup gives
+    // the same encoder.
+    options.JsonSerializerOptions.Encoder = JsonEscaping.Encoder;
 });
 
 // Design section 6: every error body is an RFC 9457 ProblemDetails object with a stable "code", a fixed
@@ -94,9 +101,9 @@ var app = builder.Build();
 // ---------------------------------------------------------------------------------------------
 
 // (v1.2) A-2, architecture 14: the Content-Security-Policy, nosniff, no-referrer and, under /api, no-store headers. The
-// very first step (decision #227), so every response gets them: the front end's page, files and 404 (whose branch never
-// reaches the later steps), ProblemDetails errors, 500s and /health. See SecurityHeaders, which also explains why there
-// is no CORS (A-3).
+// very first step (architecture 14, decision #228, T-037), so every response gets them: the front end's page, files and
+// 404 (whose branch never reaches the later steps, decision #227), ProblemDetails errors, 500s and /health. See
+// SecurityHeaders, which also explains why there is no CORS (A-3).
 app.UseSecurityHeaders();
 
 // Catches any exception thrown by a later step and hands it to ApiExceptionHandler, which writes the

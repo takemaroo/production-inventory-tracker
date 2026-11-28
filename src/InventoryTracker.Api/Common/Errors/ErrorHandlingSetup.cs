@@ -1,4 +1,6 @@
+using InventoryTracker.Api.Common.Json;
 using Microsoft.AspNetCore.Mvc;
+using HttpJsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
 namespace InventoryTracker.Api.Common.Errors;
 
@@ -45,6 +47,15 @@ public static class ErrorHandlingSetup
             // Keep the JSON exception object in ModelState rather than only its text, so InvalidRequestResponse
             // can tell a syntax error from a wrong type. It also keeps .NET type names out of responses.
             options.AllowInputFormatterExceptionMessages = false);
+
+        // (v1.2) AC-37.9, architecture 14 (A-5): the same escaping as the controllers' answers (Program.cs), for the
+        // error bodies. When no controller is writing the answer (the exception handler, which writes every
+        // ApiException such as a 409, and unknown routes, for example), IProblemDetailsService writes ProblemDetails
+        // with the minimal-API JSON settings (Http.Json.JsonOptions), which are separate from the controllers' settings
+        // (Mvc.JsonOptions). Setting the encoder only in Program.cs would leave a detail such as
+        // "A unit named 'kg' already exists." with its raw quotes (JsonEscapingTests shows it). See JsonEscaping for
+        // what changes in the raw bytes and why.
+        services.Configure<HttpJsonOptions>(options => options.SerializerOptions.Encoder = JsonEscaping.Encoder);
 
         return services;
     }
